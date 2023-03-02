@@ -7,7 +7,7 @@ struct MultiheadAttention{Q<:Dense,K<:Dense,V<:Dense,O<:Dense}
 end
 
 # tell Lux which parameters are trainable
-Lux.@functor MultiheadAttention (denseQ, denseK, denseV, denseO)
+# Lux.@functor MultiheadAttention (denseQ, denseK, denseV, denseO)
 
 """
     MultiheadAttention(nhead::Int, dm::Int, dh::Int, dout::Int)

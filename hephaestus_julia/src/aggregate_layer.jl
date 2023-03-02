@@ -5,12 +5,18 @@ Reduce to the mean along dims=1.
 
 Compare Lux.GlobalMeanPool()
 """
-struct MeanLayer end
+struct MeanLayer
+    X::Array
+end
 
-Lux.@functor MeanLayer
+# Lux.@functor MeanLayer
+function MeanLayer(X::Array)
+    MeanLayer(X)
 
-function (m::MeanLayer)(x::AbstractArray)
-    mean(x, dims = 1)
+end
+
+function (m::MeanLayer)(x::AbstractOrray, ps, st)
+    mean(x, dims = 1), 
 end
 
 function Base.show(io::IO, m::MeanLayer)
@@ -24,7 +30,7 @@ Return a matrix of nlayers × nbatch.
 """
 struct FlattenLayer end
 
-Lux.@functor FlattenLayer
+# Lux.@functor FlattenLayer
 
 function (f::FlattenLayer)(x::AbstractArray{T,3}) where {T}
     reshape(x, :, size(x, 3)) # same as Lux.flatten

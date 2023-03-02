@@ -8,7 +8,7 @@ struct Embed{W<:AbstractArray}
 end
 
 # tell Lux which parameters are trainable
-Lux.@functor Embed
+# Lux.@functor Embed
 
 Embed(output_dim::Int, vocab_size::Int) = Embed(randn(Float32, output_dim, vocab_size))
 

@@ -11,7 +11,10 @@ struct MultiheadAttention
     densO::O
 end
 
-Lux.@functor MultiheadAttention (densQ, densK, densV, densO)
+# Lux.@functor MultiheadAttention (densQ, densK, densV, densO)
+
+
+
 
 """
     MultiheadAttention(nhead::Int, dm::Int, dh::Int, dout::Int)

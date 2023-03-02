@@ -15,13 +15,13 @@ struct TransformerEncoderBlock{
 end
 
 # make whole TransformerEncoder trainable
-Lux.@functor TransformerEncoderBlock
+# Lux.@functor TransformerEncoderBlock
 """
     TransformerEncoder(nhead::Int, dm::Int, dhid::Int)
 
 Create a transfomer encoder block based on "Attention is all you need" (https://arxiv.org/abs/1706.03762).
-`nhead` is the number of heads for the multi-head attention. 
-`dm` is the model dimension also known as the embedding layer dimension. The input and output are both of size `dm`.     
+`nhead` is the number of heads for the multi-head attention.
+`dm` is the model dimension also known as the embedding layer dimension. The input and output are both of size `dm`.
 `dhid` is the size of the hidden layer between the two feedforwards after the attention layer.
 
 """

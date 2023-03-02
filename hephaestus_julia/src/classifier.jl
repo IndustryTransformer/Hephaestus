@@ -16,7 +16,7 @@ struct TransformerClassifier{
     classifier::D
 end
 
-Lux.@functor TransformerClassifier
+# Lux.@functor TransformerClassifier
 
 function Base.show(io::IO, m::MIME"text/plain", t::TransformerClassifier)
     _show_transformer_classifier(io, t)

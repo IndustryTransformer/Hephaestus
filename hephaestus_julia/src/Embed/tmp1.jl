@@ -18,3 +18,14 @@ Lux.initialparameters(rng::AbstractRNG, layer::LuxLinear) = (B = layer.init_B(),
 Lux.initialstates(rng::AbstractRNG, layer::LuxLinear) = (A = layer.init_A(),)
 
 (l::LuxLinear)(x, ps, st) = st.A * ps.B * x, st
+
+
+rng = Random.default_rng()
+model = LuxLinear(randn(rng, 2, 4), randn(rng, 4, 2))
+x = randn(rng, 2, 1)
+
+ps, st = Lux.setup(rng, model)
+
+model(x, ps, st)
+
+gradient(ps -> sum(first(model(x, ps, st))), ps)

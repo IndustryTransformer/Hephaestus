@@ -9,38 +9,54 @@ For each a pair of rows `(2i, 2i+1)` and a position `k`, the encoding is calcula
     W[2i + 1, k] = cos(pos/(1e4^(2i/dim_embedding)))
 
 """
-struct PositionEncoding{W<:AbstractArray}
-    encoding::W
+# struct PositionEncoding{W<:AbstractArray}
+#     encoding::W
+# end
+using Random
+struct PositionEncoding <: Lux.AbstractExplicitLayer
+    init_W::Any
 end
 
-function PositionEncoding(dim_embedding::Int, max_length::Int = 1000)
-    return PositionalEncoding(() -> copy(W))
-end
 
-
-
-
-Lux.@functor PositionEncoding
-Lux.trainable(m::PositionEncoding) = ()
-
-function PositionEncoding(dim_embedding::Int, max_length::Int = 1000)
-    W = make_position_encoding(dim_embedding, max_length)
-    PositionEncoding(W)
-end
-
-function make_position_encoding(dim_embedding::Int, seq_length::Int, n::Int = 10000)
+function PositionEncoding(dim_embedding::Int, seq_length::Int, n::Int = 10000)
     encoding = Matrix{Float32}(undef, dim_embedding, seq_length)
-    for pos = 1:seq_length
+    for pos = 1:max_length
         for row = 0:2:(dim_embedding-1)
             denom = 1 / (n^(row / dim_embedding))
             encoding[row+1, pos] = sin(pos * denom)
             encoding[row+2, pos] = cos(pos * denom)
         end
     end
-    encoding
+    return PositionEncoding(() -> encoding)
 end
 
+Lux.initialparameters(rng::AbstractRNG, layer::PositionEncoding) = (W = layer.init_W(),)
+
+# (pe::PositionEncoding)(x::AbstractArray) = (pe::PositionEncoding)(size(x, 2))
+
+# Lux.@functor PositionEncoding
+# Lux.trainable(m::PositionEncoding) = ()
+
+# function PositionEncoding(dim_embedding::Int, max_length::Int = 1000)
+#     W = make_position_encoding(dim_embedding, max_length)
+#     PositionEncoding(W)
+# end
+
+# function make_position_encoding(dim_embedding::Int, seq_length::Int, n::Int = 10000)
+#     encoding = Matrix{Float32}(undef, dim_embedding, seq_length)
+#     for pos = 1:seq_length
+#         for row = 0:2:(dim_embedding-1)
+#             denom = 1 / (n^(row / dim_embedding))
+#             encoding[row+1, pos] = sin(pos * denom)
+#             encoding[row+2, pos] = cos(pos * denom)
+#         end
+#     end
+#     encoding
+# end
+
 (pe::PositionEncoding)(x::AbstractArray) = (pe::PositionEncoding)(size(x, 2))
+
+
 function (pe::PositionEncoding)(seq_length)
     max_length = size(pe.encoding, 2)
     if seq_length > max_length
