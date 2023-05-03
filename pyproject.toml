@@ -1,4 +1,5 @@
 [tool.black]
     py36 = true
     include = '\.pyi?$'
-    exclude = 'tests,\.eggs,\.git,\.hg,\.mypy_cache,\.tox,\.venv,\.svn,_build,buck-out,build,dist,venv'
+    # exclude = 'tests,\.CondaPkg,\.eggs,\.git,\.hg,\.mypy_cache,\.tox,\.venv,\.svn,_build,buck-out,build,dist,venv'
+    exclude = '\.CondaPkg'
