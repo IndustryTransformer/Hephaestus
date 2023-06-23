@@ -164,3 +164,4 @@ data/
 
 Manifest.toml
 *.parquet
+hephaestus_julia/vocab/*
