@@ -16,7 +16,7 @@ function MeanLayer(X::Array)
 end
 
 function (m::MeanLayer)(x::AbstractOrray, ps, st)
-    mean(x, dims = 1), 
+    mean(x, dims = 1)
 end
 
 function Base.show(io::IO, m::MeanLayer)
