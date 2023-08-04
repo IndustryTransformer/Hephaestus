@@ -1,21 +1,20 @@
 # %%
 import math
-import os
 import re
-import time
 from dataclasses import dataclass, field
 from numbers import Number
-from tempfile import TemporaryDirectory
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import List, Union  # Any, Callable, Dict, List, Optional, Tuple,
 
 import numpy as np
 import polars as pl
 import torch
-import torch.nn.functional as F
+
+# import torch.nn.functional as F
 from torch import Tensor, nn
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
-from torch.utils.data import DataLoader, Dataset, dataset
-from tqdm import tqdm, trange
+from torch.utils.data import Dataset  # DataLoader, dataset
+
+# from tqdm import tqdm, trange
 
 # %%
 
@@ -154,10 +153,12 @@ class TabularDataset(Dataset):
 class StringNumericEmbedding(nn.Module):
     def __init__(self, n_token: int, d_model: int):
         super().__init__()
-        self.embedding = nn.Embedding(n_token + 1, d_model, padding_idx=0).to(device)
+        self.embedding = nn.Embedding(
+            n_token + 1, d_model, padding_idx=0
+        )  # .to(device)
 
     def forward(self, input: StringNumeric):
-        embedding_index = torch.tensor([i.embedding_idx for i in input]).to(device)
+        embedding_index = torch.tensor([i.embedding_idx for i in input])  # .to(device)
         embed = self.embedding(embedding_index)
         with torch.no_grad():
             for idx, value in enumerate(input):
@@ -166,7 +167,7 @@ class StringNumericEmbedding(nn.Module):
         return embed
 
 
-def mask_row(row):
+def mask_row(row, tokens, special_tokens):
     row = row[:]
     prob = 0.15
     for idx, val in enumerate(row):
@@ -191,6 +192,29 @@ def batch_data(ds, idx: int, n_row=4):
     batch = mask_row(target)
 
     return batch, target
+
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 100_000):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        position = torch.arange(max_len).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model)
+        )
+        pe = torch.zeros(max_len, 1, d_model)
+        pe[:, 0, 0::2] = torch.sin(position * div_term)
+        pe[:, 0, 1::2] = torch.cos(position * div_term)
+        self.register_buffer("pe", pe)
+
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        Arguments:
+            x: Tensor, shape ``[seq_len, batch_size, embedding_dim]``
+        """
+        x = x + self.pe[: x.size(0)]
+        return self.dropout(x)
 
 
 class TransformerModel(nn.Module):
@@ -221,11 +245,10 @@ class TransformerModel(nn.Module):
         self.init_weights()
 
     def init_weights(self) -> None:
-        initrange = 0.1
-        self.encoder.embedding.weight.data.uniform_(-initrange, initrange)
+        init_range = 0.1
+        self.encoder.embedding.weight.data.uniform_(-init_range, init_range)
         self.decoder.bias.data.zero_()
-        self.decoder.weight.data.uniform_(-initrange, initrange)
-        # self.numeric_decoder.data.uniform(-initrange, initrange)
+        self.decoder.weight.data.uniform_(-init_range, init_range)
 
     def forward(self, src: Tensor, src_mask: Tensor = None) -> Tensor:
         """
@@ -234,7 +257,7 @@ class TransformerModel(nn.Module):
             src_mask: Tensor, shape ``[seq_len, seq_len]``
 
         Returns:
-            output Tensor of shape ``[seq_len, batch_size, ntoken]``
+            output Tensor of shape ``[seq_len, batch_size, n_token]``
         """
         # src_shape = src.shape
         # print(f"raw src_shape: {len(src)}")
@@ -242,7 +265,7 @@ class TransformerModel(nn.Module):
         src = torch.unsqueeze(src, dim=1)
         # print(f"encoded src_shape: {src.shape}")
 
-        src_shape = src.shape
+        # src_shape = src.shape
         src = self.pos_encoder(src)
         output = self.transformer_encoder(src)
         # print(f"output_shape: {output.shape}")
@@ -263,7 +286,9 @@ class TransformerModel(nn.Module):
         return output, numeric_output
 
 
-def hephaestus_loss(class_preds, numeric_preds, raw_data):
+def hephaestus_loss(
+    class_preds, numeric_preds, raw_data, tokens, special_tokens, device
+):
     cross_entropy = nn.CrossEntropyLoss()
     mse_loss = nn.MSELoss()
     raw_data_numeric_class = raw_data[:]
