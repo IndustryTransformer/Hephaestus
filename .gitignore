@@ -166,3 +166,5 @@ Manifest.toml
 *.parquet
 hephaestus_julia/vocab/*
 Transformers/model_path.pt
+runs/
+models/
