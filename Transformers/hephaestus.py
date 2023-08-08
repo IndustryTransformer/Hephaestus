@@ -300,10 +300,10 @@ def hephaestus_loss(
             val.gen_embed_idx(tokens, special_tokens)
             raw_data_numeric_class[idx] = val
 
-    # class_target = torch.tensor([i.embedding_idx for i in raw_data_numeric_class]).to(
-    #     device
-    # )
-    # class_loss = cross_entropy(class_preds, class_target)
+    class_target = torch.tensor([i.embedding_idx for i in raw_data_numeric_class]).to(
+        device
+    )
+    class_loss = cross_entropy(class_preds, class_target)
 
     actual_num_idx = torch.tensor(
         [idx for idx, j in enumerate(raw_data) if j.is_numeric]
@@ -316,7 +316,7 @@ def hephaestus_loss(
     reg_loss = mse_loss(pred_nums, actual_nums)
     reg_loss_adjuster = 1  # class_loss/reg_loss
 
-    return reg_loss * reg_loss_adjuster, {  # , class_loss
+    return reg_loss * reg_loss_adjuster + class_loss, {  # , class_loss
         "reg_loss": reg_loss,
-        "class_loss": 0,  # class_loss,
+        "class_loss": class_loss,  # class_loss,
     }
