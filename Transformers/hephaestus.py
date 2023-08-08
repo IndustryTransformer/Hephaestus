@@ -13,7 +13,6 @@ import torch
 from torch import Tensor, nn
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from torch.utils.data import Dataset  # DataLoader, dataset
-from tqdm import tqdm, trange
 
 # from tqdm import tqdm, trange
 
@@ -155,15 +154,15 @@ class StringNumericEmbedding(nn.Module):
     def __init__(self, n_token: int, d_model: int, device: torch.device):
         super().__init__()
         self.device = device
-        self.embedding = nn.Embedding(n_token + 1, d_model, padding_idx=0).to(device)
+        self.embedding = nn.Embedding(n_token + 1, d_model).to(device)  # padding_idx=0
 
     def forward(self, input: StringNumeric):
         embedding_index = torch.tensor([i.embedding_idx for i in input]).to(self.device)
         embed = self.embedding(embedding_index)
-        with torch.no_grad():
-            for idx, value in enumerate(input):
-                if value.is_numeric:
-                    embed[idx][0] = value.value
+        # with torch.no_grad():
+        for idx, value in enumerate(input):
+            if value.is_numeric:
+                embed[idx][0:32] = value.value
         return embed
 
 
@@ -174,9 +173,14 @@ def mask_row(row, tokens, special_tokens):
         if val.is_special:
             continue
         if np.random.rand() < prob:
-            val = StringNumeric(value="<mask>")
-            val.gen_embed_idx(tokens, special_tokens)
-            row[idx] = val
+            if val.is_numeric:
+                val = StringNumeric(value="<numeric_mask>")
+                val.gen_embed_idx(tokens, special_tokens)
+                row[idx] = val
+            else:
+                val = StringNumeric(value="<mask>")
+                val.gen_embed_idx(tokens, special_tokens)
+                row[idx] = val
     return row
 
 
