@@ -1,21 +1,21 @@
 # %%
 import math
-import os
 import re
-import time
 from dataclasses import dataclass, field
 from numbers import Number
-from tempfile import TemporaryDirectory
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import List, Union  # Any, Callable, Dict, List, Optional, Tuple,
 
 import numpy as np
 import polars as pl
 import torch
-import torch.nn.functional as F
+
+# import torch.nn.functional as F
 from torch import Tensor, nn
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
-from torch.utils.data import DataLoader, Dataset, dataset
+from torch.utils.data import Dataset  # DataLoader, dataset
 from tqdm import tqdm, trange
+
+# from tqdm import tqdm, trange
 
 # %%
 
@@ -152,12 +152,13 @@ class TabularDataset(Dataset):
 
 
 class StringNumericEmbedding(nn.Module):
-    def __init__(self, n_token: int, d_model: int):
+    def __init__(self, n_token: int, d_model: int, device: torch.device):
         super().__init__()
+        self.device = device
         self.embedding = nn.Embedding(n_token + 1, d_model, padding_idx=0).to(device)
 
     def forward(self, input: StringNumeric):
-        embedding_index = torch.tensor([i.embedding_idx for i in input]).to(device)
+        embedding_index = torch.tensor([i.embedding_idx for i in input]).to(self.device)
         embed = self.embedding(embedding_index)
         with torch.no_grad():
             for idx, value in enumerate(input):
@@ -166,7 +167,7 @@ class StringNumericEmbedding(nn.Module):
         return embed
 
 
-def mask_row(row):
+def mask_row(row, tokens, special_tokens):
     row = row[:]
     prob = 0.15
     for idx, val in enumerate(row):
@@ -188,9 +189,32 @@ def batch_data(ds, idx: int, n_row=4):
     for i in range(idx, end_idx):
         target.extend(ds[i])
 
-    batch = mask_row(target)
+    batch = mask_row(target, ds.vocab, ds.special_tokens)
 
     return batch, target
+
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 100_000):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        position = torch.arange(max_len).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model)
+        )
+        pe = torch.zeros(max_len, 1, d_model)
+        pe[:, 0, 0::2] = torch.sin(position * div_term)
+        pe[:, 0, 1::2] = torch.cos(position * div_term)
+        self.register_buffer("pe", pe)
+
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        Arguments:
+            x: Tensor, shape ``[seq_len, batch_size, embedding_dim]``
+        """
+        x = x + self.pe[: x.size(0)]
+        return self.dropout(x)
 
 
 class TransformerModel(nn.Module):
@@ -201,6 +225,7 @@ class TransformerModel(nn.Module):
         n_head: int,
         d_hid: int,
         n_layers: int,
+        device: torch.device,
         dropout: float = 0.15,
     ):
         super().__init__()
@@ -210,7 +235,7 @@ class TransformerModel(nn.Module):
         self.pos_encoder = PositionalEncoding(d_model, dropout)
         encoder_layers = TransformerEncoderLayer(d_model, n_head, d_hid, dropout)
         self.transformer_encoder = TransformerEncoder(encoder_layers, n_layers)
-        self.encoder = StringNumericEmbedding(n_token, d_model)
+        self.encoder = StringNumericEmbedding(n_token, d_model, device)
         self.d_model = d_model
         self.decoder = nn.Linear(d_model, n_token)
         self.numeric_decoder = nn.Linear(d_model, n_token)
@@ -221,11 +246,10 @@ class TransformerModel(nn.Module):
         self.init_weights()
 
     def init_weights(self) -> None:
-        initrange = 0.1
-        self.encoder.embedding.weight.data.uniform_(-initrange, initrange)
+        init_range = 0.1
+        self.encoder.embedding.weight.data.uniform_(-init_range, init_range)
         self.decoder.bias.data.zero_()
-        self.decoder.weight.data.uniform_(-initrange, initrange)
-        # self.numeric_decoder.data.uniform(-initrange, initrange)
+        self.decoder.weight.data.uniform_(-init_range, init_range)
 
     def forward(self, src: Tensor, src_mask: Tensor = None) -> Tensor:
         """
@@ -234,7 +258,7 @@ class TransformerModel(nn.Module):
             src_mask: Tensor, shape ``[seq_len, seq_len]``
 
         Returns:
-            output Tensor of shape ``[seq_len, batch_size, ntoken]``
+            output Tensor of shape ``[seq_len, batch_size, n_token]``
         """
         # src_shape = src.shape
         # print(f"raw src_shape: {len(src)}")
@@ -242,7 +266,7 @@ class TransformerModel(nn.Module):
         src = torch.unsqueeze(src, dim=1)
         # print(f"encoded src_shape: {src.shape}")
 
-        src_shape = src.shape
+        # src_shape = src.shape
         src = self.pos_encoder(src)
         output = self.transformer_encoder(src)
         # print(f"output_shape: {output.shape}")
@@ -263,7 +287,9 @@ class TransformerModel(nn.Module):
         return output, numeric_output
 
 
-def hephaestus_loss(class_preds, numeric_preds, raw_data):
+def hephaestus_loss(
+    class_preds, numeric_preds, raw_data, tokens, special_tokens, device
+):
     cross_entropy = nn.CrossEntropyLoss()
     mse_loss = nn.MSELoss()
     raw_data_numeric_class = raw_data[:]
@@ -274,10 +300,10 @@ def hephaestus_loss(class_preds, numeric_preds, raw_data):
             val.gen_embed_idx(tokens, special_tokens)
             raw_data_numeric_class[idx] = val
 
-    class_target = torch.tensor([i.embedding_idx for i in raw_data_numeric_class]).to(
-        device
-    )
-    class_loss = cross_entropy(class_preds, class_target)
+    # class_target = torch.tensor([i.embedding_idx for i in raw_data_numeric_class]).to(
+    #     device
+    # )
+    # class_loss = cross_entropy(class_preds, class_target)
 
     actual_num_idx = torch.tensor(
         [idx for idx, j in enumerate(raw_data) if j.is_numeric]
@@ -290,7 +316,7 @@ def hephaestus_loss(class_preds, numeric_preds, raw_data):
     reg_loss = mse_loss(pred_nums, actual_nums)
     reg_loss_adjuster = 1  # class_loss/reg_loss
 
-    return reg_loss * reg_loss_adjuster + class_loss, {
+    return reg_loss * reg_loss_adjuster, {  # , class_loss
         "reg_loss": reg_loss,
-        "class_loss": class_loss,
+        "class_loss": 0,  # class_loss,
     }
