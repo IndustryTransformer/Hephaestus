@@ -162,7 +162,7 @@ class StringNumericEmbedding(nn.Module):
         # with torch.no_grad():
         for idx, value in enumerate(input):
             if value.is_numeric:
-                embed[idx][0:32] = value.value
+                embed[idx][0:8] = value.value
         return embed
 
 
@@ -242,7 +242,8 @@ class TransformerModel(nn.Module):
         self.encoder = StringNumericEmbedding(n_token, d_model, device)
         self.d_model = d_model
         self.decoder = nn.Linear(d_model, n_token)
-        self.numeric_decoder = nn.Linear(d_model, n_token)
+        self.numeric_ingester = nn.Linear(d_model, n_token * 2)
+        self.numeric_hidden = nn.Linear(n_token * 2, n_token)
         self.numeric_flattener = nn.Linear(n_token, 1)
 
         # self.numeric_decoder = nn.Linear(d_model)
@@ -274,7 +275,8 @@ class TransformerModel(nn.Module):
         src = self.pos_encoder(src)
         output = self.transformer_encoder(src)
         # print(f"output_shape: {output.shape}")
-        numeric_output = self.numeric_decoder(output)  # .flatten()
+        numeric_output = torch.relu(self.numeric_ingester(output))  # .flatten()
+        numeric_output = torch.relu(self.numeric_hidden(numeric_output))
         numeric_output = torch.squeeze(numeric_output, dim=1)
         # numeric_output = torch.mean(numeric_output, [1])
         numeric_output = self.numeric_flattener(numeric_output)
@@ -318,7 +320,7 @@ def hephaestus_loss(
     # print(actual_nums.shape)
     # print(pred_nums.shape)
     reg_loss = mse_loss(pred_nums, actual_nums)
-    reg_loss_adjuster = 1  # class_loss/reg_loss
+    reg_loss_adjuster = 6  # class_loss/reg_loss
 
     return reg_loss * reg_loss_adjuster + class_loss, {  # , class_loss
         "reg_loss": reg_loss,
