@@ -155,15 +155,21 @@ class StringNumericEmbedding(nn.Module):
         super().__init__()
         self.device = device
         self.embedding = nn.Embedding(n_token + 1, d_model).to(device)  # padding_idx=0
+        self.numeric_embedding = nn.Linear(1, d_model).to(device)
 
     def forward(self, input: StringNumeric):
-        embedding_index = torch.tensor([i.embedding_idx for i in input]).to(self.device)
-        embed = self.embedding(embedding_index)
-        # with torch.no_grad():
-        for idx, value in enumerate(input):
-            if value.is_numeric:
-                embed[idx][0:8] = value.value
-        return embed
+        embedding_tensor = torch.zeros(
+            (len(input), self.embedding.embedding_dim), dtype=torch.float32
+        ).to(self.device)
+        for idx, val in enumerate(input):
+            if val.is_numeric:
+                val = torch.Tensor([val.value]).float().to(self.device)
+                embedding_tensor[idx] = self.numeric_embedding(val)
+            else:
+                embed_idx = torch.Tensor([val.embedding_idx]).long().to(self.device)
+                embedding_tensor[idx] = self.embedding(embed_idx)
+
+        return embedding_tensor
 
 
 def mask_row(row, tokens, special_tokens):
