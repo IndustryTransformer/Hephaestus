@@ -155,7 +155,14 @@ class StringNumericEmbedding(nn.Module):
         super().__init__()
         self.device = device
         self.embedding = nn.Embedding(n_token + 1, d_model).to(device)  # padding_idx=0
-        self.numeric_embedding = nn.Linear(1, d_model).to(device)
+        self.numeric_embedding = nn.Sequential(
+            nn.Linear(1, 128),  # First hidden layer
+            nn.ReLU(),
+            nn.Linear(128, 64),  # Second hidden layer
+            nn.ReLU(),
+            nn.Linear(64, d_model),  # Output layer
+        )
+        # self.numeric_embedding = nn.Linear(1, d_model).to(device)
 
     def forward(self, input: StringNumeric):
         embedding_tensor = torch.zeros(
@@ -205,7 +212,7 @@ def batch_data(ds, idx: int, n_row=4):
 
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 100_000):
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5001):
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
 
@@ -326,7 +333,9 @@ def hephaestus_loss(
     # print(actual_nums.shape)
     # print(pred_nums.shape)
     reg_loss = mse_loss(pred_nums, actual_nums)
-    reg_loss_adjuster = 6  # class_loss/reg_loss
+    reg_loss_adjuster = 1 / 10  # class_loss/reg_loss
+    # Scale the regression loss to be on the same scale as the classification loss
+    # reg_loss_adjuster = class_loss / reg_loss
 
     return reg_loss * reg_loss_adjuster + class_loss, {  # , class_loss
         "reg_loss": reg_loss,
