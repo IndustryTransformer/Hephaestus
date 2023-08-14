@@ -8,11 +8,11 @@ from typing import List, Union  # Any, Callable, Dict, List, Optional, Tuple,
 import numpy as np
 import polars as pl
 import torch
-
-# import torch.nn.functional as F
 from torch import Tensor, nn
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from torch.utils.data import Dataset  # DataLoader, dataset
+
+# import torch.nn.functional as F
 
 # from tqdm import tqdm, trange
 
