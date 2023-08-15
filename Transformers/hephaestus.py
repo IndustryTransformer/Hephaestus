@@ -151,9 +151,12 @@ class TabularDataset(Dataset):
 
 
 class StringNumericEmbedding(nn.Module):
-    def __init__(self, n_token: int, d_model: int, device: torch.device):
+    def __init__(
+        self, n_token: int, d_model: int, device: torch.device, bert_model_name
+    ):
         super().__init__()
         self.device = device
+        self.bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
         self.embedding = nn.Embedding(n_token + 1, d_model).to(device)  # padding_idx=0
         self.numeric_embedding = nn.Sequential(
             nn.Linear(1, 128),  # First hidden layer
