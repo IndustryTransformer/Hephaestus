@@ -1,5 +1,4 @@
 # %%
-import math
 import re
 from dataclasses import dataclass, field
 from numbers import Number
@@ -143,16 +142,9 @@ class TabularDataset(Dataset):
 
 
 class StringNumericEmbedding(nn.Module):
-    def __init__(
-        self,
-        state_dict,
-        device: torch.device,
-        tokenizer,
-        bert_model_name="bert-base-uncased",
-    ):
+    def __init__(self, state_dict, device: torch.device, tokenizer):
         super().__init__()
         self.device = device
-        # self.bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
         self.bert_tokenizer = tokenizer
         self.word_embeddings = nn.Embedding(*state_dict["weight"].shape).to(device)
         self.word_embeddings.load_state_dict(state_dict)  # .to(device)
@@ -164,11 +156,15 @@ class StringNumericEmbedding(nn.Module):
             nn.Linear(64, state_dict["weight"].shape[1]),  # Output layer
         ).to(device)
 
+        # self.numeric_embedding = nn.Linear(1, d_model).to(device)
+
     def forward(self, input: StringNumeric):
-        tensor_list = []
+        tensor_list = [
+            self.word_embeddings(torch.tensor([101]).to(self.device)).reshape(1, 1, -1)
+        ]  # Start token
         for val in input:
             if val.is_numeric:
-                val = torch.Tensor([val.value]).float().to(self.device)
+                val = Tensor([val.value]).float().to(self.device)
                 val = self.numeric_embedding(val)
                 val = val.reshape(1, 1, -1)  # val.shape[0])
                 tensor_list.append(val)
@@ -179,9 +175,13 @@ class StringNumericEmbedding(nn.Module):
                 tensor_list.append(
                     self.word_embeddings(tokens_ids["input_ids"].to(self.device))
                 )
+        tensor_list.append(
+            self.word_embeddings(torch.tensor([102]).to(self.device)).reshape(1, 1, -1)
+        )  # End token
 
-        # return tensor_list
-        return torch.cat(tensor_list, dim=-2)
+        tensor_list = torch.cat(tensor_list, dim=-2)
+
+        return tensor_list
 
 
 def mask_row(row, tokens):
@@ -190,7 +190,7 @@ def mask_row(row, tokens):
     for idx, val in enumerate(row):
         if np.random.rand() < prob:
             if val.is_numeric:
-                val = StringNumeric(value="<numeric_mask>")
+                val = StringNumeric(value="[NUMERIC]")
                 # val.gen_embed_idx(tokens, special_tokens)
                 row[idx] = val
             else:
@@ -215,29 +215,6 @@ def batch_data(ds, idx: int, n_row=4):
     return batch, target
 
 
-class PositionalEncoding(nn.Module):
-    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5001):
-        super().__init__()
-        self.dropout = nn.Dropout(p=dropout)
-
-        position = torch.arange(max_len).unsqueeze(1)
-        div_term = torch.exp(
-            torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model)
-        )
-        pe = torch.zeros(max_len, 1, d_model)
-        pe[:, 0, 0::2] = torch.sin(position * div_term)
-        pe[:, 0, 1::2] = torch.cos(position * div_term)
-        self.register_buffer("pe", pe)
-
-    def forward(self, x: Tensor) -> Tensor:
-        """
-        Arguments:
-            x: Tensor, shape ``[seq_len, batch_size, embedding_dim]``
-        """
-        x = x + self.pe[: x.size(0)]
-        return self.dropout(x)
-
-
 class TransformerModel(nn.Module):
     def __init__(
         self,
@@ -250,14 +227,7 @@ class TransformerModel(nn.Module):
         self.tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
         self.bert_lm = BertForPreTraining.from_pretrained("bert-base-uncased")
         # self.tokenizer = BertTokenizer.from_pretrained(bert_model_name)
-        self.tokenizer.add_tokens(
-            [
-                "<numeric>",
-                "<numeric-mask>",
-                "<row-start>",
-                "<row-end>",
-            ]
-        )
+        self.tokenizer.add_tokens(["[MISSING]", "[NUMERIC]"])
 
         # Add tokens to BERT model
 
@@ -271,12 +241,15 @@ class TransformerModel(nn.Module):
             state_dict=self.bert_embedding_state_dict,
             device=device,
             tokenizer=self.tokenizer,
-            bert_model_name=bert_model_name,
         )
         # self.decoder = nn.Linear(self.embedding_dim, len(self.tokenizer)).to(device)
         # Numeric Neural Net for numbers prediction after BERT
         self.numeric_predictor = nn.Sequential(
-            nn.Linear(self.embedding_dim, 128), nn.ReLU(), nn.Linear(128, 1)
+            nn.Linear(self.embedding_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Linear(128, 1),
         )
 
     def forward(self, input: StringNumeric):
@@ -285,7 +258,7 @@ class TransformerModel(nn.Module):
         last_hidden_state = bert_output.last_hidden_state
         pooled_output = bert_output.pooler_output
 
-        bert_logits = self.bert_lm.cls(last_hidden_state, pooled_output)
+        bert_logits = self.bert_lm.cls(last_hidden_state, pooled_output)[0]
         numeric_prediction = self.numeric_predictor(last_hidden_state)
         # mlm_output = self.decoder(mlm_output.last_hidden_state)
         return bert_logits, numeric_prediction
@@ -297,7 +270,7 @@ def gen_class_target_tokens(model, input):
     for val in input:
         # print(val)
         if val.is_numeric:
-            target_tokens.append("<numeric>")
+            target_tokens.append("[NUMERIC]")
         else:
             target_tokens.extend(tokenizer.tokenize(val.value))
     # print(target_tokens)
@@ -314,7 +287,7 @@ def hephaestus_loss(class_preds, numeric_preds, raw_data, device, model):
 
     for idx, val in enumerate(raw_data):
         if val.is_numeric:
-            val = StringNumeric(value="<numeric>")
+            val = StringNumeric(value="[NUMERIC]")
             # val.gen_embed_idx(tokens, special_tokens)
             raw_data[idx] = val
 
