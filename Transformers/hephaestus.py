@@ -9,8 +9,11 @@ import numpy as np
 import polars as pl
 import torch
 from torch import Tensor, nn
-from torch.nn import TransformerEncoder, TransformerEncoderLayer
+
+# from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from torch.utils.data import Dataset  # DataLoader, dataset
+
+from transformers import BertForPreTraining, BertTokenizer
 
 # import torch.nn.functional as F
 
@@ -56,24 +59,13 @@ class StringNumeric:
     value: Union[str, float]
     # all_tokens: np.array
     is_numeric: bool = field(default=None, repr=True)
-    embedding_idx: int = field(default=None, repr=True)
-    is_special: bool = field(default=False, repr=True)
+    # is_special: bool = field(default=False, repr=True)
 
     def __post_init__(self):
         if isinstance(self.value, str):
             self.is_numeric = False
         else:
             self.is_numeric = True
-            self.embedding_idx = 0
-
-    def gen_embed_idx(self, tokens: np.array, special_tokens: np.array):
-        if not self.is_numeric:
-            try:
-                self.embedding_idx = np.where(tokens == self.value)[0][0] + 1
-            except IndexError:
-                self.embedding_idx = np.where(tokens == "<unk>")[0][0] + 1
-            if self.value in special_tokens:
-                self.is_special = True
 
 
 class TabularDataset(Dataset):
@@ -144,59 +136,68 @@ class TabularDataset(Dataset):
             print("Row too long, truncating")
             Warning("Row too long, truncating")
         vals = [StringNumeric(value=val) for val in vals]
-        for val in vals:
-            val.gen_embed_idx(self.vocab, self.special_tokens)
+        # for val in vals:
+        #     val.gen_embed_idx(self.vocab, self.special_tokens)
 
         return vals
 
 
 class StringNumericEmbedding(nn.Module):
     def __init__(
-        self, n_token: int, d_model: int, device: torch.device, bert_model_name
+        self,
+        state_dict,
+        device: torch.device,
+        tokenizer,
+        bert_model_name="bert-base-uncased",
     ):
         super().__init__()
         self.device = device
-        self.bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
-        self.embedding = nn.Embedding(n_token + 1, d_model).to(device)  # padding_idx=0
+        # self.bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
+        self.bert_tokenizer = tokenizer
+        self.word_embeddings = nn.Embedding(*state_dict["weight"].shape).to(device)
+        self.word_embeddings.load_state_dict(state_dict)  # .to(device)
         self.numeric_embedding = nn.Sequential(
             nn.Linear(1, 128),  # First hidden layer
             nn.ReLU(),
             nn.Linear(128, 64),  # Second hidden layer
             nn.ReLU(),
-            nn.Linear(64, d_model),  # Output layer
-        )
-        # self.numeric_embedding = nn.Linear(1, d_model).to(device)
+            nn.Linear(64, state_dict["weight"].shape[1]),  # Output layer
+        ).to(device)
 
     def forward(self, input: StringNumeric):
-        embedding_tensor = torch.zeros(
-            (len(input), self.embedding.embedding_dim), dtype=torch.float32
-        ).to(self.device)
-        for idx, val in enumerate(input):
+        tensor_list = []
+        for val in input:
             if val.is_numeric:
                 val = torch.Tensor([val.value]).float().to(self.device)
-                embedding_tensor[idx] = self.numeric_embedding(val)
+                val = self.numeric_embedding(val)
+                val = val.reshape(1, 1, -1)  # val.shape[0])
+                tensor_list.append(val)
             else:
-                embed_idx = torch.Tensor([val.embedding_idx]).long().to(self.device)
-                embedding_tensor[idx] = self.embedding(embed_idx)
+                tokens_ids = self.bert_tokenizer.encode_plus(
+                    val.value, return_tensors="pt", add_special_tokens=False
+                )
+                tensor_list.append(
+                    self.word_embeddings(tokens_ids["input_ids"].to(self.device))
+                )
 
-        return embedding_tensor
+        # return tensor_list
+        return torch.cat(tensor_list, dim=-2)
 
 
-def mask_row(row, tokens, special_tokens):
+def mask_row(row, tokens):
     row = row[:]
-    prob = 0.15
+    prob = 0.20
     for idx, val in enumerate(row):
-        if val.is_special:
-            continue
         if np.random.rand() < prob:
             if val.is_numeric:
                 val = StringNumeric(value="<numeric_mask>")
-                val.gen_embed_idx(tokens, special_tokens)
+                # val.gen_embed_idx(tokens, special_tokens)
                 row[idx] = val
             else:
-                val = StringNumeric(value="<mask>")
-                val.gen_embed_idx(tokens, special_tokens)
+                val = StringNumeric(value="[MASK]")
+                # val.gen_embed_idx(tokens, special_tokens)
                 row[idx] = val
+
     return row
 
 
@@ -240,91 +241,84 @@ class PositionalEncoding(nn.Module):
 class TransformerModel(nn.Module):
     def __init__(
         self,
-        n_token: int,
-        d_model: int,
-        n_head: int,
-        d_hid: int,
-        n_layers: int,
         device: torch.device,
-        dropout: float = 0.15,
+        bert_model_name="bert-base-uncased",
     ):
-        super().__init__()
-        n_token = n_token + 1
-        self.n_token = n_token
-        self.model_type = "Transformer"
-        self.pos_encoder = PositionalEncoding(d_model, dropout)
-        encoder_layers = TransformerEncoderLayer(d_model, n_head, d_hid, dropout)
-        self.transformer_encoder = TransformerEncoder(encoder_layers, n_layers)
-        self.encoder = StringNumericEmbedding(n_token, d_model, device)
-        self.d_model = d_model
-        self.decoder = nn.Linear(d_model, n_token)
-        self.numeric_ingester = nn.Linear(d_model, n_token * 2)
-        self.numeric_hidden = nn.Linear(n_token * 2, n_token)
-        self.numeric_flattener = nn.Linear(n_token, 1)
+        super(TransformerModel, self).__init__()
 
-        # self.numeric_decoder = nn.Linear(d_model)
+        # BERT Tokenizer and Model
+        self.tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+        self.bert_lm = BertForPreTraining.from_pretrained("bert-base-uncased")
+        # self.tokenizer = BertTokenizer.from_pretrained(bert_model_name)
+        self.tokenizer.add_tokens(
+            [
+                "<numeric>",
+                "<numeric-mask>",
+                "<row-start>",
+                "<row-end>",
+            ]
+        )
 
-        self.init_weights()
+        # Add tokens to BERT model
 
-    def init_weights(self) -> None:
-        init_range = 0.1
-        self.encoder.embedding.weight.data.uniform_(-init_range, init_range)
-        self.decoder.bias.data.zero_()
-        self.decoder.weight.data.uniform_(-init_range, init_range)
+        # self.bert = BertModel.from_pretrained(bert_model_name).to(device)
+        self.bert_lm.resize_token_embeddings(len(self.tokenizer))
+        self.bert_embedding_state_dict = (
+            self.bert_lm.bert.embeddings.word_embeddings.state_dict()
+        )
+        self.embedding_dim = self.bert_lm.bert.config.hidden_size
+        self.string_numeric_embd = StringNumericEmbedding(
+            state_dict=self.bert_embedding_state_dict,
+            device=device,
+            tokenizer=self.tokenizer,
+            bert_model_name=bert_model_name,
+        )
+        # self.decoder = nn.Linear(self.embedding_dim, len(self.tokenizer)).to(device)
+        # Numeric Neural Net for numbers prediction after BERT
+        self.numeric_predictor = nn.Sequential(
+            nn.Linear(self.embedding_dim, 128), nn.ReLU(), nn.Linear(128, 1)
+        )
 
-    def forward(self, src: Tensor, src_mask: Tensor = None) -> Tensor:
-        """
-        Arguments:
-            src: Tensor, shape ``[seq_len, batch_size]``
-            src_mask: Tensor, shape ``[seq_len, seq_len]``
+    def forward(self, input: StringNumeric):
+        input = self.string_numeric_embd(input)
+        bert_output = self.bert_lm.bert(inputs_embeds=input)
+        last_hidden_state = bert_output.last_hidden_state
+        pooled_output = bert_output.pooler_output
 
-        Returns:
-            output Tensor of shape ``[seq_len, batch_size, n_token]``
-        """
-        # src_shape = src.shape
-        # print(f"raw src_shape: {len(src)}")
-        src = self.encoder(src) * math.sqrt(self.d_model)
-        src = torch.unsqueeze(src, dim=1)
-        # print(f"encoded src_shape: {src.shape}")
-
-        # src_shape = src.shape
-        src = self.pos_encoder(src)
-        output = self.transformer_encoder(src)
-        # print(f"output_shape: {output.shape}")
-        numeric_output = torch.relu(self.numeric_ingester(output))  # .flatten()
-        numeric_output = torch.relu(self.numeric_hidden(numeric_output))
-        numeric_output = torch.squeeze(numeric_output, dim=1)
-        # numeric_output = torch.mean(numeric_output, [1])
-        numeric_output = self.numeric_flattener(numeric_output)
-        # numeric_output = nn.flatten(numeric_output)
-        output = self.decoder(output)
-        output = torch.squeeze(output, dim=1)
-        numeric_output = numeric_output.view(output.shape[0])
-
-        # print(f"output_shape decoded: {output.shape}")
-        # output = output.view(-1, self.n_token+1)
-        # output = output.view(-1, src_shape[0]).T
-        # print(f"output_shape view: {output.shape}")
-
-        return output, numeric_output
+        bert_logits = self.bert_lm.cls(last_hidden_state, pooled_output)
+        numeric_prediction = self.numeric_predictor(last_hidden_state)
+        # mlm_output = self.decoder(mlm_output.last_hidden_state)
+        return bert_logits, numeric_prediction
 
 
-def hephaestus_loss(
-    class_preds, numeric_preds, raw_data, tokens, special_tokens, device
-):
+def gen_class_target_tokens(model, input):
+    tokenizer = model.tokenizer
+    target_tokens = []
+    for val in input:
+        # print(val)
+        if val.is_numeric:
+            target_tokens.append("<numeric>")
+        else:
+            target_tokens.extend(tokenizer.tokenize(val.value))
+    # print(target_tokens)
+    # return target_tokens
+    return model.tokenizer.encode_plus(
+        target_tokens, add_special_tokens=False, return_tensors="pt"
+    ).to(model.device)
+
+
+def hephaestus_loss(class_preds, numeric_preds, raw_data, device, model):
     cross_entropy = nn.CrossEntropyLoss()
     mse_loss = nn.MSELoss()
-    raw_data_numeric_class = raw_data[:]
+    # raw_data_numeric_class = raw_data[:]
 
-    for idx, val in enumerate(raw_data_numeric_class):
+    for idx, val in enumerate(raw_data):
         if val.is_numeric:
             val = StringNumeric(value="<numeric>")
-            val.gen_embed_idx(tokens, special_tokens)
-            raw_data_numeric_class[idx] = val
+            # val.gen_embed_idx(tokens, special_tokens)
+            raw_data[idx] = val
 
-    class_target = torch.tensor([i.embedding_idx for i in raw_data_numeric_class]).to(
-        device
-    )
+    class_target = torch.tensor([i.embedding_idx for i in raw_data]).to(device)
     class_loss = cross_entropy(class_preds, class_target)
 
     actual_num_idx = torch.tensor(
