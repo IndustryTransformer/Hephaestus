@@ -124,16 +124,16 @@ class TabularDataset(Dataset):
         vals.append("<row-end>")
 
         val_len = len(vals)
-        if val_len < self.max_row_length:
-            diff = self.max_row_length - val_len
-            vals.extend(["<pad>"] * diff)
-        elif val_len > self.max_row_length:
-            vals = vals[: self.max_row_length - 1]
-            # add warning
+        # if val_len < self.max_row_length:
+        #     diff = self.max_row_length - val_len
+        #     vals.extend(["<pad>"] * diff)
+        # elif val_len > self.max_row_length:
+        #     vals = vals[: self.max_row_length - 1]
+        #     # add warning
 
-            vals = np.append(vals, ["<row-end>"])
-            print("Row too long, truncating")
-            Warning("Row too long, truncating")
+        #     vals = np.append(vals, ["<row-end>"])
+        #     print("Row too long, truncating")
+        #     Warning("Row too long, truncating")
         vals = [StringNumeric(value=val) for val in vals]
         # for val in vals:
         #     val.gen_embed_idx(self.vocab, self.special_tokens)
@@ -145,7 +145,7 @@ class StringNumericEmbedding(nn.Module):
     def __init__(self, state_dict, device: torch.device, tokenizer):
         super().__init__()
         self.device = device
-        self.bert_tokenizer = tokenizer
+        self.tokenizer = tokenizer
         self.word_embeddings = nn.Embedding(*state_dict["weight"].shape).to(device)
         self.word_embeddings.load_state_dict(state_dict)  # .to(device)
         self.numeric_embedding = nn.Sequential(
@@ -159,49 +159,70 @@ class StringNumericEmbedding(nn.Module):
         # self.numeric_embedding = nn.Linear(1, d_model).to(device)
 
     def forward(self, input: StringNumeric):
+        start_token = self.tokenizer.encode(
+            "[CLS]", add_special_tokens=False, return_tensors="pt"
+        ).to(self.device)
+        index_list = [start_token.item()]
         tensor_list = [
-            self.word_embeddings(torch.tensor([101]).to(self.device)).reshape(1, 1, -1)
+            self.word_embeddings(start_token).to(self.device).reshape(1, 1, -1)
         ]  # Start token
         for val in input:
             if val.is_numeric:
+                index_list.extend(
+                    self.tokenizer.encode("[NUMERIC]", add_special_tokens=False)
+                )
                 val = Tensor([val.value]).float().to(self.device)
                 val = self.numeric_embedding(val)
                 val = val.reshape(1, 1, -1)  # val.shape[0])
                 tensor_list.append(val)
+
             else:
-                tokens_ids = self.bert_tokenizer.encode_plus(
+                tokens_ids = self.tokenizer.encode(
                     val.value, return_tensors="pt", add_special_tokens=False
                 )
-                tensor_list.append(
-                    self.word_embeddings(tokens_ids["input_ids"].to(self.device))
-                )
-        tensor_list.append(
-            self.word_embeddings(torch.tensor([102]).to(self.device)).reshape(1, 1, -1)
-        )  # End token
-
+                index_list.extend(tokens_ids.tolist())
+                tensor_list.append(self.word_embeddings(tokens_ids.to(self.device)))
+        # end_token = self.tokenizer.encode(
+        #     "[SEP]", add_special_tokens=False, return_tensors="pt"
+        # ).to(self.device)
+        # tensor_list.append(
+        #     self.word_embeddings(end_token).to(self.device).reshape(1, 1, -1)
+        # )
+        # End token
         tensor_list = torch.cat(tensor_list, dim=-2)
-
+        # print(index_list)
+        # print(tensor_list.shape, len(index_list))
         return tensor_list
 
 
-def mask_row(row, tokens):
-    row = row[:]
-    prob = 0.20
+def mask_row(row, model, prob=0.2):
+    # row = row[:]
+    return_row = []
     for idx, val in enumerate(row):
         if np.random.rand() < prob:
             if val.is_numeric:
                 val = StringNumeric(value="[NUMERIC]")
                 # val.gen_embed_idx(tokens, special_tokens)
-                row[idx] = val
+                return_row.append(val)
             else:
-                val = StringNumeric(value="[MASK]")
+                # calculate the number of tokens to mask and then mask ALL of them
+                n_tokens = model.tokenizer.encode(val.value, add_special_tokens=False)
+                n_tokens = len(n_tokens)
+                vals = [StringNumeric(value="[MASK]") for _ in range(n_tokens)]
                 # val.gen_embed_idx(tokens, special_tokens)
-                row[idx] = val
+                return_row.extend(vals)
+        else:
+            return_row.append(val)
 
-    return row
+    return return_row
 
 
-def batch_data(ds, idx: int, n_row=4):
+def batch_data(
+    ds,
+    idx: int,
+    model,
+    n_row=4,
+):
     target = []
     if len(ds) > n_row + idx:
         end_idx = n_row + idx
@@ -210,7 +231,7 @@ def batch_data(ds, idx: int, n_row=4):
     for i in range(idx, end_idx):
         target.extend(ds[i])
 
-    batch = mask_row(target, ds.vocab, ds.special_tokens)
+    batch = mask_row(target, model)
 
     return batch, target
 
@@ -227,8 +248,10 @@ class TransformerModel(nn.Module):
         self.tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
         self.bert_lm = BertForPreTraining.from_pretrained("bert-base-uncased")
         # self.tokenizer = BertTokenizer.from_pretrained(bert_model_name)
-        self.tokenizer.add_tokens(["[MISSING]", "[NUMERIC]"])
-
+        self.tokenizer.add_tokens(
+            ["[MISSING]", "[NUMERIC]", "<row-start>", "<row-end>", "<pad>"]
+        )
+        self.device = device
         # Add tokens to BERT model
 
         # self.bert = BertModel.from_pretrained(bert_model_name).to(device)
@@ -266,33 +289,42 @@ class TransformerModel(nn.Module):
 
 def gen_class_target_tokens(model, input):
     tokenizer = model.tokenizer
-    target_tokens = []
+    target_tokens = [
+        tokenizer.encode(
+            "[CLS]", add_special_tokens=False, return_tensors="pt"
+        ).squeeze(0)
+    ]
     for val in input:
-        # print(val)
         if val.is_numeric:
-            target_tokens.append("[NUMERIC]")
+            encoded_token = tokenizer.encode(
+                "[NUMERIC]", add_special_tokens=False, return_tensors="pt"
+            )
         else:
-            target_tokens.extend(tokenizer.tokenize(val.value))
-    # print(target_tokens)
+            encoded_token = tokenizer.encode(
+                val.value, add_special_tokens=False, return_tensors="pt"
+            )
+        target_tokens.append(encoded_token.squeeze(0))
+
+    # target_tokens.append(
+    #     tokenizer.encode(
+    #         "[SEP]", add_special_tokens=False, return_tensors="pt"
+    #     ).squeeze(0)
+    # )
+    target_tokens = torch.cat(target_tokens, dim=-1).to(model.device)
+    # if target_tokens.ndim == 1:
+    #     target_tokens = target_tokens.unsqueeze(0)
+    return target_tokens
     # return target_tokens
-    return model.tokenizer.encode_plus(
-        target_tokens, add_special_tokens=False, return_tensors="pt"
-    ).to(model.device)
 
 
-def hephaestus_loss(class_preds, numeric_preds, raw_data, device, model):
+def hephaestus_loss(class_preds, numeric_preds, raw_data, model):
     cross_entropy = nn.CrossEntropyLoss()
     mse_loss = nn.MSELoss()
+    device = model.device
     # raw_data_numeric_class = raw_data[:]
 
-    for idx, val in enumerate(raw_data):
-        if val.is_numeric:
-            val = StringNumeric(value="[NUMERIC]")
-            # val.gen_embed_idx(tokens, special_tokens)
-            raw_data[idx] = val
-
-    class_target = torch.tensor([i.embedding_idx for i in raw_data]).to(device)
-    class_loss = cross_entropy(class_preds, class_target)
+    class_target = gen_class_target_tokens(model, raw_data)
+    class_loss = cross_entropy(class_preds[0], class_target)
 
     actual_num_idx = torch.tensor(
         [idx for idx, j in enumerate(raw_data) if j.is_numeric]
@@ -302,7 +334,7 @@ def hephaestus_loss(class_preds, numeric_preds, raw_data, device, model):
     actual_nums = torch.tensor([i.value for i in raw_data if i.is_numeric]).to(device)
     # print(actual_nums.shape)
     # print(pred_nums.shape)
-    reg_loss = mse_loss(pred_nums, actual_nums)
+    reg_loss = mse_loss(pred_nums[0], actual_nums)
     reg_loss_adjuster = 1 / 10  # class_loss/reg_loss
     # Scale the regression loss to be on the same scale as the classification loss
     # reg_loss_adjuster = class_loss / reg_loss
