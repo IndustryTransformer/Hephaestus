@@ -123,7 +123,7 @@ class TabularDataset(Dataset):
             vals.append(",")
         vals.append("<row-end>")
 
-        val_len = len(vals)
+        # val_len = len(vals)
         # if val_len < self.max_row_length:
         #     diff = self.max_row_length - val_len
         #     vals.extend(["<pad>"] * diff)
@@ -293,38 +293,6 @@ class TransformerModel(nn.Module):
         # mlm_output = self.decoder(mlm_output.last_hidden_state)
         return bert_logits, numeric_prediction
 
-    def analyze(self, ds, i):
-        # This may not work because of weird self position in batch_data
-        def replacer(s):
-            return (
-                s.replace(" ##", "")
-                .replace(" ,", ",")
-                .replace(" :", ":")
-                .replace(" .", ".")
-            )
-
-        masked_data, target_data, _ = batch_data(ds, i, self, n_row=1)
-        with torch.no_grad():
-            class_preds, numeric_preds = self.forward(masked_data)
-        class_preds = class_preds.squeeze()
-        numeric_preds = numeric_preds.squeeze()
-        # target_tensor = hp.gen_class_target_tokens(model, target_data)
-        print(class_preds.shape, numeric_preds.shape)
-        actuals = replacer(" ".join([str(val.value) for val in target_data]))
-        class_preds_max = torch.argmax(class_preds.squeeze(), dim=1)
-        preds = []
-        for idx, pred in enumerate(class_preds_max):
-            decoded = self.tokenizer.decode([pred], skip_special_tokens=True)
-            if decoded == "[numeric]":
-                preds.append(str(numeric_preds[idx].item()))
-            else:
-                preds.append(decoded)
-        masked = replacer(" ".join([str(val.value) for val in masked_data])).strip()
-        preds = replacer(" ".join(preds)).strip()
-
-        return {"masked": masked, "actuals": actuals, "predictions": preds}
-        # print(f"Masked: {masked}", f"Actuals: {actuals}", f"Predictions: {preds}", sep="\n")
-
 
 def gen_class_target_tokens(model, input):
     tokenizer = model.tokenizer
@@ -363,7 +331,8 @@ def hephaestus_loss(class_preds, numeric_preds, target, is_numeric_mask, model):
     # raw_data_numeric_class = raw_data[:]
 
     class_target = gen_class_target_tokens(model, target)
-    # print(f"Class Target Shape: {class_target.shape}, Class Preds: {class_preds.shape}")
+    # print(f"Class Target Shape: {class_target.shape},
+    # Class Preds: {class_preds.shape}")
     class_loss = cross_entropy(class_preds[0], class_target)
     actual_num_index = [idx for idx, val in enumerate(is_numeric_mask) if val]
     actual_num_index = torch.tensor(actual_num_index).to(device)
@@ -375,7 +344,8 @@ def hephaestus_loss(class_preds, numeric_preds, target, is_numeric_mask, model):
     # print(actual_num_idx.shape)
     actual_nums = torch.tensor([i.value for i in target if i.is_numeric]).to(device)
     # print(
-    #     f"Pred Num Shape: {numeric_preds.shape}, Actual Num Shape: {actual_nums.shape}"
+    #     f"Pred Num Shape: {numeric_preds.shape},
+    # Actual Num Shape: {actual_nums.shape}"
     # )
     # print(actual_nums.shape)
     # print(pred_nums.shape)
@@ -388,3 +358,83 @@ def hephaestus_loss(class_preds, numeric_preds, target, is_numeric_mask, model):
         "reg_loss": reg_loss,
         "class_loss": class_loss,  # class_loss,
     }
+
+
+def evaluate_custom(model: nn.Module, ds, idx, tokens, device) -> None:
+    model.eval()  # turn on train mode
+    n_row = 1  # one because it's not time series
+    with torch.no_grad():
+        data, targets = batch_data(ds, idx, n_row=n_row)
+        class_preds, numeric_preds = model(data)
+        loss, loss_dict = hephaestus_loss(
+            class_preds, numeric_preds, targets, tokens, device
+        )
+        return {
+            "loss": loss.item(),
+            "loss_dict": loss_dict,
+            "data": data,
+            "targets": targets,
+            "class_preds": class_preds,
+            "numeric_preds": numeric_preds,
+        }
+
+
+def evaluate_bert(model, ds, i):
+    def replacer(s):
+        return (
+            s.replace(" ##", "")
+            .replace(" ,", ",")
+            .replace(" :", ":")
+            .replace(" .", ".")
+        )
+
+    model.eval()
+
+    masked_data, target_data, _ = batch_data(ds, i, model, n_row=1)
+    with torch.no_grad():
+        class_preds, numeric_preds = model(masked_data)
+    class_preds = class_preds.squeeze()
+    numeric_preds = numeric_preds.squeeze()
+    # target_tensor = gen_class_target_tokens(model, target_data)
+    print(class_preds.shape, numeric_preds.shape)
+    actuals = replacer(" ".join([str(val.value) for val in target_data]))
+    class_preds_max = torch.argmax(class_preds.squeeze(), dim=1)
+    preds = []
+    for idx, pred in enumerate(class_preds_max):
+        decoded = model.tokenizer.decode([pred], skip_special_tokens=True)
+        if decoded == "[numeric]":
+            preds.append(str(numeric_preds[idx].item()))
+        else:
+            preds.append(decoded)
+    masked = replacer(" ".join([str(val.value) for val in masked_data])).strip()
+    preds = replacer(" ".join(preds)).strip()
+
+    return {"masked": masked, "actuals": actuals, "predictions": preds}
+
+
+def show_results(res, tokens):
+    actuals = [str(i.value) for i in res["targets"]]
+    actuals_ = " ".join(actuals)
+    actual_str = actuals_.split("<row-end>")[0]
+    masked_str = [str(i.value) for i in res["data"]]
+    masked_str = " ".join(masked_str)
+    masked_str = masked_str.split("<row-end>")[0]
+
+    lsm = nn.Softmax(dim=0)
+    softmax_cats = lsm(res["class_preds"])
+    softmax_cats = torch.argmax(softmax_cats, dim=1)
+    gen_tokens = []
+    for idx, pred in enumerate(softmax_cats):
+        token = tokens[pred - 1]
+        if token == "<numeric>":
+            gen_tokens.append(str(res["numeric_preds"][idx].item()))
+        else:
+            gen_tokens.append(token)
+    preds = " ".join(gen_tokens)
+
+    s = (
+        f"Targets   : {actual_str}\n"
+        + f"Masked    : {masked_str}\n"
+        + f"Predicted : {preds.split('<row-end>')[0]}"
+    )
+    return s
