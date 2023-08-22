@@ -198,12 +198,14 @@ class StringNumericEmbedding(nn.Module):
 def mask_row(row, model, prob=0.2):
     # row = row[:]
     return_row = []
+    is_numeric_mask = []
     for idx, val in enumerate(row):
         if np.random.rand() < prob:
             if val.is_numeric:
                 val = StringNumeric(value="[NUMERIC]")
                 # val.gen_embed_idx(tokens, special_tokens)
                 return_row.append(val)
+                is_numeric_mask.append(True)
             else:
                 # calculate the number of tokens to mask and then mask ALL of them
                 n_tokens = model.tokenizer.encode(val.value, add_special_tokens=False)
@@ -211,10 +213,14 @@ def mask_row(row, model, prob=0.2):
                 vals = [StringNumeric(value="[MASK]") for _ in range(n_tokens)]
                 # val.gen_embed_idx(tokens, special_tokens)
                 return_row.extend(vals)
+                is_numeric_mask.extend([False for _ in range(n_tokens)])
         else:
+            # if not val.is_numeric:
+            # n_tokens = model.tokenizer.encode(val.value, add_special_tokens=False)
             return_row.append(val)
+            is_numeric_mask.append(val.is_numeric)
 
-    return return_row
+    return return_row, is_numeric_mask
 
 
 def batch_data(
@@ -231,9 +237,10 @@ def batch_data(
     for i in range(idx, end_idx):
         target.extend(ds[i])
 
-    batch = mask_row(target, model)
-
-    return batch, target
+    batch, is_numeric_mask = mask_row(target, model)
+    # Get a true_false mask for the numeric values
+    # is_numeric_mask = [i.is_numeric for i in target]
+    return batch, target, is_numeric_mask
 
 
 class TransformerModel(nn.Module):
@@ -286,6 +293,38 @@ class TransformerModel(nn.Module):
         # mlm_output = self.decoder(mlm_output.last_hidden_state)
         return bert_logits, numeric_prediction
 
+    def analyze(self, ds, i):
+        # This may not work because of weird self position in batch_data
+        def replacer(s):
+            return (
+                s.replace(" ##", "")
+                .replace(" ,", ",")
+                .replace(" :", ":")
+                .replace(" .", ".")
+            )
+
+        masked_data, target_data, _ = batch_data(ds, i, self, n_row=1)
+        with torch.no_grad():
+            class_preds, numeric_preds = self.forward(masked_data)
+        class_preds = class_preds.squeeze()
+        numeric_preds = numeric_preds.squeeze()
+        # target_tensor = hp.gen_class_target_tokens(model, target_data)
+        print(class_preds.shape, numeric_preds.shape)
+        actuals = replacer(" ".join([str(val.value) for val in target_data]))
+        class_preds_max = torch.argmax(class_preds.squeeze(), dim=1)
+        preds = []
+        for idx, pred in enumerate(class_preds_max):
+            decoded = self.tokenizer.decode([pred], skip_special_tokens=True)
+            if decoded == "[numeric]":
+                preds.append(str(numeric_preds[idx].item()))
+            else:
+                preds.append(decoded)
+        masked = replacer(" ".join([str(val.value) for val in masked_data])).strip()
+        preds = replacer(" ".join(preds)).strip()
+
+        return {"masked": masked, "actuals": actuals, "predictions": preds}
+        # print(f"Masked: {masked}", f"Actuals: {actuals}", f"Predictions: {preds}", sep="\n")
+
 
 def gen_class_target_tokens(model, input):
     tokenizer = model.tokenizer
@@ -317,25 +356,31 @@ def gen_class_target_tokens(model, input):
     # return target_tokens
 
 
-def hephaestus_loss(class_preds, numeric_preds, raw_data, model):
+def hephaestus_loss(class_preds, numeric_preds, target, is_numeric_mask, model):
     cross_entropy = nn.CrossEntropyLoss()
     mse_loss = nn.MSELoss()
     device = model.device
     # raw_data_numeric_class = raw_data[:]
 
-    class_target = gen_class_target_tokens(model, raw_data)
+    class_target = gen_class_target_tokens(model, target)
+    # print(f"Class Target Shape: {class_target.shape}, Class Preds: {class_preds.shape}")
     class_loss = cross_entropy(class_preds[0], class_target)
-
-    actual_num_idx = torch.tensor(
-        [idx for idx, j in enumerate(raw_data) if j.is_numeric]
-    ).to(device)
-    pred_nums = numeric_preds[actual_num_idx]
+    actual_num_index = [idx for idx, val in enumerate(is_numeric_mask) if val]
+    actual_num_index = torch.tensor(actual_num_index).to(device)
+    # actual_num_idx = torch.tensor(
+    #     [idx for idx, j in enumerate(raw_data) if j.is_numeric]
+    # ).to(device)
+    numeric_preds = numeric_preds.squeeze()
+    numeric_preds = numeric_preds[actual_num_index]
     # print(actual_num_idx.shape)
-    actual_nums = torch.tensor([i.value for i in raw_data if i.is_numeric]).to(device)
+    actual_nums = torch.tensor([i.value for i in target if i.is_numeric]).to(device)
+    # print(
+    #     f"Pred Num Shape: {numeric_preds.shape}, Actual Num Shape: {actual_nums.shape}"
+    # )
     # print(actual_nums.shape)
     # print(pred_nums.shape)
-    reg_loss = mse_loss(pred_nums[0], actual_nums)
-    reg_loss_adjuster = 1 / 10  # class_loss/reg_loss
+    reg_loss = mse_loss(numeric_preds, actual_nums)
+    reg_loss_adjuster = 1  # / 10  # class_loss/reg_loss
     # Scale the regression loss to be on the same scale as the classification loss
     # reg_loss_adjuster = class_loss / reg_loss
 
