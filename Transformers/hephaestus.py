@@ -275,11 +275,11 @@ class TransformerModel(nn.Module):
         # self.decoder = nn.Linear(self.embedding_dim, len(self.tokenizer)).to(device)
         # Numeric Neural Net for numbers prediction after BERT
         self.numeric_predictor = nn.Sequential(
-            nn.Linear(self.embedding_dim, 256),
+            nn.Linear(self.embedding_dim, self.embedding_dim * 2),
             nn.ReLU(),
-            nn.Linear(256, 128),
+            nn.Linear(self.embedding_dim * 2, 256),
             nn.ReLU(),
-            nn.Linear(128, 1),
+            nn.Linear(256, 1),
         )
 
     def forward(self, input: StringNumeric):
@@ -396,7 +396,6 @@ def evaluate_bert(model, ds, i):
     class_preds = class_preds.squeeze()
     numeric_preds = numeric_preds.squeeze()
     # target_tensor = gen_class_target_tokens(model, target_data)
-    print(class_preds.shape, numeric_preds.shape)
     actuals = replacer(" ".join([str(val.value) for val in target_data]))
     class_preds_max = torch.argmax(class_preds.squeeze(), dim=1)
     preds = []
