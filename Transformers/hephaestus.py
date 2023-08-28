@@ -282,16 +282,19 @@ class TransformerModel(nn.Module):
             nn.Linear(256, 1),
         )
 
-    def forward(self, input: StringNumeric):
+    def forward(self, input: StringNumeric, finetune=False):
         input = self.string_numeric_embd(input)
         bert_output = self.bert_lm.bert(inputs_embeds=input)
         last_hidden_state = bert_output.last_hidden_state
         pooled_output = bert_output.pooler_output
-
+        
         bert_logits = self.bert_lm.cls(last_hidden_state, pooled_output)[0]
         numeric_prediction = self.numeric_predictor(last_hidden_state)
-        # mlm_output = self.decoder(mlm_output.last_hidden_state)
-        return bert_logits, numeric_prediction
+        if finetune:
+            print("Fine Tune Enabled")
+            return last_hidden_state, numeric_prediction
+        else:
+            return bert_logits, numeric_prediction 
 
 
 def gen_class_target_tokens(model, input):
@@ -326,7 +329,7 @@ def gen_class_target_tokens(model, input):
 
 def hephaestus_loss(class_preds, numeric_preds, target, is_numeric_mask, model):
     cross_entropy = nn.CrossEntropyLoss()
-    mse_loss = nn.MSELoss()
+    rrmse_loss = nn.RMSELoss()
     device = model.device
     # raw_data_numeric_class = raw_data[:]
 
@@ -349,7 +352,7 @@ def hephaestus_loss(class_preds, numeric_preds, target, is_numeric_mask, model):
     # )
     # print(actual_nums.shape)
     # print(pred_nums.shape)
-    reg_loss = mse_loss(numeric_preds, actual_nums)
+    reg_loss = rmse_loss(numeric_preds, actual_nums)
     reg_loss_adjuster = 1  # / 10  # class_loss/reg_loss
     # Scale the regression loss to be on the same scale as the classification loss
     # reg_loss_adjuster = class_loss / reg_loss
