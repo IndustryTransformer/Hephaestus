@@ -12,7 +12,9 @@ from torch import Tensor, nn
 # from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from torch.utils.data import Dataset  # DataLoader, dataset
 
-from transformers import BertForPreTraining, BertTokenizer
+from transformers import BertForMaskedLM, BertTokenizer
+
+# from transformers import BertForPreTraining, BertTokenizer
 
 # import torch.nn.functional as F
 
@@ -253,7 +255,8 @@ class TransformerModel(nn.Module):
 
         # BERT Tokenizer and Model
         self.tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
-        self.bert_lm = BertForPreTraining.from_pretrained("bert-base-uncased")
+        self.bert_lm = BertForMaskedLM.from_pretrained("bert-base-uncased")
+        # self.bert_lm = BertForPreTraining.from_pretrained("bert-base-uncased")
         # self.tokenizer = BertTokenizer.from_pretrained(bert_model_name)
         self.tokenizer.add_tokens(
             ["[MISSING]", "[NUMERIC]", "<row-start>", "<row-end>", "<pad>"]
@@ -284,17 +287,29 @@ class TransformerModel(nn.Module):
 
     def forward(self, input: StringNumeric, finetune=False):
         input = self.string_numeric_embd(input)
-        bert_output = self.bert_lm.bert(inputs_embeds=input)
-        last_hidden_state = bert_output.last_hidden_state
-        pooled_output = bert_output.pooler_output
-        
-        bert_logits = self.bert_lm.cls(last_hidden_state, pooled_output)[0]
+        bert_output = self.bert_lm(
+            inputs_embeds=input, output_hidden_states=True, output_attentions=True
+        )
+
+        logits = bert_output.logits
+        last_hidden_state = bert_output.hidden_states[-1]
+        attention_scores = bert_output.attentions[-1]
+        weighted_state = torch.matmul(attention_scores, last_hidden_state)
+
+        numeric_prediction = self.numeric_predictor(weighted_state)
+
+        # last_hidden_state = bert_output.last_hidden_state
+        # pooled_output = bert_output.pooler_output
+
+        # bert_logits = self.bert_lm.cls(last_hidden_state, pooled_output)[0]
+        # logits = bert_output["logits"]
+        # last_hidden_state = bert_output["hidden_states"][-1]
         numeric_prediction = self.numeric_predictor(last_hidden_state)
         if finetune:
             print("Fine Tune Enabled")
             return last_hidden_state, numeric_prediction
         else:
-            return bert_logits, numeric_prediction 
+            return logits, numeric_prediction
 
 
 def gen_class_target_tokens(model, input):
@@ -329,7 +344,7 @@ def gen_class_target_tokens(model, input):
 
 def hephaestus_loss(class_preds, numeric_preds, target, is_numeric_mask, model):
     cross_entropy = nn.CrossEntropyLoss()
-    rrmse_loss = nn.RMSELoss()
+    mse_loss = nn.MSELoss()
     device = model.device
     # raw_data_numeric_class = raw_data[:]
 
@@ -352,7 +367,7 @@ def hephaestus_loss(class_preds, numeric_preds, target, is_numeric_mask, model):
     # )
     # print(actual_nums.shape)
     # print(pred_nums.shape)
-    reg_loss = rmse_loss(numeric_preds, actual_nums)
+    reg_loss = mse_loss(numeric_preds, actual_nums)
     reg_loss_adjuster = 1  # / 10  # class_loss/reg_loss
     # Scale the regression loss to be on the same scale as the classification loss
     # reg_loss_adjuster = class_loss / reg_loss
