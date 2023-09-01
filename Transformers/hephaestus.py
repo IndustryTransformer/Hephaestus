@@ -256,6 +256,7 @@ class TransformerModel(nn.Module):
         # BERT Tokenizer and Model
         self.tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
         self.bert_lm = BertForMaskedLM.from_pretrained("bert-base-uncased")
+        self.bert_num = BertForMaskedLM.from_pretrained("bert-base-uncased")
         # self.bert_lm = BertForPreTraining.from_pretrained("bert-base-uncased")
         # self.tokenizer = BertTokenizer.from_pretrained(bert_model_name)
         self.tokenizer.add_tokens(
@@ -269,6 +270,9 @@ class TransformerModel(nn.Module):
         self.bert_embedding_state_dict = (
             self.bert_lm.bert.embeddings.word_embeddings.state_dict()
         )
+        # nums...
+        self.bert_num.resize_token_embeddings(len(self.tokenizer))
+
         self.embedding_dim = self.bert_lm.bert.config.hidden_size
         self.string_numeric_embd = StringNumericEmbedding(
             state_dict=self.bert_embedding_state_dict,
@@ -287,11 +291,13 @@ class TransformerModel(nn.Module):
 
     def forward(self, input: StringNumeric, finetune=False):
         input = self.string_numeric_embd(input)
-        bert_output = self.bert_lm(
+        logits = self.bert_lm(inputs_embeds=input)
+        logits = logits.logits
+        bert_output = self.bert_num(
             inputs_embeds=input, output_hidden_states=True, output_attentions=True
         )
 
-        logits = bert_output.logits
+        # logits = bert_output.logits
         last_hidden_state = bert_output.hidden_states[-1]
         attention_scores = bert_output.attentions[-1]
         weighted_state = torch.matmul(attention_scores, last_hidden_state)
