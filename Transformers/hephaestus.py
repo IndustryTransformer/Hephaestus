@@ -416,14 +416,27 @@ def show_mask_pred(i, model, dataset, probability):
 
 
 # %%
-def mtm(model, dataset, model_name, epochs=100, batch_size=1000, lr=0.001):
+def mtm(
+    model,
+    dataset,
+    model_name,
+    epochs=100,
+    batch_size=1000,
+    lr=0.001,
+    early_stop=True,
+    patience=20,
+):
     # Masked Tabular Modeling
     mse_loss = nn.MSELoss()
     ce_loss = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
     numeric_loss_scaler = 15
     summary_writer = SummaryWriter("runs/" + model_name)
-    early_stopping = EarlyStopping(patience=50, min_delta=0.0001)
+    if early_stop:
+        early_stopping = EarlyStopping(patience=patience, min_delta=0.0001)
+    else:
+        early_stopping = None
+    early_stopping = EarlyStopping(patience=patience, min_delta=0.0001)
     batch_count = 0
     model.train()
     # Tqdm for progress bar with loss and epochs displayed
@@ -499,20 +512,33 @@ def mtm(model, dataset, model_name, epochs=100, batch_size=1000, lr=0.001):
         summary_writer.add_scalar(
             "LossTest/mnm_loss", test_numeric_loss.item(), batch_count
         )
-        early_stopping_status = early_stopping(model, test_loss)
+        if early_stopping is not None:
+            early_stopping_status = early_stopping(model, test_loss)
+            early_stopping_progress = early_stopping.status
+        else:
+            early_stopping_status = False
+            early_stopping_progress = "No Early Stopping"
         pbar.set_description(
             f"Epoch {epoch+1}/{epochs} Loss: {loss.item():,.4f} "
             + f"Test Loss: {test_loss.item():,.4f}"
-            + f" Early Stopping: {early_stopping.status}"
+            + f" Early Stopping: {early_stopping_progress}"
         )
         if early_stopping_status:
             break
-    model.load_state_dict(early_stopping.best_model.state_dict())
+    if early_stopping is not None:
+        model.load_state_dict(early_stopping.best_model.state_dict())
 
 
 # %%
 def fine_tune_model(
-    model, dataset, n_rows, model_name, epochs=100, lr=0.01, early_stop=True
+    model,
+    dataset,
+    n_rows,
+    model_name,
+    epochs=100,
+    lr=0.01,
+    early_stop=True,
+    patience=20,
 ):
     # Regression Model
 
@@ -524,7 +550,7 @@ def fine_tune_model(
     model_time = dt.now().strftime("%Y-%m-%dT%H:%M:%S")
     model_name = f"{model_name}_{n_rows}_{model_time}"
     if early_stop:
-        early_stopping = EarlyStopping(patience=50, min_delta=0.0001)
+        early_stopping = EarlyStopping(patience=patience, min_delta=0.0001)
     else:
         early_stopping = None
     summary_writer = SummaryWriter("runs/" + model_name)
@@ -563,24 +589,26 @@ def fine_tune_model(
         # Test set
         with torch.no_grad():
             y_pred = model(dataset.X_test_numeric, dataset.X_test_categorical)
-            loss_test = loss_fn(y_pred, dataset.y_test)
+            test_loss = loss_fn(y_pred, dataset.y_test)
             summary_writer.add_scalar(
-                "LossTest/regression_loss", loss_test.item(), batch_count
+                "LossTest/regression_loss", test_loss.item(), batch_count
             )
         if early_stopping is not None:
-            early_stopping_status = early_stopping(model, loss_test)
+            early_stopping_status = early_stopping(model, test_loss)
+            early_stopping_progress = early_stopping.status
         else:
             early_stopping_status = False
+            early_stopping_progress = "No Early Stopping"
         pbar.set_description(
             f"Epoch {epoch+1}/{epochs} "
             + f"n_rows: {n_rows:,} "
             + f"Loss: {loss.item():,.2f} "
-            + f"Test Loss: {loss_test.item():,.2f} "
-            + f"Early Stopping: {early_stopping.status}"
+            + f"Test Loss: {test_loss.item():,.2f} "
+            + f"Early Stopping: {early_stopping_progress}"
         )
         if early_stopping_status:
             break
-    best_loss = early_stopping.best_loss if early_stopping is not None else loss_test
+    best_loss = early_stopping.best_loss if early_stopping is not None else test_loss
     return {"n_rows": n_rows, "test_loss": best_loss.item()}
 
 
