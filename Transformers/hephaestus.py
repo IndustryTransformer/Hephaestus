@@ -423,7 +423,7 @@ def mtm(model, dataset, model_name, epochs=100, batch_size=1000, lr=0.001):
     optimizer = optim.Adam(model.parameters(), lr=lr)
     numeric_loss_scaler = 15
     summary_writer = SummaryWriter("runs/" + model_name)
-    early_stopping = EarlyStopping(patience=20, min_delta=0.0001)
+    early_stopping = EarlyStopping(patience=50, min_delta=0.0001)
     batch_count = 0
     model.train()
     # Tqdm for progress bar with loss and epochs displayed
@@ -507,6 +507,7 @@ def mtm(model, dataset, model_name, epochs=100, batch_size=1000, lr=0.001):
         )
         if early_stopping_status:
             break
+    model.load_state_dict(early_stopping.best_model.state_dict())
 
 
 # %%
@@ -575,7 +576,7 @@ def fine_tune_model(
             + f"n_rows: {n_rows:,} "
             + f"Loss: {loss.item():,.2f} "
             + f"Test Loss: {loss_test.item():,.2f} "
-            + f"Early Stopping: {early_stopping_status}"
+            + f"Early Stopping: {early_stopping.status}"
         )
         if early_stopping_status:
             break
