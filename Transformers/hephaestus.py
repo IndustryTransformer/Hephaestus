@@ -1,328 +1,627 @@
 # %%
-import math
-import re
+import copy
 from dataclasses import dataclass, field
-from numbers import Number
-from typing import List, Union  # Any, Callable, Dict, List, Optional, Tuple,
+from datetime import datetime as dt
+from itertools import chain
 
-import numpy as np
-import polars as pl
+# import numpy as np
+import pandas as pd
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.nn.init as init
+import torch.optim as optim
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from torch.utils.tensorboard import SummaryWriter
+from tqdm.notebook import trange
 
-# import torch.nn.functional as F
-from torch import Tensor, nn
-from torch.nn import TransformerEncoder, TransformerEncoderLayer
-from torch.utils.data import Dataset  # DataLoader, dataset
+# Load and preprocess the dataset (assuming you have a CSV file)
+df = pd.read_csv("../data/diamonds.csv")
+df.head()
 
-# from tqdm import tqdm, trange
+
+# %%
+def initialize_parameters(module):
+    if isinstance(module, (nn.Linear, nn.Conv2d)):
+        init.xavier_uniform_(module.weight, gain=1)
+        if module.bias is not None:
+            init.constant_(module.bias, 0.000)
+    elif isinstance(module, nn.Embedding):
+        init.uniform_(module.weight, 0.0, 0.5)
+    elif isinstance(module, nn.LayerNorm):
+        init.normal_(module.weight, mean=0, std=1)
+        init.constant_(module.bias, 0.01)
+
 
 # %%
 
 
-def scale_numeric(df):
-    for col in df.columns:
-        if df[col].dtype == pl.Float64 or df[col].dtype == pl.Int64:
-            df = df.with_columns(
-                ((pl.col(col) - pl.col(col).mean()) / pl.col(col).std()).alias(col)
-            )  # .select(pl.col(["dew_point_temp", "NewCOL"]))
-    return df
+class EarlyStopping:
+    def __init__(self, patience=15, min_delta=0, restore_best_weights=True):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.restore_best_weights = restore_best_weights
+        self.best_model = None
+        self.best_loss = None
+        self.counter = 0
+        self.status = ""
+
+    def __call__(self, model, val_loss):
+        if self.best_loss is None:
+            self.best_loss = val_loss
+            self.best_model = copy.deepcopy(model)
+        elif self.best_loss - val_loss > self.min_delta:
+            self.best_loss = val_loss
+            self.counter = 0
+            self.best_model.load_state_dict(model.state_dict())
+        elif self.best_loss - val_loss < self.min_delta:
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.status = f"Stopped on {self.counter}"
+                if self.restore_best_weights:
+                    model.load_state_dict(self.best_model.state_dict())
+                return True
+        self.status = f"{self.counter}/{self.patience}"
+        return False
 
 
-def make_lower_remove_special_chars(df):
-    df = df.with_columns(
-        pl.col(pl.Utf8).str.to_lowercase().str.replace_all("[^a-zA-Z0-9]", " ")
-    )
-    return df
-
-
-def get_unique_utf8_values(df):
-    arr = np.array([])
-    for col in df.select(pl.col(pl.Utf8)).columns:
-        arr = np.append(arr, df[col].unique().to_numpy())
-
-    return np.unique(arr)
-
-
-def get_col_tokens(df):
-    tokens = []
-    for col_name in df.columns:
-        sub_strs = re.split(r"[^a-zA-Z0-9]", col_name)
-        tokens.extend(sub_strs)
-    return np.unique(np.array(tokens))
-
-
+# %%
 @dataclass
-class StringNumeric:
-    value: Union[str, float]
-    # all_tokens: np.array
-    is_numeric: bool = field(default=None, repr=True)
-    embedding_idx: int = field(default=None, repr=True)
-    is_special: bool = field(default=False, repr=True)
+class TabularDS:
+    df: pd.DataFrame = field(repr=False)
+    target_column: str
+    seed: int = 42
+    device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # special_tokens: list =
+    special_tokens: list = field(
+        default_factory=lambda: ["[PAD]", "[NUMERIC_MASK]", "[MASK]"]
+    )
 
     def __post_init__(self):
-        if isinstance(self.value, str):
-            self.is_numeric = False
-        else:
-            self.is_numeric = True
-            self.embedding_idx = 0
-
-    def gen_embed_idx(self, tokens: np.array, special_tokens: np.array):
-        if not self.is_numeric:
-            try:
-                self.embedding_idx = np.where(tokens == self.value)[0][0] + 1
-            except IndexError:
-                self.embedding_idx = np.where(tokens == "<unk>")[0][0] + 1
-            if self.value in special_tokens:
-                self.is_special = True
-
-
-class TabularDataset(Dataset):
-    # def __init__(self, df: pl.DataFrame, vocab_dict: Dict, m_dim: int) -> Dataset:
-    def __init__(
-        self,
-        df: pl.DataFrame,
-        vocab,
-        special_tokens: np.array,
-        shuffle_cols=False,
-        max_row_length=512,
-    ) -> Dataset:
-        self.df = df
-        self.vocab = vocab
-        self.special_tokens = special_tokens
-        self.vocab_len = vocab.shape[0]
-        self.shuffle_cols = shuffle_cols
-        self.max_row_length = max_row_length
-        # self.vocab_dict = vocab_dict
-        # self.embedding = nn.Embedding(len(self.string_vocab), m_dim)
-        # Numeric Scale
-
-        # self.col_vocab = self.df.columns
-
-    def __len__(self):
-        """Returns the number of sequences in the dataset."""
-        length = self.df.shape[0]
-        return length
-
-    def __getitem__(self, idx):
-        """Returns a tuple of (input, target) at the given index."""
-        row = self.df[idx]
-        row = self.splitter(row)
-        return row
-
-    def splitter(self, row: pl.DataFrame) -> List[Union[str, float, None]]:
-        vals = ["<row-start>"]
-        cols = row.columns
-        if self.shuffle_cols:
-            np.random.shuffle(cols)
-
-        for col in cols:
-            value = row[col][0]
-            col = col.split("_")
-            vals.extend(col)
-            vals.append(":")
-            if isinstance(value, Number):
-                vals.append(value)
-            elif value is None:
-                vals.append("missing")
-                # Nones are only for numeric columns, others are "None"
-            elif isinstance(value, str):
-                vals.extend(value.split(" "))
-            else:
-                raise ValueError("Unknown type")
-            vals.append(",")
-        vals.append("<row-end>")
-
-        val_len = len(vals)
-        if val_len < self.max_row_length:
-            diff = self.max_row_length - val_len
-            vals.extend(["<pad>"] * diff)
-        elif val_len > self.max_row_length:
-            vals = vals[: self.max_row_length - 1]
-            # add warning
-
-            vals = np.append(vals, ["<row-end>"])
-            print("Row too long, truncating")
-            Warning("Row too long, truncating")
-        vals = [StringNumeric(value=val) for val in vals]
-        for val in vals:
-            val.gen_embed_idx(self.vocab, self.special_tokens)
-
-        return vals
-
-
-class StringNumericEmbedding(nn.Module):
-    def __init__(self, n_token: int, d_model: int, device: torch.device):
-        super().__init__()
-        self.device = device
-        self.embedding = nn.Embedding(n_token + 1, d_model).to(device)  # padding_idx=0
-
-    def forward(self, input: StringNumeric):
-        embedding_index = torch.tensor([i.embedding_idx for i in input]).to(self.device)
-        embed = self.embedding(embedding_index)
-        # with torch.no_grad():
-        for idx, value in enumerate(input):
-            if value.is_numeric:
-                embed[idx][0:8] = value.value
-        return embed
-
-
-def mask_row(row, tokens, special_tokens):
-    row = row[:]
-    prob = 0.15
-    for idx, val in enumerate(row):
-        if val.is_special:
-            continue
-        if np.random.rand() < prob:
-            if val.is_numeric:
-                val = StringNumeric(value="<numeric_mask>")
-                val.gen_embed_idx(tokens, special_tokens)
-                row[idx] = val
-            else:
-                val = StringNumeric(value="<mask>")
-                val.gen_embed_idx(tokens, special_tokens)
-                row[idx] = val
-    return row
-
-
-def batch_data(ds, idx: int, n_row=4):
-    target = []
-    if len(ds) > n_row + idx:
-        end_idx = n_row + idx
-    else:
-        end_idx = len(ds) - 1
-    for i in range(idx, end_idx):
-        target.extend(ds[i])
-
-    batch = mask_row(target, ds.vocab, ds.special_tokens)
-
-    return batch, target
-
-
-class PositionalEncoding(nn.Module):
-    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 100_000):
-        super().__init__()
-        self.dropout = nn.Dropout(p=dropout)
-
-        position = torch.arange(max_len).unsqueeze(1)
-        div_term = torch.exp(
-            torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model)
+        self.df = self.df.sample(frac=1, random_state=self.seed).reset_index(
+            drop=True
+        )  # This is where randomness is introduced
+        self.category_columns = self.df.select_dtypes(
+            include=["object"]
+        ).columns.tolist()
+        self.numeric_columns = self.df.select_dtypes(
+            include=["int64", "float64"]
+        ).columns.tolist()
+        self.target_column = [self.target_column]
+        self.tokens = list(
+            chain(
+                self.special_tokens,
+                self.df.columns.to_list(),
+                list(set(self.df[self.category_columns].values.flatten().tolist())),
+            )
         )
-        pe = torch.zeros(max_len, 1, d_model)
-        pe[:, 0, 0::2] = torch.sin(position * div_term)
-        pe[:, 0, 1::2] = torch.cos(position * div_term)
-        self.register_buffer("pe", pe)
 
-    def forward(self, x: Tensor) -> Tensor:
-        """
-        Arguments:
-            x: Tensor, shape ``[seq_len, batch_size, embedding_dim]``
-        """
-        x = x + self.pe[: x.size(0)]
-        return self.dropout(x)
+        self.token_dict = {token: i for i, token in enumerate(self.tokens)}
+        self.token_decoder_dict = {i: token for i, token in enumerate(self.tokens)}
+
+        self.scaler = StandardScaler()
+        self.numeric_columns.remove(self.target_column[0])
+        # self.numeric_columns = self.numeric_columns.remove(self.target_column[0])
+        numeric_scaled = self.scaler.fit_transform(self.df[self.numeric_columns])
+        self.df[self.numeric_columns] = numeric_scaled
+        for col in self.category_columns:
+            self.df[col] = self.df[col].map(self.token_dict)
+
+        X = self.df.drop(self.target_column, axis=1)
+        y = self.df[self.target_column]
+
+        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
+            X, y, test_size=0.2
+        )
+
+        X_train_numeric = self.X_train[self.numeric_columns]
+        X_train_categorical = self.X_train[self.category_columns]
+        X_test_numeric = self.X_test[self.numeric_columns]
+        X_test_categorical = self.X_test[self.category_columns]
+
+        self.X_train_numeric = torch.tensor(
+            X_train_numeric.values, dtype=torch.float
+        ).to(self.device)
+
+        self.X_train_categorical = torch.tensor(
+            X_train_categorical.values, dtype=torch.long
+        ).to(self.device)
+
+        self.X_test_numeric = torch.tensor(X_test_numeric.values, dtype=torch.float).to(
+            self.device
+        )
+
+        self.X_test_categorical = torch.tensor(
+            X_test_categorical.values, dtype=torch.long
+        ).to(self.device)
+
+        self.y_train = torch.tensor(self.y_train.values, dtype=torch.float).to(
+            self.device
+        )
+
+        self.y_test = torch.tensor(self.y_test.values, dtype=torch.float).to(
+            self.device
+        )
 
 
-class TransformerModel(nn.Module):
+# %%
+# df = pd.read_csv("../data/diamonds.csv")
+# df.head()
+# # %%
+# ds = TabularDS(df, "price")
+# # %%
+# ds
+# # %%
+# %%
+class MultiHeadAttention(nn.Module):
+    def __init__(self, d_model, n_heads):
+        super(MultiHeadAttention, self).__init__()
+        self.n_heads = n_heads
+        self.d_model = d_model
+        self.d_head = d_model // n_heads
+
+        self.q_linear = nn.Linear(d_model, d_model)
+        self.k_linear = nn.Linear(d_model, d_model)
+        self.v_linear = nn.Linear(d_model, d_model)
+        self.out_linear = nn.Linear(d_model, d_model)
+
+        # self.initialize_parameters()
+        self.apply(initialize_parameters)
+
+    def forward(self, q, k, v, mask=None, input_feed_forward=False):
+        batch_size = q.size(0)
+
+        if input_feed_forward:
+            q = (
+                self.q_linear(q)
+                .view(batch_size, -1, self.n_heads, self.d_head)
+                .transpose(1, 2)
+            )
+            k = (
+                self.k_linear(k)
+                .view(batch_size, -1, self.n_heads, self.d_head)
+                .transpose(1, 2)
+            )
+            v = (
+                self.v_linear(v)
+                .view(batch_size, -1, self.n_heads, self.d_head)
+                .transpose(1, 2)
+            )
+
+        attn_output, _ = self.scaled_dot_product_attention(q, k, v, mask)
+
+        attn_output = (
+            attn_output.transpose(1, 2).contiguous().view(batch_size, -1, self.d_model)
+        )
+        out = self.out_linear(attn_output)
+        return out
+
+    def scaled_dot_product_attention(self, q, k, v, mask=None):
+        matmul_qk = torch.matmul(q, k.transpose(-2, -1))
+        d_k = q.size(-1)
+        scaled_attention_logits = matmul_qk / (d_k**0.5)
+
+        if mask is not None:
+            scaled_attention_logits += mask * -1e9
+
+        attention_weights = F.softmax(scaled_attention_logits, dim=-1)
+        output = torch.matmul(attention_weights, v)
+
+        return output, attention_weights
+
+
+class TransformerEncoderLayer(nn.Module):
+    def __init__(self, d_model, n_heads):
+        super(TransformerEncoderLayer, self).__init__()
+
+        self.multi_head_attention = MultiHeadAttention(d_model, n_heads)
+
+        self.feed_forward = nn.Sequential(
+            nn.Linear(d_model, 2 * d_model),
+            nn.ReLU(),
+            nn.Linear(2 * d_model, d_model),
+            # nn.Linear(4 * d_model, d_model * 4),
+            # nn.ReLU(),
+            # nn.Linear(d_model * 4, d_model),
+        )
+
+        self.layernorm1 = nn.LayerNorm(d_model)
+        self.layernorm2 = nn.LayerNorm(d_model)
+        # self.initialize_parameters()
+        self.apply(initialize_parameters)
+
+    def forward(self, q, k, v, mask=None, input_feed_forward=False):
+        attn_output = self.multi_head_attention(q, k, v, mask, input_feed_forward)
+        out1 = self.layernorm1(q + attn_output)
+
+        ff_output = self.feed_forward(out1)
+        out2 = self.layernorm2(out1 + ff_output)
+
+        return out2
+
+
+# %%
+def mask_tensor(tensor, model, probability=0.8):
+    if tensor.dtype == torch.float32:
+        is_numeric = True
+    elif tensor.dtype == torch.int32 or tensor.dtype == torch.int64:
+        is_numeric = False
+    else:
+        raise ValueError(f"Task {tensor.dtype} not supported.")
+
+    tensor = tensor.clone()
+    bit_mask = torch.rand(tensor.shape) > probability
+    if is_numeric:
+        tensor[bit_mask] = torch.tensor(float("-Inf"))
+    else:
+        tensor[bit_mask] = model.cat_mask_token
+    return tensor.to(model.device)
+
+
+# %%
+class TabTransformer(nn.Module):
     def __init__(
         self,
-        n_token: int,
-        d_model: int,
-        n_head: int,
-        d_hid: int,
-        n_layers: int,
-        device: torch.device,
-        dropout: float = 0.15,
+        dataset,
+        d_model=64,
+        n_heads=4,
     ):
-        super().__init__()
-        n_token = n_token + 1
-        self.n_token = n_token
-        self.model_type = "Transformer"
-        self.pos_encoder = PositionalEncoding(d_model, dropout)
-        encoder_layers = TransformerEncoderLayer(d_model, n_head, d_hid, dropout)
-        self.transformer_encoder = TransformerEncoder(encoder_layers, n_layers)
-        self.encoder = StringNumericEmbedding(n_token, d_model, device)
+        super(TabTransformer, self).__init__()
+        self.device = dataset.device
         self.d_model = d_model
-        self.decoder = nn.Linear(d_model, n_token)
-        self.numeric_ingester = nn.Linear(d_model, n_token * 2)
-        self.numeric_hidden = nn.Linear(n_token * 2, n_token)
-        self.numeric_flattener = nn.Linear(n_token, 1)
+        self.tokens = dataset.tokens
+        self.token_dict = dataset.token_dict
+        # self.decoder_dict = {v: k for k, v in self.token_dict.items()}
+        # Masks
+        self.cat_mask_token = torch.tensor(self.token_dict["[MASK]"]).to(self.device)
+        self.numeric_mask_token = torch.tensor(self.token_dict["[NUMERIC_MASK]"]).to(
+            self.device
+        )
 
-        # self.numeric_decoder = nn.Linear(d_model)
+        self.n_tokens = len(self.tokens)  # TODO Make this
+        # Embedding layers for categorical features
+        self.embeddings = nn.Embedding(self.n_tokens, self.d_model).to(self.device)
+        self.n_numeric_cols = len(dataset.numeric_columns)
+        self.n_cat_cols = len(dataset.category_columns)
+        self.col_tokens = dataset.category_columns + dataset.numeric_columns
+        self.n_columns = self.n_numeric_cols + self.n_cat_cols
+        # self.numeric_embeddings = NumericEmbedding(d_model=self.d_model)
+        self.col_indices = torch.tensor(
+            [self.tokens.index(col) for col in self.col_tokens], dtype=torch.long
+        ).to(self.device)
+        self.numeric_indices = torch.tensor(
+            [self.tokens.index(col) for col in dataset.numeric_columns],
+            dtype=torch.long,
+        ).to(self.device)
+        self.transformer_encoder1 = TransformerEncoderLayer(
+            d_model, n_heads=n_heads
+        ).to(self.device)
+        self.transformer_encoder2 = TransformerEncoderLayer(
+            d_model, n_heads=n_heads
+        ).to(self.device)
+        self.regressor = nn.Sequential(
+            nn.Linear(d_model, d_model * 2),
+            nn.ReLU(),
+            nn.Linear(d_model * 2, 1),
+            # nn.ReLU(),
+        ).to(self.device)
 
-        self.init_weights()
+        self.mlm_decoder = nn.Sequential(nn.Linear(d_model, self.n_tokens)).to(
+            self.device
+        )  # TODO try making more complex
 
-    def init_weights(self) -> None:
-        init_range = 0.1
-        self.encoder.embedding.weight.data.uniform_(-init_range, init_range)
-        self.decoder.bias.data.zero_()
-        self.decoder.weight.data.uniform_(-init_range, init_range)
+        self.mnm_decoder = nn.Sequential(
+            nn.Linear(
+                self.n_columns * self.d_model, self.d_model * 4
+            ),  # Try making more complex
+            nn.ReLU(),
+            nn.Linear(self.d_model * 4, self.n_numeric_cols),
+        ).to(self.device)
 
-    def forward(self, src: Tensor, src_mask: Tensor = None) -> Tensor:
-        """
-        Arguments:
-            src: Tensor, shape ``[seq_len, batch_size]``
-            src_mask: Tensor, shape ``[seq_len, seq_len]``
+        self.flatten_layer = nn.Linear(len(self.col_tokens), 1).to(self.device)
+        self.apply(initialize_parameters)
 
-        Returns:
-            output Tensor of shape ``[seq_len, batch_size, n_token]``
-        """
-        # src_shape = src.shape
-        # print(f"raw src_shape: {len(src)}")
-        src = self.encoder(src) * math.sqrt(self.d_model)
-        src = torch.unsqueeze(src, dim=1)
-        # print(f"encoded src_shape: {src.shape}")
+    def forward(self, num_inputs, cat_inputs, task="regression"):
+        # Embed column indices
+        repeated_col_indices = self.col_indices.unsqueeze(0).repeat(
+            num_inputs.size(0), 1
+        )
+        col_embeddings = self.embeddings(repeated_col_indices)
 
-        # src_shape = src.shape
-        src = self.pos_encoder(src)
-        output = self.transformer_encoder(src)
-        # print(f"output_shape: {output.shape}")
-        numeric_output = torch.relu(self.numeric_ingester(output))  # .flatten()
-        numeric_output = torch.relu(self.numeric_hidden(numeric_output))
-        numeric_output = torch.squeeze(numeric_output, dim=1)
-        # numeric_output = torch.mean(numeric_output, [1])
-        numeric_output = self.numeric_flattener(numeric_output)
-        # numeric_output = nn.flatten(numeric_output)
-        output = self.decoder(output)
-        output = torch.squeeze(output, dim=1)
-        numeric_output = numeric_output.view(output.shape[0])
+        cat_embeddings = self.embeddings(cat_inputs)
 
-        # print(f"output_shape decoded: {output.shape}")
-        # output = output.view(-1, self.n_token+1)
-        # output = output.view(-1, src_shape[0]).T
-        # print(f"output_shape view: {output.shape}")
+        expanded_num_inputs = num_inputs.unsqueeze(2).repeat(1, 1, self.d_model)
+        with torch.no_grad():
+            repeated_numeric_indices = self.numeric_indices.unsqueeze(0).repeat(
+                num_inputs.size(0), 1
+            )
+            numeric_col_embeddings = self.embeddings(repeated_numeric_indices)
 
-        return output, numeric_output
+            inf_mask = (expanded_num_inputs == float("-inf")).all(dim=2)
+
+        base_numeric = torch.zeros_like(expanded_num_inputs)
+
+        num_embeddings = (
+            numeric_col_embeddings[~inf_mask] * expanded_num_inputs[~inf_mask]
+        )
+        base_numeric[~inf_mask] = num_embeddings
+        base_numeric[inf_mask] = self.embeddings(self.numeric_mask_token)
+
+        query_embeddings = torch.cat([cat_embeddings, base_numeric], dim=1)
+        out = self.transformer_encoder1(
+            col_embeddings,
+            # query_embeddings,
+            query_embeddings,
+            query_embeddings
+            # col_embeddings, query_embeddings, query_embeddings
+        )
+        out = self.transformer_encoder2(out, out, out)
+
+        if task == "regression":
+            out = self.regressor(out)
+            out = self.flatten_layer(out.squeeze(-1))
+
+            return out
+        elif task == "mlm":
+            cat_out = self.mlm_decoder(out)
+            # print(f"Out shape: {out.shape}, cat_out shape: {cat_out.shape}")
+            numeric_out = out.view(out.size(0), -1)
+            # print(f"numeric_out shape: {numeric_out.shape}")
+            numeric_out = self.mnm_decoder(numeric_out)
+            return cat_out, numeric_out
+        else:
+            raise ValueError(f"Task {task} not supported.")
 
 
-def hephaestus_loss(
-    class_preds, numeric_preds, raw_data, tokens, special_tokens, device
-):
-    cross_entropy = nn.CrossEntropyLoss()
-    mse_loss = nn.MSELoss()
-    raw_data_numeric_class = raw_data[:]
+# %%
+def show_mask_pred(i, model, dataset, probability):
+    numeric_values = dataset.X_train_numeric[i : i + 1, :]
+    categorical_values = dataset.X_train_categorical[i : i + 1, :]
+    numeric_masked = mask_tensor(numeric_values, model, probability=probability)
+    categorical_masked = mask_tensor(categorical_values, model, probability=probability)
+    # Predictions
+    with torch.no_grad():
+        cat_preds, numeric_preds = model(numeric_masked, categorical_masked, task="mlm")
+    # Get the predicted tokens from cat_preds
+    cat_preds = cat_preds.argmax(dim=2)
+    # Get the words from the tokens
+    decoder_dict = dataset.token_decoder_dict
+    cat_preds = [decoder_dict[i.item()] for i in cat_preds[0]]
 
-    for idx, val in enumerate(raw_data_numeric_class):
-        if val.is_numeric:
-            val = StringNumeric(value="<numeric>")
-            val.gen_embed_idx(tokens, special_tokens)
-            raw_data_numeric_class[idx] = val
-
-    class_target = torch.tensor([i.embedding_idx for i in raw_data_numeric_class]).to(
-        device
-    )
-    class_loss = cross_entropy(class_preds, class_target)
-
-    actual_num_idx = torch.tensor(
-        [idx for idx, j in enumerate(raw_data) if j.is_numeric]
-    ).to(device)
-    pred_nums = numeric_preds[actual_num_idx]
-    # print(actual_num_idx.shape)
-    actual_nums = torch.tensor([i.value for i in raw_data if i.is_numeric]).to(device)
-    # print(actual_nums.shape)
-    # print(pred_nums.shape)
-    reg_loss = mse_loss(pred_nums, actual_nums)
-    reg_loss_adjuster = 6  # class_loss/reg_loss
-
-    return reg_loss * reg_loss_adjuster + class_loss, {  # , class_loss
-        "reg_loss": reg_loss,
-        "class_loss": class_loss,  # class_loss,
+    results_dict = {k: cat_preds[i] for i, k in enumerate(model.col_tokens)}
+    for i, k in enumerate(model.col_tokens[model.n_cat_cols :]):
+        results_dict[k] = numeric_preds[0][i].item()
+    # Get the masked values
+    categorical_masked = [decoder_dict[i.item()] for i in categorical_masked[0]]
+    numeric_masked = numeric_masked[0].tolist()
+    masked_values = categorical_masked + numeric_masked
+    # zip the masked values with the column names
+    masked_values = dict(zip(model.col_tokens, masked_values))
+    # Get the original values
+    categorical_values = [decoder_dict[i.item()] for i in categorical_values[0]]
+    numeric_values = numeric_values[0].tolist()
+    original_values = categorical_values + numeric_values
+    # zip the original values with the column names
+    original_values = dict(zip(model.col_tokens, original_values))
+    # print(numeric_masked)
+    # print(categorical_masked)
+    result_dict = {
+        "actual": original_values,
+        "masked": masked_values,
+        "pred": results_dict,
     }
+
+    return result_dict
+
+
+# %%
+def mtm(
+    model,
+    dataset,
+    model_name,
+    epochs=100,
+    batch_size=1000,
+    lr=0.001,
+    early_stop=True,
+    patience=20,
+):
+    # Masked Tabular Modeling
+    mse_loss = nn.MSELoss()
+    ce_loss = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    numeric_loss_scaler = 15
+    summary_writer = SummaryWriter("runs/" + model_name)
+    if early_stop:
+        early_stopping = EarlyStopping(patience=patience, min_delta=0.0001)
+    else:
+        early_stopping = None
+    early_stopping = EarlyStopping(patience=patience, min_delta=0.0001)
+    batch_count = 0
+    model.train()
+    # Tqdm for progress bar with loss and epochs displayed
+    pbar = trange(epochs, desc="Epochs", leave=True)
+    for epoch in pbar:  # trange(epochs, desc="Epochs", leave=True):
+        for i in range(0, dataset.X_train_numeric.size(0), batch_size):
+            numeric_values = dataset.X_train_numeric[i : i + batch_size, :]
+            categorical_values = dataset.X_train_categorical[i : i + batch_size, :]
+            numeric_masked = mask_tensor(numeric_values, model, probability=0.8)
+            categorical_masked = mask_tensor(categorical_values, model, probability=0.8)
+            optimizer.zero_grad()
+            cat_preds, numeric_preds = model(
+                numeric_masked, categorical_masked, task="mlm"
+            )
+            cat_targets = torch.cat(
+                (
+                    categorical_values,
+                    model.numeric_indices.expand(categorical_values.size(0), -1),
+                ),
+                dim=1,
+            )
+
+            cat_preds = cat_preds.permute(0, 2, 1)  # TODO investigate as possible bug
+
+            cat_loss = ce_loss(cat_preds, cat_targets)
+            numeric_loss = (
+                mse_loss(numeric_preds, numeric_values) * numeric_loss_scaler
+            )  # Hyper param
+            loss = cat_loss + numeric_loss  # TODO Look at scaling
+            loss.backward()
+            optimizer.step()
+            batch_count += 1
+            learning_rate = optimizer.param_groups[0]["lr"]
+            summary_writer.add_scalar("LossTrain/agg_mask", loss.item(), batch_count)
+            summary_writer.add_scalar(
+                "LossTrain/mlm_loss", cat_loss.item(), batch_count
+            )
+            summary_writer.add_scalar(
+                "LossTrain/mnm_loss", numeric_loss.item(), batch_count
+            )
+            summary_writer.add_scalar("Metrics/mtm_lr", learning_rate, batch_count)
+
+        with torch.no_grad():
+            numeric_values = dataset.X_test_numeric
+            categorical_values = dataset.X_test_categorical
+            numeric_masked = mask_tensor(numeric_values, model, probability=0.8)
+            categorical_masked = mask_tensor(categorical_values, model, probability=0.8)
+            optimizer.zero_grad()
+            cat_preds, numeric_preds = model(
+                numeric_masked, categorical_masked, task="mlm"
+            )
+            cat_targets = torch.cat(
+                (
+                    categorical_values,
+                    model.numeric_indices.expand(categorical_values.size(0), -1),
+                ),
+                dim=1,
+            )
+
+            cat_preds = cat_preds.permute(0, 2, 1)
+
+            test_cat_loss = ce_loss(cat_preds, cat_targets)
+            test_numeric_loss = (
+                mse_loss(numeric_preds, numeric_values) * numeric_loss_scaler
+            )  # Hyper param
+            test_loss = test_cat_loss + test_numeric_loss
+
+        summary_writer.add_scalar("LossTest/agg_loss", test_loss.item(), batch_count)
+
+        summary_writer.add_scalar(
+            "LossTest/mlm_loss", test_cat_loss.item(), batch_count
+        )
+        summary_writer.add_scalar(
+            "LossTest/mnm_loss", test_numeric_loss.item(), batch_count
+        )
+        if early_stopping is not None:
+            early_stopping_status = early_stopping(model, test_loss)
+            early_stopping_progress = early_stopping.status
+        else:
+            early_stopping_status = False
+            early_stopping_progress = "No Early Stopping"
+        pbar.set_description(
+            f"Epoch {epoch+1}/{epochs} Loss: {loss.item():,.4f} "
+            + f"Test Loss: {test_loss.item():,.4f}"
+            + f" Early Stopping: {early_stopping_progress}"
+        )
+        if early_stopping_status:
+            break
+    if early_stopping is not None:
+        model.load_state_dict(early_stopping.best_model.state_dict())
+
+
+# %%
+def fine_tune_model(
+    model,
+    dataset,
+    n_rows,
+    model_name,
+    epochs=100,
+    lr=0.01,
+    early_stop=True,
+    patience=20,
+):
+    # Regression Model
+
+    batch_size = 1000
+
+    loss_fn = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+
+    model_time = dt.now().strftime("%Y-%m-%dT%H:%M:%S")
+    model_name = f"{model_name}_{n_rows}_{model_time}"
+    if early_stop:
+        early_stopping = EarlyStopping(patience=patience, min_delta=0.0001)
+    else:
+        early_stopping = None
+    summary_writer = SummaryWriter("runs/" + model_name)
+    if n_rows is None:
+        n_rows = dataset.X_train_numeric.size(0)
+    if n_rows > dataset.X_train_numeric.size(0):
+        raise ValueError(
+            f"n_rows ({n_rows}) must be less than or equal to "
+            + f"{dataset.X_train_numeric.size(0)}"
+        )
+
+    train_set_size = n_rows  # dataset.X_train_numeric.size(0)
+    batch_count = 0
+    model.train()
+    pbar = trange(epochs, desc=f"Epochs, Model: {model_name}")
+    if batch_size > train_set_size:
+        batch_size = train_set_size
+    for epoch in pbar:
+        for i in range(0, train_set_size, batch_size):
+            num_inputs = dataset.X_train_numeric[i : i + batch_size, :]
+            cat_inputs = dataset.X_train_categorical[i : i + batch_size, :]
+            optimizer.zero_grad()
+            y_pred = model(num_inputs, cat_inputs)
+            loss = loss_fn(y_pred, dataset.y_train[i : i + batch_size, :])
+            loss.backward()
+            optimizer.step()
+            batch_count += 1
+            learning_rate = optimizer.param_groups[0]["lr"]
+            summary_writer.add_scalar(
+                "LossTrain/regression_loss", loss.item(), batch_count
+            )
+            summary_writer.add_scalar(
+                "Metrics/regression_lr", learning_rate, batch_count
+            )
+
+        # Test set
+        with torch.no_grad():
+            y_pred = model(dataset.X_test_numeric, dataset.X_test_categorical)
+            test_loss = loss_fn(y_pred, dataset.y_test)
+            summary_writer.add_scalar(
+                "LossTest/regression_loss", test_loss.item(), batch_count
+            )
+        if early_stopping is not None:
+            early_stopping_status = early_stopping(model, test_loss)
+            early_stopping_progress = early_stopping.status
+        else:
+            early_stopping_status = False
+            early_stopping_progress = "No Early Stopping"
+        pbar.set_description(
+            f"Epoch {epoch+1}/{epochs} "
+            + f"n_rows: {n_rows:,} "
+            + f"Loss: {loss.item():,.2f} "
+            + f"Test Loss: {test_loss.item():,.2f} "
+            + f"Early Stopping: {early_stopping_progress}"
+        )
+        if early_stopping_status:
+            break
+    best_loss = early_stopping.best_loss if early_stopping is not None else test_loss
+    return {"n_rows": n_rows, "test_loss": best_loss.item()}
+
+
+# %%
+
+
+def regression_actuals_preds(model, dataset):
+    with torch.no_grad():
+        y_pred = model(
+            dataset.X_test_numeric, dataset.X_test_categorical, task="regression"
+        )
+        y = dataset.y_test
+    df = pd.DataFrame({"actual": y.flatten(), "pred": y_pred.flatten()})
+    df["pred"] = df["pred"].round()
+    df["error"] = df["actual"] - df["pred"]
+    return df
