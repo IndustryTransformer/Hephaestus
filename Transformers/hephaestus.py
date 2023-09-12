@@ -425,6 +425,7 @@ def mtm(
     lr=0.001,
     early_stop=True,
     patience=20,
+    training_size=None,
 ):
     # Masked Tabular Modeling
     mse_loss = nn.MSELoss()
@@ -438,32 +439,48 @@ def mtm(
         early_stopping = None
     early_stopping = EarlyStopping(patience=patience, min_delta=0.0001)
     batch_count = 0
+    if training_size is None:
+        training_size = dataset.X_train_numeric.size(0)
     model.train()
     # Tqdm for progress bar with loss and epochs displayed
     pbar = trange(epochs, desc="Epochs", leave=True)
     for epoch in pbar:  # trange(epochs, desc="Epochs", leave=True):
-        for i in range(0, dataset.X_train_numeric.size(0), batch_size):
-            numeric_values = dataset.X_train_numeric[i : i + batch_size, :]
-            categorical_values = dataset.X_train_categorical[i : i + batch_size, :]
-            numeric_masked = mask_tensor(numeric_values, model, probability=0.8)
-            categorical_masked = mask_tensor(categorical_values, model, probability=0.8)
+        for i in range(0, training_size, batch_size):
+            test_numeric_values = dataset.X_train_numeric[i : i + batch_size, :]
+            test_categorical_values = dataset.X_train_categorical[i : i + batch_size, :]
+            test_numeric_masked = mask_tensor(
+                test_numeric_values, model, probability=0.8
+            )
+            test_categorical_masked = mask_tensor(
+                test_categorical_values, model, probability=0.8
+            )
             optimizer.zero_grad()
-            cat_preds, numeric_preds = model(
-                numeric_masked, categorical_masked, task="mlm"
+            test_cat_preds, test_numeric_preds = model(
+                test_numeric_masked, test_categorical_masked, task="mlm"
             )
             cat_targets = torch.cat(
                 (
-                    categorical_values,
-                    model.numeric_indices.expand(categorical_values.size(0), -1),
+                    test_categorical_values,
+                    model.numeric_indices.expand(test_categorical_values.size(0), -1),
                 ),
                 dim=1,
             )
 
-            cat_preds = cat_preds.permute(0, 2, 1)  # TODO investigate as possible bug
+            test_cat_preds = test_cat_preds.permute(
+                0, 2, 1
+            )  # TODO investigate as possible bug
 
-            cat_loss = ce_loss(cat_preds, cat_targets)
+            cat_loss = ce_loss(test_cat_preds, cat_targets)
+            numeric_values_no_inf = test_numeric_values.clone()
+            numeric_values_no_inf[numeric_values_no_inf == float("-inf")] = 0
+            # print(
+            #     f"numeric_values_no_inf: {numeric_values_no_inf}",
+            #     f"numeric_preds: {numeric_preds}",
+            #     sep="\n",
+            # )
             numeric_loss = (
-                mse_loss(numeric_preds, numeric_values) * numeric_loss_scaler
+                mse_loss(test_numeric_preds, numeric_values_no_inf)
+                * numeric_loss_scaler
             )  # Hyper param
             loss = cat_loss + numeric_loss  # TODO Look at scaling
             loss.backward()
@@ -480,27 +497,34 @@ def mtm(
             summary_writer.add_scalar("Metrics/mtm_lr", learning_rate, batch_count)
 
         with torch.no_grad():
-            numeric_values = dataset.X_test_numeric
-            categorical_values = dataset.X_test_categorical
-            numeric_masked = mask_tensor(numeric_values, model, probability=0.8)
-            categorical_masked = mask_tensor(categorical_values, model, probability=0.8)
+            test_numeric_values = dataset.X_test_numeric
+            test_categorical_values = dataset.X_test_categorical
+            test_numeric_masked = mask_tensor(
+                test_numeric_values, model, probability=0.8
+            )
+            test_categorical_masked = mask_tensor(
+                test_categorical_values, model, probability=0.8
+            )
             optimizer.zero_grad()
-            cat_preds, numeric_preds = model(
-                numeric_masked, categorical_masked, task="mlm"
+            test_cat_preds, test_numeric_preds = model(
+                test_numeric_masked, test_categorical_masked, task="mlm"
             )
             cat_targets = torch.cat(
                 (
-                    categorical_values,
-                    model.numeric_indices.expand(categorical_values.size(0), -1),
+                    test_categorical_values,
+                    model.numeric_indices.expand(test_categorical_values.size(0), -1),
                 ),
                 dim=1,
             )
 
-            cat_preds = cat_preds.permute(0, 2, 1)
+            test_cat_preds = test_cat_preds.permute(0, 2, 1)
 
-            test_cat_loss = ce_loss(cat_preds, cat_targets)
+            test_cat_loss = ce_loss(test_cat_preds, cat_targets)
+            test_numeric_vals_no_inf = test_numeric_values.clone()
+            test_numeric_vals_no_inf[test_numeric_vals_no_inf == float("-inf")] = 0
             test_numeric_loss = (
-                mse_loss(numeric_preds, numeric_values) * numeric_loss_scaler
+                mse_loss(test_numeric_preds, test_numeric_vals_no_inf)
+                * numeric_loss_scaler
             )  # Hyper param
             test_loss = test_cat_loss + test_numeric_loss
 
