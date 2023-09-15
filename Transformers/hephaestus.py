@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from datetime import datetime as dt
 from itertools import chain
 
+import numpy as np
+
 # import numpy as np
 import pandas as pd
 import torch
@@ -35,6 +37,26 @@ def initialize_parameters(module):
 
 
 # %%
+
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        self.d_model = d_model
+        self.max_len = max_len
+        self.pe = torch.zeros(max_len, d_model)
+
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2).float() * (-np.log(10000.0) / d_model)
+        )
+        self.pe[:, 0::2] = torch.sin(position * div_term)
+        self.pe[:, 1::2] = torch.cos(position * div_term)
+        # self.pe = self.pe.unsqueeze(0).transpose(0, 1)
+        self.pe = self.pe.unsqueeze(0)
+
+    def forward(self, x):
+        return x + self.pe[:, : x.size(1), :]
 
 
 class EarlyStopping:
@@ -253,7 +275,7 @@ def mask_tensor(tensor, model, probability=0.8):
     tensor = tensor.clone()
     bit_mask = torch.rand(tensor.shape) > probability
     if is_numeric:
-        tensor[bit_mask] = torch.tensor(float("-Inf"))
+        tensor[bit_mask] = torch.tensor(float("nan"))
     else:
         tensor[bit_mask] = model.cat_mask_token
     return tensor.to(model.device)
@@ -337,17 +359,15 @@ class TabTransformer(nn.Module):
                 num_inputs.size(0), 1
             )
             numeric_col_embeddings = self.embeddings(repeated_numeric_indices)
-
-            inf_mask = (expanded_num_inputs == float("-inf")).all(dim=2)
+            nan_mask = torch.isnan(expanded_num_inputs).all(dim=2)
 
         base_numeric = torch.zeros_like(expanded_num_inputs)
-
         num_embeddings = (
-            numeric_col_embeddings[~inf_mask] * expanded_num_inputs[~inf_mask]
+            numeric_col_embeddings[~nan_mask] * expanded_num_inputs[~nan_mask]
         )
-        base_numeric[~inf_mask] = num_embeddings
-        base_numeric[inf_mask] = self.embeddings(self.numeric_mask_token)
 
+        base_numeric[~nan_mask] = num_embeddings
+        base_numeric[nan_mask] = self.embeddings(self.numeric_mask_token)
         query_embeddings = torch.cat([cat_embeddings, base_numeric], dim=1)
         out = self.transformer_encoder1(
             col_embeddings,
@@ -365,9 +385,7 @@ class TabTransformer(nn.Module):
             return out
         elif task == "mlm":
             cat_out = self.mlm_decoder(out)
-            # print(f"Out shape: {out.shape}, cat_out shape: {cat_out.shape}")
             numeric_out = out.view(out.size(0), -1)
-            # print(f"numeric_out shape: {numeric_out.shape}")
             numeric_out = self.mnm_decoder(numeric_out)
             return cat_out, numeric_out
         else:
@@ -425,6 +443,7 @@ def mtm(
     lr=0.001,
     early_stop=True,
     patience=20,
+    training_size=None,
 ):
     # Masked Tabular Modeling
     mse_loss = nn.MSELoss()
@@ -438,20 +457,24 @@ def mtm(
         early_stopping = None
     early_stopping = EarlyStopping(patience=patience, min_delta=0.0001)
     batch_count = 0
+    if training_size is None:
+        training_size = dataset.X_train_numeric.size(0)
     model.train()
     # Tqdm for progress bar with loss and epochs displayed
     pbar = trange(epochs, desc="Epochs", leave=True)
     for epoch in pbar:  # trange(epochs, desc="Epochs", leave=True):
-        for i in range(0, dataset.X_train_numeric.size(0), batch_size):
+        for i in range(0, training_size, batch_size):
             numeric_values = dataset.X_train_numeric[i : i + batch_size, :]
             categorical_values = dataset.X_train_categorical[i : i + batch_size, :]
             numeric_masked = mask_tensor(numeric_values, model, probability=0.8)
             categorical_masked = mask_tensor(categorical_values, model, probability=0.8)
             optimizer.zero_grad()
-            cat_preds, numeric_preds = model(
+            categorical_preds, numeric_preds = model(
                 numeric_masked, categorical_masked, task="mlm"
             )
-            cat_targets = torch.cat(
+            # replace nan values in categorical_values with numeric_mask_token
+            categorical_values[categorical_values.isnan()] = model.cat_mask_token
+            categorical_targets = torch.cat(
                 (
                     categorical_values,
                     model.numeric_indices.expand(categorical_values.size(0), -1),
@@ -459,9 +482,13 @@ def mtm(
                 dim=1,
             )
 
-            cat_preds = cat_preds.permute(0, 2, 1)  # TODO investigate as possible bug
+            categorical_preds = categorical_preds.permute(
+                0, 2, 1
+            )  # TODO investigate as possible bug
 
-            cat_loss = ce_loss(cat_preds, cat_targets)
+            cat_loss = ce_loss(categorical_preds, categorical_targets)
+            numeric_values[numeric_values.isnan()] = torch.tensor([0.0])
+
             numeric_loss = (
                 mse_loss(numeric_preds, numeric_values) * numeric_loss_scaler
             )  # Hyper param
@@ -480,27 +507,36 @@ def mtm(
             summary_writer.add_scalar("Metrics/mtm_lr", learning_rate, batch_count)
 
         with torch.no_grad():
-            numeric_values = dataset.X_test_numeric
-            categorical_values = dataset.X_test_categorical
-            numeric_masked = mask_tensor(numeric_values, model, probability=0.8)
-            categorical_masked = mask_tensor(categorical_values, model, probability=0.8)
-            optimizer.zero_grad()
-            cat_preds, numeric_preds = model(
-                numeric_masked, categorical_masked, task="mlm"
+            test_numeric_values = dataset.X_test_numeric
+            test_categorical_values = dataset.X_test_categorical
+            test_numeric_masked = mask_tensor(
+                test_numeric_values, model, probability=0.8
             )
-            cat_targets = torch.cat(
+            test_categorical_masked = mask_tensor(
+                test_categorical_values, model, probability=0.8
+            )
+            optimizer.zero_grad()  # TODO DO I NEED THIS?
+            test_categorical_preds, test_numeric_preds = model(
+                test_numeric_masked, test_categorical_masked, task="mlm"
+            )
+            test_categorical_values[
+                test_categorical_values.isnan()
+            ] = model.cat_mask_token
+
+            test_categorical_targets = torch.cat(
                 (
-                    categorical_values,
-                    model.numeric_indices.expand(categorical_values.size(0), -1),
+                    test_categorical_values,
+                    model.numeric_indices.expand(test_categorical_values.size(0), -1),
                 ),
                 dim=1,
             )
 
-            cat_preds = cat_preds.permute(0, 2, 1)
+            test_categorical_preds = test_categorical_preds.permute(0, 2, 1)
 
-            test_cat_loss = ce_loss(cat_preds, cat_targets)
+            test_cat_loss = ce_loss(test_categorical_preds, test_categorical_targets)
+            test_numeric_values[test_numeric_values.isnan()] = 0
             test_numeric_loss = (
-                mse_loss(numeric_preds, numeric_values) * numeric_loss_scaler
+                mse_loss(test_numeric_preds, test_numeric_values) * numeric_loss_scaler
             )  # Hyper param
             test_loss = test_cat_loss + test_numeric_loss
 
@@ -624,4 +660,5 @@ def regression_actuals_preds(model, dataset):
     df = pd.DataFrame({"actual": y.flatten(), "pred": y_pred.flatten()})
     df["pred"] = df["pred"].round()
     df["error"] = df["actual"] - df["pred"]
+    return df
     return df
