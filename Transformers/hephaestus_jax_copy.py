@@ -340,7 +340,7 @@ def mask_tensor(tensor, dataset, probability=0.8):
     key = random.PRNGKey(seed)
     bit_mask = random.normal(key=key, shape=tensor.shape) > probability
     if is_numeric:
-        tensor = tensor.at[bit_mask].set(float("-inf"))
+        tensor = tensor.at[bit_mask].set(float("nan"))
     else:
         cat_mask = dataset.cat_mask_token
         cat_mask_token = dataset.token_dict[cat_mask]
@@ -400,40 +400,40 @@ class TabTransformer(nn.Module):
         self,
         numeric_inputs: jnp.array,
         categorical_inputs: jnp.array,
-        train: bool = True,
     ):
         # Embed column indices
         repeated_col_indices = jnp.tile(self.col_indices, (numeric_inputs.shape[0], 1))
         col_embeddings = self.embedding(repeated_col_indices)
         cat_embeddings = self.embedding(categorical_inputs)
+
+        # expanded_num_inputs = num_inputs  # jnp.tile(num_inputs, num_inputs.shape[0])
+        # expanded_num_inputs = num_inputs.unsqueeze(2).repeat(1, 1, self.d_model)
         # TODO implement no grad here
         repeated_numeric_indices = jnp.tile(
             self.numeric_indices, (numeric_inputs.shape[0], 1)
         )
 
+        # repeated_numeric_indices = self.numeric_indices.unsqueeze(0).repeat(
+        #     num_inputs.size(0), 1
+        # )
         numeric_col_embeddings = self.embedding(repeated_numeric_indices)
-        inf_mask = numeric_inputs == float("-inf")
-        assert inf_mask.shape == numeric_col_embeddings.shape[:2]
+        nan_mask = jnp.isnan(numeric_inputs)
+        assert nan_mask.shape == numeric_col_embeddings.shape[:2]
         base_numeric = jnp.zeros_like(numeric_col_embeddings)
-        # print(f"Numeric Col Embeddings: {numeric_col_embeddings}")
-        # print(f"Numeric Inputs: {numeric_inputs}")
-        # potential_nans = numeric_col_embeddings * numeric_inputs[:, :, None]
-        numeric_inputs = jnp.where(inf_mask, 0, numeric_inputs)
+
         base_numeric = jnp.where(
-            inf_mask[:, :, None],
+            nan_mask[:, :, None],
             numeric_col_embeddings * numeric_inputs[:, :, None],
             base_numeric,
         )
 
         base_numeric = jnp.where(
-            inf_mask[:, :, None], self.numeric_mask_token, base_numeric
+            nan_mask[:, :, None], self.numeric_mask_token, base_numeric
         )
 
         query_embeddings = jnp.concatenate([cat_embeddings, base_numeric], axis=1)
-        out = self.transformer_block1(
-            q=col_embeddings, kv=query_embeddings, train=train
-        )
-        out = self.transformer_block2(X=out, train=train)
+        out = self.transformer_block1(q=col_embeddings, kv=query_embeddings)
+        out = self.transformer_block2(X=out)
 
         return out
 
@@ -464,16 +464,14 @@ class MTM(nn.Module):
         self,
         numeric_inputs: jnp.array,
         categorical_inputs: jnp.array,
-        train: bool = True,
     ):
         out = TabTransformer(self.dataset, self.d_model, self.n_heads)(
-            numeric_inputs=numeric_inputs,
-            categorical_inputs=categorical_inputs,
-            train=train,
+            numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
         )
         categorical_out = nn.Dense(
             name="categorical_out", features=self.dataset.n_tokens
         )(out)
+        # categorical_out = nn.softmax(categorical_out, axis=-1)
         numeric_out = jnp.reshape(out, (out.shape[0], -1))
         numeric_out = nn.Sequential(
             [
