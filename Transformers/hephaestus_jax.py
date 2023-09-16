@@ -1,68 +1,19 @@
 # %%
 import time
 from dataclasses import dataclass, field
-from datetime import datetime as dt
 from itertools import chain
 
-import jax
 import jax.numpy as jnp
-import optax
 import pandas as pd
 from flax import linen as nn
+from flax import struct  # Flax dataclasses
 from jax import random
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from torch.utils.tensorboard import SummaryWriter
-from tqdm.notebook import trange
 
 # Load and preprocess the dataset (assuming you have a CSV file)
 df = pd.read_csv("../data/diamonds.csv")
 df.head()
-
-
-# %%
-# def initialize_parameters(module):
-#     if isinstance(module, (nn.Dense, nn.Conv2d)):
-#         init.xavier_uniform_(module.weight, gain=1)
-#         if module.bias is not None:
-#             init.constant_(module.bias, 0.000)
-#     elif isinstance(module, nn.Embedding):
-#         init.uniform_(module.weight, 0.0, 0.5)
-#     elif isinstance(module, nn.LayerNorm):
-#         init.normal_(module.weight, mean=0, std=1)
-#         init.constant_(module.bias, 0.01)
-
-
-# %%
-
-
-# class EarlyStopping:
-#     def __init__(self, patience=15, min_delta=0, restore_best_weights=True):
-#         self.patience = patience
-#         self.min_delta = min_delta
-#         self.restore_best_weights = restore_best_weights
-#         self.best_model = None
-#         self.best_loss = None
-#         self.counter = 0
-#         self.status = ""
-
-#     def __call__(self, model, val_loss):
-#         if self.best_loss is None:
-#             self.best_loss = val_loss
-#             self.best_model = copy.deepcopy(model)
-#         elif self.best_loss - val_loss > self.min_delta:
-#             self.best_loss = val_loss
-#             self.counter = 0
-#             self.best_model.load_state_dict(model.state_dict())
-#         elif self.best_loss - val_loss < self.min_delta:
-#             self.counter += 1
-#             if self.counter >= self.patience:
-#                 self.status = f"Stopped on {self.counter}"
-#                 if self.restore_best_weights:
-#                     model.load_state_dict(self.best_model.state_dict())
-#                 return True
-#         self.status = f"{self.counter}/{self.patience}"
-#         return False
 
 
 # %%
@@ -71,12 +22,11 @@ class TabularDS:
     df: pd.DataFrame = field(repr=False)
     target_column: str
     seed: int = 42
-    # device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # special_tokens: list =
-    cat_mask_token: str = "[MASK]"
     special_tokens: list = field(
         default_factory=lambda: ["[PAD]", "[NUMERIC_MASK]", "[MASK]"]
     )
+    cat_mask: str = "[MASK]"
+    cat_mask_token: int = field(init=False)
 
     def __post_init__(self):
         self.df = self.df.sample(frac=1, random_state=self.seed).reset_index(
@@ -96,12 +46,13 @@ class TabularDS:
                 list(set(self.df[self.category_columns].values.flatten().tolist())),
             )
         )
-
         self.token_dict = {token: i for i, token in enumerate(self.tokens)}
         self.token_decoder_dict = {i: token for i, token in enumerate(self.tokens)}
-
+        self.cat_mask_token = self.token_dict[self.cat_mask]
         self.scaler = StandardScaler()
         self.numeric_columns.remove(self.target_column[0])
+        self.col_tokens = self.category_columns + self.numeric_columns
+        self.n_cat_cols = len(self.category_columns)
         # self.numeric_columns = self.numeric_columns.remove(self.target_column[0])
         numeric_scaled = self.scaler.fit_transform(self.df[self.numeric_columns])
         self.df[self.numeric_columns] = numeric_scaled
@@ -178,17 +129,20 @@ class MultiheadAttention(nn.Module):
         # Note that in many implementations you see "bias=False" which is optional
         self.q_proj = nn.Dense(
             self.embed_dim,
-            kernel_init=nn.initializers.xavier_uniform(),  # Weights with Xavier uniform init
+            kernel_init=nn.initializers.xavier_uniform(),
+            # Weights with Xavier uniform init
             bias_init=nn.initializers.zeros,  # Bias init with zeros
         )
         self.k_proj = nn.Dense(
             self.embed_dim,
-            kernel_init=nn.initializers.xavier_uniform(),  # Weights with Xavier uniform init
+            kernel_init=nn.initializers.xavier_uniform(),
+            # Weights with Xavier uniform init
             bias_init=nn.initializers.zeros,  # Bias init with zeros
         )
         self.v_proj = nn.Dense(
             self.embed_dim,
-            kernel_init=nn.initializers.xavier_uniform(),  # Weights with Xavier uniform init
+            kernel_init=nn.initializers.xavier_uniform(),
+            # Weights with Xavier uniform init
             bias_init=nn.initializers.zeros,  # Bias init with zeros
         )  # TODO try making the same as q
         self.o_proj = nn.Dense(
@@ -198,7 +152,8 @@ class MultiheadAttention(nn.Module):
         )
         self.qkv_proj = nn.Dense(
             3 * self.embed_dim,
-            kernel_init=nn.initializers.xavier_uniform(),  # Weights with Xavier uniform init
+            kernel_init=nn.initializers.xavier_uniform(),
+            # Weights with Xavier uniform init
             bias_init=nn.initializers.zeros,  # Bias init with zeros
         )
 
@@ -342,10 +297,7 @@ def mask_tensor(tensor, dataset, probability=0.8):
     if is_numeric:
         tensor = tensor.at[bit_mask].set(float("nan"))
     else:
-        cat_mask = dataset.cat_mask_token
-        cat_mask_token = dataset.token_dict[cat_mask]
-        tensor = tensor.at[bit_mask].set(cat_mask_token)
-        # tensor[bit_mask] = model.cat_mask_token
+        tensor = tensor.at[bit_mask].set(dataset.cat_mask_token)
     return tensor
 
 
@@ -398,8 +350,8 @@ class TabTransformer(nn.Module):
 
     def __call__(
         self,
-        numeric_inputs: jnp.array,
         categorical_inputs: jnp.array,
+        numeric_inputs: jnp.array,
     ):
         # Embed column indices
         repeated_col_indices = jnp.tile(self.col_indices, (numeric_inputs.shape[0], 1))
@@ -456,8 +408,8 @@ class MTM(nn.Module):
     @nn.compact
     def __call__(
         self,
-        numeric_inputs: jnp.array,
         categorical_inputs: jnp.array,
+        numeric_inputs: jnp.array,
     ):
         out = TabTransformer(self.dataset, self.d_model, self.n_heads)(
             numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
@@ -504,8 +456,8 @@ class TRM(nn.Module):
     @nn.compact
     def __call__(
         self,
-        numeric_inputs: jnp.array,
         categorical_inputs: jnp.array,
+        numeric_inputs: jnp.array,
     ):
         out = TabTransformer(self.dataset, self.d_model, self.n_heads)(
             numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
@@ -523,3 +475,107 @@ class TRM(nn.Module):
 
 
 # %%
+
+
+@struct.dataclass
+class ModelInputs:
+    categorical_mask: jnp.ndarray
+    numeric_mask: jnp.ndarray
+    numeric_targets: jnp.ndarray
+    categorical_targets: jnp.ndarray
+
+
+def create_mi(
+    dataset: TabularDS,
+    idx: int = None,
+    batch_size: int = None,
+    set: str = "train",
+    probability=0.8,
+):
+    if set == "train":
+        categorical_values = dataset.X_train_categorical
+        numeric_targets = dataset.X_train_numeric
+    elif set == "test":
+        categorical_values = dataset.X_test_categorical
+        numeric_targets = dataset.X_test_numeric
+    else:
+        raise ValueError("set must be either 'train' or 'test'")
+
+    if idx is None:
+        idx = 0
+    if batch_size is None:
+        batch_size = numeric_targets.shape[0]
+
+    categorical_values = categorical_values[idx : idx + batch_size, :]
+    numeric_targets = numeric_targets[idx : idx + batch_size, :]
+
+    categorical_mask = mask_tensor(categorical_values, dataset, probability=probability)
+    numeric_mask = mask_tensor(numeric_targets, dataset, probability=probability)
+
+    numeric_col_tokens = dataset.numeric_col_tokens.clone()
+    repeated_numeric_col_tokens = jnp.tile(
+        numeric_col_tokens, (categorical_values.shape[0], 1)
+    )
+    categorical_targets = jnp.concatenate(
+        [
+            categorical_values,
+            repeated_numeric_col_tokens,
+        ],
+        axis=1,
+    )
+    categorical_targets = categorical_targets.at[jnp.isnan(categorical_targets)].set(
+        dataset.cat_mask_token
+    )
+
+    numeric_targets = numeric_targets.at[jnp.isnan(numeric_targets)].set(0.0)
+
+    mi = ModelInputs(
+        categorical_mask=categorical_mask,
+        numeric_mask=numeric_mask,
+        numeric_targets=numeric_targets,
+        categorical_targets=categorical_targets,
+    )
+    return mi
+
+
+def show_mask_pred(params, model, i, dataset, probability=0.8, set="train"):
+    mi = create_mi(dataset, idx=i, batch_size=1, set=set, probability=probability)
+
+    logits, numeric_preds = model.apply(
+        {"params": params}, mi.categorical_mask, mi.numeric_mask
+    )
+    cat_preds = logits.argmax(axis=-1)
+
+    # Get the words from the tokens
+    decoder_dict = dataset.token_decoder_dict
+    cat_preds = [decoder_dict[i.item()] for i in cat_preds[0]]
+
+    results_dict = {k: cat_preds[i] for i, k in enumerate(dataset.col_tokens)}
+    for i, k in enumerate(dataset.col_tokens[dataset.n_cat_cols :]):
+        results_dict[k] = numeric_preds[0][i].item()
+    # Get the masked values
+    categorical_masked = [decoder_dict[i.item()] for i in mi.categorical_mask[0]]
+    numeric_masked = mi.numeric_mask[0].tolist()
+    masked_values = categorical_masked + numeric_masked
+    # zip the masked values with the column names
+    masked_dict = dict(zip(dataset.col_tokens, masked_values))
+    # Get the original values
+    categorical_values = [
+        decoder_dict[i.item()]
+        for i in mi.categorical_targets[0][0 : dataset.n_cat_cols]
+    ]
+
+    numeric_values = mi.numeric_targets.tolist()[0]
+    original_values = categorical_values
+    original_values.extend(numeric_values)
+    # zip the original values with the column names
+    original_dict = dict(zip(dataset.col_tokens, original_values))
+    # print(numeric_masked)
+    # print(categorical_masked)
+    result_dict = {
+        "masked": masked_dict,
+        "actual": original_dict,
+        "pred": results_dict,
+    }
+
+    return result_dict
