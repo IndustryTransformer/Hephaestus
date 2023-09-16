@@ -3,6 +3,7 @@ import time
 from dataclasses import dataclass, field
 from itertools import chain
 
+import jax
 import jax.numpy as jnp
 import pandas as pd
 from flax import linen as nn
@@ -491,7 +492,10 @@ def create_mi(
     batch_size: int = None,
     set: str = "train",
     probability=0.8,
+    device=None,
 ):
+    if device is None:
+        device = jax.devices()[0]
     if set == "train":
         categorical_values = dataset.X_train_categorical
         numeric_targets = dataset.X_train_numeric
@@ -530,10 +534,10 @@ def create_mi(
     numeric_targets = numeric_targets.at[jnp.isnan(numeric_targets)].set(0.0)
 
     mi = ModelInputs(
-        categorical_mask=categorical_mask,
-        numeric_mask=numeric_mask,
-        numeric_targets=numeric_targets,
-        categorical_targets=categorical_targets,
+        categorical_mask=jax.device_put(categorical_mask, device=device),
+        numeric_mask=jax.device_put(numeric_mask, device=device),
+        numeric_targets=jax.device_put(numeric_targets, device=device),
+        categorical_targets=jax.device_put(categorical_targets, device=device),
     )
     return mi
 
