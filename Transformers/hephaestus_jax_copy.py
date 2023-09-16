@@ -405,22 +405,16 @@ class TabTransformer(nn.Module):
         repeated_col_indices = jnp.tile(self.col_indices, (numeric_inputs.shape[0], 1))
         col_embeddings = self.embedding(repeated_col_indices)
         cat_embeddings = self.embedding(categorical_inputs)
-
-        # expanded_num_inputs = num_inputs  # jnp.tile(num_inputs, num_inputs.shape[0])
-        # expanded_num_inputs = num_inputs.unsqueeze(2).repeat(1, 1, self.d_model)
         # TODO implement no grad here
         repeated_numeric_indices = jnp.tile(
             self.numeric_indices, (numeric_inputs.shape[0], 1)
         )
 
-        # repeated_numeric_indices = self.numeric_indices.unsqueeze(0).repeat(
-        #     num_inputs.size(0), 1
-        # )
         numeric_col_embeddings = self.embedding(repeated_numeric_indices)
         nan_mask = jnp.isnan(numeric_inputs)
         assert nan_mask.shape == numeric_col_embeddings.shape[:2]
         base_numeric = jnp.zeros_like(numeric_col_embeddings)
-
+        numeric_inputs = jnp.where(nan_mask, 0, numeric_inputs)
         base_numeric = jnp.where(
             nan_mask[:, :, None],
             numeric_col_embeddings * numeric_inputs[:, :, None],
