@@ -82,7 +82,7 @@ class TabularDS:
 
         self.X_test_numeric = jnp.array(X_test_numeric.values)
 
-        self.X_test_categorical = jnp.array(X_test_categorical.values)
+        self.X_test_categorical = jnp.array(_test_categorical.values)
 
         self.y_train = jnp.array(self.y_train.values)
 
@@ -122,163 +122,72 @@ def expand_mask(mask):
 
 
 class MultiheadAttention(nn.Module):
-    embed_dim: int  # Output dimension
-    num_heads: int  # Number of parallel heads (h)
+    n_heads: int
+    d_model: int
 
-    def setup(self):
-        # Stack all weight matrices 1...h and W^Q, W^K, W^V together for efficiency
-        # Note that in many implementations you see "bias=False" which is optional
-        self.q_proj = nn.Dense(
-            self.embed_dim,
-            kernel_init=nn.initializers.xavier_uniform(),
-            # Weights with Xavier uniform init
-            bias_init=nn.initializers.zeros,  # Bias init with zeros
-        )
-        self.k_proj = nn.Dense(
-            self.embed_dim,
-            kernel_init=nn.initializers.xavier_uniform(),
-            # Weights with Xavier uniform init
-            bias_init=nn.initializers.zeros,  # Bias init with zeros
-        )
-        self.v_proj = nn.Dense(
-            self.embed_dim,
-            kernel_init=nn.initializers.xavier_uniform(),
-            # Weights with Xavier uniform init
-            bias_init=nn.initializers.zeros,  # Bias init with zeros
-        )  # TODO try making the same as q
-        self.o_proj = nn.Dense(
-            self.embed_dim,
-            kernel_init=nn.initializers.xavier_uniform(),
-            bias_init=nn.initializers.zeros,
-        )
-        self.qkv_proj = nn.Dense(
-            3 * self.embed_dim,
-            kernel_init=nn.initializers.xavier_uniform(),
-            # Weights with Xavier uniform init
-            bias_init=nn.initializers.zeros,  # Bias init with zeros
-        )
+    @nn.compact
+    def __call__(self, q, k, v, input_feed_forward=False, mask=None):
+        if input_feed_forward:
+            q = nn.Dense(name="q_linear", features=self.d_model)(q)
+            k = nn.Dense(features=self.d_model)(k)
+            v = nn.Dense(features=self.d_model)(v)
 
-    def __call__(
-        self,
-        X: jnp.array = None,
-        q: jnp.array = None,
-        k: jnp.array = None,
-        v: jnp.array = None,
-        mask: jnp.array = None,
-        input_feed_forward: bool = False,
-    ):
+        attention_output, attention_weights = self.scaled_dot_product(q, k, v, mask)
+
+        atten_out = attention_output.transpose(0, 2, 1).reshape(
+            attention_output.shape[0], -1, self.d_model
+        )
+        out = nn.Dense(features=self.d_model)(atten_out)
+
+        return out
+
+    def scaled_dot_product_attention(self, q, k, v, mask=None):
+        """Calculate the attention weights.
+        q, k, v must have matching leading dimensions.
+        k, v must have matching penultimate dimension, i.e.: seq_len_k = seq_len_v.
+        The mask has different shapes depending on its type(padding or look ahead)
+        but it must be broadcastable for addition.
+
+        Args:
+        q: query shape == (..., seq_len_q, depth)
+        k: key shape == (..., seq_len_k, depth)
+        v: value shape == (..., seq_len_v, depth_v)
+        mask: Float tensor with shape broadcastable
+            to (..., seq_len_q, seq_len_k). Defaults to None.
+
+        Returns:
+        output, attention_weights
+        """
+        matmul_qk = jnp.matmul(q, jnp.swapaxes(k, -2, -1))
+        d_k = q.shape[-1]
+        matmul_qk = matmul_qk / jnp.sqrt(d_k)
+
         if mask is not None:
-            mask = expand_mask(mask)
-        if X is not None:
-            batch_size, seq_length, embed_dim = X.shape
-            if input_feed_forward:
-                qkv = self.qkv_proj(X)
-                qkv = qkv.reshape(batch_size, seq_length, self.num_heads, -1)
-                qkv = qkv.transpose(0, 2, 1, 3)  # [Batch, Head, SeqLen, Dims]
-            else:
-                qkv = X
+            matmul_qk += mask * -1e9
 
-            q, k, v = jnp.array_split(qkv, 3, axis=-1)
-        else:
-            batch_size, seq_length, embed_dim = q.shape
-            q = (
-                self.q_proj(q)
-                .reshape(batch_size, seq_length, self.num_heads, -1)
-                .transpose(1, 2)
-            )
-            k = (
-                self.k_proj(k)
-                .reshape(batch_size, seq_length, self.num_heads, -1)
-                .transpose(1, 2)  # TODO this may be wrong
-            )
-            v = (
-                self.v_proj(v)
-                .reshape(batch_size, seq_length, self.num_heads, -1)
-                .transpose(1, 2)
-            )
+        attention_weights = nn.softmax(matmul_qk, axis=-1)
 
-        # Determine value outputs
-        values, attention = scaled_dot_product(q, k, v, mask=mask)
-        values = values.transpose(0, 2, 1, 3)  # [Batch, SeqLen, Head, Dims]
-        values = values.reshape(batch_size, seq_length, embed_dim)
-        o = self.o_proj(values)
+        output = jnp.matmul(attention_weights, v)
 
-        return o, attention
+        return output, attention_weights
 
 
 class TransformerBlock(nn.Module):
     d_model: int
-    num_heads: int
+    n_heads: int
     d_ff: int
     dropout_rate: float
 
-    def setup(self):
-        self.mha = nn.MultiHeadDotProductAttention(
-            # features=self.d_model,
-            num_heads=self.num_heads,
+    @nn.compact
+    def __call__(self, q=None, kv=None, mask=None, train=True):
+        # attn_output = nn.MultiHeadDotProductAttention(num_heads=self.num_heads)(
+        attn_output = MultiheadAttention(n_heads=self.num_heads)(q, kv, mask=mask)
+        out = nn.LayerNorm()(q + attn_output)
+        ff_out = nn.Sequential(
+            [nn.Dense(self.d_model * 2), nn.relu, nn.Dense(self.d_model)]
         )
-        # self.dropout = nn.Dropout(rate=self.dropout_rate)
-        self.norm1 = nn.LayerNorm()
-        self.norm2 = nn.LayerNorm()
+        out = nn.LayerNorm()(out + ff_out(out))
 
-        self.ffn = nn.Dense(features=self.d_ff)
-        self.ffn_out = nn.Dense(features=self.d_model)
-
-    def __call__(self, X=None, q=None, kv=None, mask=None, train=True):
-        # MultiHead Attention
-        if X is not None:
-            attn_output = self.mha(inputs_q=X, inputs_kv=X, mask=mask)
-            # x = self.norm1(X + self.dropout(attn_output, deterministic=not train))
-            x = self.norm1(X + attn_output)
-
-        else:
-            attn_output = self.mha(inputs_q=q, inputs_kv=kv, mask=mask)
-            # x = self.norm1(kv + self.dropout(attn_output, deterministic=not train))
-            x = self.norm1(kv + attn_output)
-
-        # Feedforward Neural Network
-        ffn_output = self.ffn_out(nn.relu(self.ffn(x)))
-        # x = self.norm2(x + self.dropout(ffn_output, deterministic=not train))
-        x = self.norm2(x + ffn_output)
-
-        return x
-
-
-class TransformerEncoderLayer(nn.Module):
-    d_model: int
-    n_heads: int
-
-    def setup(self):
-        self.multi_head_attention = MultiheadAttention(self.d_model, self.n_heads)
-
-        self.feed_forward = nn.Sequential(
-            [
-                nn.Dense(2 * self.d_model),
-                nn.relu,
-                nn.Dense(self.d_model),
-            ]
-        )
-
-        self.layernorm1 = nn.LayerNorm(self.d_model)
-        self.layernorm2 = nn.LayerNorm(self.d_model)
-        # self.initialize_parameters()
-        # self.apply(initialize_parameters)
-
-    def __call__(
-        self,
-        X: jnp.array = None,
-        q: jnp.array = None,
-        k: jnp.array = None,
-        v: jnp.array = None,
-        mask: jnp.array = None,
-        input_feed_forward: bool = False,
-    ):
-        attention_output = self.multi_head_attention(
-            X, q, k, v, mask, input_feed_forward
-        )
-        out = self.layernorm1(q + attention_output)
-        feed_forward_out = self.feed_forward(out)
-        out = self.layernorm2(out + feed_forward_out)
         return out
 
 
@@ -380,7 +289,7 @@ class TabTransformer(nn.Module):
 
         query_embeddings = jnp.concatenate([cat_embeddings, base_numeric], axis=1)
         out = self.transformer_block1(q=col_embeddings, kv=query_embeddings)
-        out = self.transformer_block2(X=out)
+        out = self.transformer_block2(q=out, kv=out)
 
         return out
 
