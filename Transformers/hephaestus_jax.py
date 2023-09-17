@@ -82,7 +82,7 @@ class TabularDS:
 
         self.X_test_numeric = jnp.array(X_test_numeric.values)
 
-        self.X_test_categorical = jnp.array(_test_categorical.values)
+        self.X_test_categorical = jnp.array(X_test_categorical.values)
 
         self.y_train = jnp.array(self.y_train.values)
 
@@ -132,7 +132,7 @@ class MultiheadAttention(nn.Module):
             k = nn.Dense(features=self.d_model)(k)
             v = nn.Dense(features=self.d_model)(v)
 
-        attention_output, attention_weights = self.scaled_dot_product(q, k, v, mask)
+        attention_output, attention_weights = scaled_dot_product(q, k, v, mask)
 
         atten_out = attention_output.transpose(0, 2, 1).reshape(
             attention_output.shape[0], -1, self.d_model
@@ -179,9 +179,11 @@ class TransformerBlock(nn.Module):
     dropout_rate: float
 
     @nn.compact
-    def __call__(self, q=None, kv=None, mask=None, train=True):
+    def __call__(self, q, k, v, mask=None, train=True):
         # attn_output = nn.MultiHeadDotProductAttention(num_heads=self.num_heads)(
-        attn_output = MultiheadAttention(n_heads=self.num_heads)(q, kv, mask=mask)
+        attn_output = MultiheadAttention(n_heads=self.n_heads, d_model=self.d_model)(
+            q, k, v, mask=mask
+        )
         out = nn.LayerNorm()(q + attn_output)
         ff_out = nn.Sequential(
             [nn.Dense(self.d_model * 2), nn.relu, nn.Dense(self.d_model)]
@@ -241,7 +243,9 @@ class TabTransformer(nn.Module):
         # self.decoder_dict = {v: k for k, v in self.token_dict.items()}
         # Masks
         # Embedding layers for categorical features
-        self.embedding = nn.Embed(num_embeddings=self.n_tokens, features=self.d_model)
+        self.embedding = nn.Embed(
+            num_embeddings=self.dataset.n_tokens, features=self.d_model
+        )
         self.n_numeric_cols = len(dataset.numeric_columns)
         self.n_cat_cols = len(dataset.category_columns)
         self.col_tokens = dataset.category_columns + dataset.numeric_columns
@@ -252,10 +256,10 @@ class TabTransformer(nn.Module):
         )
 
         self.transformer_block1 = TransformerBlock(
-            d_model=d_model, num_heads=n_heads, d_ff=d_model * 4, dropout_rate=0.1
+            d_model=d_model, n_heads=n_heads, d_ff=d_model * 4, dropout_rate=0.1
         )
         self.transformer_block2 = TransformerBlock(
-            d_model=d_model, num_heads=n_heads, d_ff=d_model * 4, dropout_rate=0.1
+            d_model=d_model, n_heads=n_heads, d_ff=d_model * 4, dropout_rate=0.1
         )
 
     def __call__(
@@ -288,8 +292,10 @@ class TabTransformer(nn.Module):
         )
 
         query_embeddings = jnp.concatenate([cat_embeddings, base_numeric], axis=1)
-        out = self.transformer_block1(q=col_embeddings, kv=query_embeddings)
-        out = self.transformer_block2(q=out, kv=out)
+        out = self.transformer_block1(
+            q=col_embeddings, k=query_embeddings, v=query_embeddings
+        )
+        out = self.transformer_block2(q=out, k=out, v=out)
 
         return out
 
