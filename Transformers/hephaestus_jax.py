@@ -12,10 +12,6 @@ from jax import random
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
-# Load and preprocess the dataset (assuming you have a CSV file)
-df = pd.read_csv("../data/diamonds.csv")
-df.head()
-
 
 # %%
 @dataclass
@@ -28,6 +24,15 @@ class TabularDS:
     )
     cat_mask: str = "[MASK]"
     cat_mask_token: int = field(init=False)
+    n_tokens: int = field(init=False)
+    n_cat_cols: int = field(init=False)
+    n_numeric_cols: int = field(init=False)
+    numeric_col_tokens: jnp.array = field(init=False)
+    category_columns: list = field(init=False)
+    col_tokens: list = field(init=False)
+    numeric_mask_token: list = field(init=False)
+    numeric_indices: jnp.array = field(init=False)
+    col_indices: jnp.array = field(init=False)
 
     def __post_init__(self):
         self.df = self.df.sample(frac=1, random_state=self.seed).reset_index(
@@ -57,9 +62,14 @@ class TabularDS:
         # self.numeric_columns = self.numeric_columns.remove(self.target_column[0])
         numeric_scaled = self.scaler.fit_transform(self.df[self.numeric_columns])
         self.df[self.numeric_columns] = numeric_scaled
+        self.n_numeric_cols = len(self.numeric_columns)
         for col in self.category_columns:
             self.df[col] = self.df[col].map(self.token_dict)
 
+        self.numeric_indices = jnp.array(
+            [self.tokens.index(col) for col in self.numeric_columns]
+        )
+        self.numeric_mask_token = jnp.array(self.token_dict["[NUMERIC_MASK]"])
         X = self.df.drop(self.target_column, axis=1)
         y = self.df[self.target_column]
 
@@ -70,7 +80,9 @@ class TabularDS:
         self.numeric_col_tokens = jnp.array(
             [self.token_dict[i] for i in self.numeric_columns]
         )
-
+        self.col_indices = jnp.array(
+            [self.tokens.index(col) for col in self.col_tokens]
+        )
         X_train_numeric = self.X_train[self.numeric_columns]
         X_train_categorical = self.X_train[self.category_columns]
         X_test_numeric = self.X_test[self.numeric_columns]
@@ -89,38 +101,6 @@ class TabularDS:
         self.y_test = jnp.array(self.y_test.values)
 
 
-# %%
-df = pd.read_csv("../data/diamonds.csv")
-df.head()
-# %%
-ds = TabularDS(df, "price")
-# %%
-ds
-# %%
-
-
-def scaled_dot_product(q, k, v, mask=None):
-    d_k = q.shape[-1]
-    attn_logits = jnp.matmul(q, jnp.swapaxes(k, -2, -1))
-    attn_logits = attn_logits / jnp.sqrt(d_k)
-    if mask is not None:
-        attn_logits = jnp.where(mask == 0, -9e15, attn_logits)
-    attention = nn.softmax(attn_logits, axis=-1)
-    values = jnp.matmul(attention, v)
-    return values, attention
-
-
-def expand_mask(mask):
-    assert (
-        mask.ndim > 2
-    ), "Mask must be at least 2-dimensional with seq_length x seq_length"
-    if mask.ndim == 3:
-        mask = mask.unsqueeze(1)
-    while mask.ndim < 4:
-        mask = mask.unsqueeze(0)
-    return mask
-
-
 class MultiheadAttention(nn.Module):
     n_heads: int
     d_model: int
@@ -132,7 +112,9 @@ class MultiheadAttention(nn.Module):
             k = nn.Dense(features=self.d_model)(k)
             v = nn.Dense(features=self.d_model)(v)
 
-        attention_output, attention_weights = scaled_dot_product(q, k, v, mask)
+        attention_output, attention_weights = self.scaled_dot_product_attention(
+            q, k, v, mask
+        )
 
         atten_out = attention_output.transpose(0, 2, 1).reshape(
             attention_output.shape[0], -1, self.d_model
@@ -180,7 +162,6 @@ class TransformerBlock(nn.Module):
 
     @nn.compact
     def __call__(self, q, k, v, mask=None, train=True):
-        # attn_output = nn.MultiHeadDotProductAttention(num_heads=self.num_heads)(
         attn_output = MultiheadAttention(n_heads=self.n_heads, d_model=self.d_model)(
             q, k, v, mask=mask
         )
@@ -194,89 +175,35 @@ class TransformerBlock(nn.Module):
 
 
 # %%
-def mask_tensor(tensor, dataset, probability=0.8):
-    if tensor.dtype == "float32" or tensor.dtype == "float64":
-        is_numeric = True
-    elif tensor.dtype == "int32" or tensor.dtype == "int64":
-        is_numeric = False
-    else:
-        raise ValueError(f"Task {tensor.dtype} not supported.")
-
-    tensor = tensor.copy()
-    seed = int(time.time() * 1000000)
-    key = random.PRNGKey(seed)
-    bit_mask = random.normal(key=key, shape=tensor.shape) > probability
-    if is_numeric:
-        tensor = tensor.at[bit_mask].set(float("nan"))
-    else:
-        tensor = tensor.at[bit_mask].set(dataset.cat_mask_token)
-    return tensor
-
-
-# %%
 class TabTransformer(nn.Module):
     dataset: TabularDS
     d_model: int = 64
     n_heads: int = 4
 
-    def __post_init__(self):
-        self.n_tokens = len(self.dataset.tokens)
-        self.tokens = self.dataset.tokens
-        self.token_dict = self.dataset.token_dict
-        self.cat_mask_token = jnp.array(self.token_dict["[MASK]"])
-        self.numeric_mask_token = jnp.array(self.token_dict["[NUMERIC_MASK]"])
-        self.numeric_columns = self.dataset.numeric_columns
-        self.col_tokens = self.dataset.category_columns + self.dataset.numeric_columns
-        self.col_indices = jnp.array(
-            [self.tokens.index(col) for col in self.col_tokens]
-        )
-        self.numeric_indices = jnp.array(
-            [self.tokens.index(col) for col in self.dataset.numeric_columns]
-        )
-        super().__post_init__()
-
-    def setup(self):
-        dataset = self.dataset
-        n_heads = self.n_heads
-        d_model = self.d_model
-
-        # self.decoder_dict = {v: k for k, v in self.token_dict.items()}
-        # Masks
-        # Embedding layers for categorical features
-        self.embedding = nn.Embed(
-            num_embeddings=self.dataset.n_tokens, features=self.d_model
-        )
-        self.n_numeric_cols = len(dataset.numeric_columns)
-        self.n_cat_cols = len(dataset.category_columns)
-        self.col_tokens = dataset.category_columns + dataset.numeric_columns
-        self.n_columns = self.n_numeric_cols + self.n_cat_cols
-        # self.numeric_embeddings = NumericEmbedding(d_model=self.d_model)
-        self.col_indices = jnp.array(
-            [self.tokens.index(col) for col in self.col_tokens]
-        )
-
-        self.transformer_block1 = TransformerBlock(
-            d_model=d_model, n_heads=n_heads, d_ff=d_model * 4, dropout_rate=0.1
-        )
-        self.transformer_block2 = TransformerBlock(
-            d_model=d_model, n_heads=n_heads, d_ff=d_model * 4, dropout_rate=0.1
-        )
-
+    @nn.compact
     def __call__(
         self,
         categorical_inputs: jnp.array,
         numeric_inputs: jnp.array,
     ):
-        # Embed column indices
-        repeated_col_indices = jnp.tile(self.col_indices, (numeric_inputs.shape[0], 1))
-        col_embeddings = self.embedding(repeated_col_indices)
-        cat_embeddings = self.embedding(categorical_inputs)
-        # TODO implement no grad here
-        repeated_numeric_indices = jnp.tile(
-            self.numeric_indices, (numeric_inputs.shape[0], 1)
+        embedding = nn.Embed(
+            num_embeddings=self.dataset.n_tokens,
+            features=self.d_model,
+            name="embedding",
         )
 
-        numeric_col_embeddings = self.embedding(repeated_numeric_indices)
+        # Embed column indices
+        repeated_col_indices = jnp.tile(
+            self.dataset.col_indices, (numeric_inputs.shape[0], 1)
+        )
+        col_embeddings = embedding(repeated_col_indices)
+        cat_embeddings = embedding(categorical_inputs)
+        # TODO implement no grad here
+        repeated_numeric_indices = jnp.tile(
+            self.dataset.numeric_indices, (numeric_inputs.shape[0], 1)
+        )
+
+        numeric_col_embeddings = embedding(repeated_numeric_indices)
         nan_mask = jnp.isnan(numeric_inputs)
         assert nan_mask.shape == numeric_col_embeddings.shape[:2]
         base_numeric = jnp.zeros_like(numeric_col_embeddings)
@@ -288,14 +215,23 @@ class TabTransformer(nn.Module):
         )
 
         base_numeric = jnp.where(
-            nan_mask[:, :, None], self.numeric_mask_token, base_numeric
+            nan_mask[:, :, None], self.dataset.numeric_mask_token, base_numeric
         )
 
         query_embeddings = jnp.concatenate([cat_embeddings, base_numeric], axis=1)
-        out = self.transformer_block1(
-            q=col_embeddings, k=query_embeddings, v=query_embeddings
-        )
-        out = self.transformer_block2(q=out, k=out, v=out)
+        out = TransformerBlock(
+            d_model=self.d_model,
+            n_heads=self.n_heads,
+            d_ff=self.d_model * 4,
+            dropout_rate=0.1,
+        )(q=col_embeddings, k=query_embeddings, v=query_embeddings)
+
+        out = TransformerBlock(
+            d_model=self.d_model,
+            n_heads=self.n_heads,
+            d_ff=self.d_model * 4,
+            dropout_rate=0.1,
+        )(q=out, k=out, v=out)
 
         return out
 
@@ -304,22 +240,6 @@ class MTM(nn.Module):
     dataset: TabularDS
     d_model: int = 64
     n_heads: int = 4
-
-    def __post_init__(self):
-        self.n_tokens = len(self.dataset.tokens)
-        self.tokens = self.dataset.tokens
-        self.token_dict = self.dataset.token_dict
-        self.cat_mask_token = jnp.array(self.token_dict["[MASK]"])
-        self.numeric_mask_token = jnp.array(self.token_dict["[NUMERIC_MASK]"])
-        self.numeric_columns = self.dataset.numeric_columns
-        self.col_tokens = self.dataset.category_columns + self.dataset.numeric_columns
-        self.col_indices = jnp.array(
-            [self.tokens.index(col) for col in self.col_tokens]
-        )
-        self.numeric_indices = jnp.array(
-            [self.tokens.index(col) for col in self.dataset.numeric_columns]
-        )
-        super().__post_init__()
 
     @nn.compact
     def __call__(
@@ -352,22 +272,6 @@ class TRM(nn.Module):
     dataset: TabularDS
     d_model: int = 64
     n_heads: int = 4
-
-    def __post_init__(self):
-        self.n_tokens = len(self.dataset.tokens)
-        self.tokens = self.dataset.tokens
-        self.token_dict = self.dataset.token_dict
-        self.cat_mask_token = jnp.array(self.token_dict["[MASK]"])
-        self.numeric_mask_token = jnp.array(self.token_dict["[NUMERIC_MASK]"])
-        self.numeric_columns = self.dataset.numeric_columns
-        self.col_tokens = self.dataset.category_columns + self.dataset.numeric_columns
-        self.col_indices = jnp.array(
-            [self.tokens.index(col) for col in self.col_tokens]
-        )
-        self.numeric_indices = jnp.array(
-            [self.tokens.index(col) for col in self.dataset.numeric_columns]
-        )
-        super().__post_init__()
 
     @nn.compact
     def __call__(
@@ -498,3 +402,22 @@ def show_mask_pred(params, model, i, dataset, probability=0.8, set="train"):
     }
 
     return result_dict
+
+
+def mask_tensor(tensor, dataset, probability=0.8):
+    if tensor.dtype == "float32" or tensor.dtype == "float64":
+        is_numeric = True
+    elif tensor.dtype == "int32" or tensor.dtype == "int64":
+        is_numeric = False
+    else:
+        raise ValueError(f"Task {tensor.dtype} not supported.")
+
+    tensor = tensor.copy()
+    seed = int(time.time() * 1000000)
+    key = random.PRNGKey(seed)
+    bit_mask = random.normal(key=key, shape=tensor.shape) > probability
+    if is_numeric:
+        tensor = tensor.at[bit_mask].set(float("nan"))
+    else:
+        tensor = tensor.at[bit_mask].set(dataset.cat_mask_token)
+    return tensor

@@ -449,7 +449,7 @@ def mtm(
     mse_loss = nn.MSELoss()
     ce_loss = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    numeric_loss_scaler = 15
+    numeric_loss_scaler = 1
     summary_writer = SummaryWriter("runs/" + model_name)
     if early_stop:
         early_stopping = EarlyStopping(patience=patience, min_delta=0.0001)
@@ -462,6 +462,7 @@ def mtm(
     model.train()
     # Tqdm for progress bar with loss and epochs displayed
     pbar = trange(epochs, desc="Epochs", leave=True)
+    print(f"Training size: {training_size:,}, Batch size: {batch_size:,}")
     for epoch in pbar:  # trange(epochs, desc="Epochs", leave=True):
         for i in range(0, training_size, batch_size):
             numeric_values = dataset.X_train_numeric[i : i + batch_size, :]
@@ -489,22 +490,20 @@ def mtm(
             cat_loss = ce_loss(categorical_preds, categorical_targets)
             numeric_values[numeric_values.isnan()] = torch.tensor([0.0])
 
-            numeric_loss = (
-                mse_loss(numeric_preds, numeric_values) * numeric_loss_scaler
-            )  # Hyper param
-            loss = cat_loss + numeric_loss  # TODO Look at scaling
+            numeric_loss = mse_loss(numeric_preds, numeric_values)  # Hyper param
+            loss = cat_loss + numeric_loss * numeric_loss_scaler  # TODO Look at scaling
             loss.backward()
             optimizer.step()
             batch_count += 1
-            learning_rate = optimizer.param_groups[0]["lr"]
-            summary_writer.add_scalar("LossTrain/agg_mask", loss.item(), batch_count)
+            # learning_rate = optimizer.param_groups[0]["lr"]
+            summary_writer.add_scalar("TrainLoss/total", loss.item(), batch_count)
             summary_writer.add_scalar(
-                "LossTrain/mlm_loss", cat_loss.item(), batch_count
+                "TrainLoss/categorical", cat_loss.item(), batch_count
             )
             summary_writer.add_scalar(
-                "LossTrain/mnm_loss", numeric_loss.item(), batch_count
+                "TrainLoss/numeric", numeric_loss.item(), batch_count
             )
-            summary_writer.add_scalar("Metrics/mtm_lr", learning_rate, batch_count)
+            # summary_writer.add_scalar("Metrics/mtm_lr", learning_rate, batch_count)
 
         with torch.no_grad():
             test_numeric_values = dataset.X_test_numeric
@@ -540,13 +539,13 @@ def mtm(
             )  # Hyper param
             test_loss = test_cat_loss + test_numeric_loss
 
-        summary_writer.add_scalar("LossTest/agg_loss", test_loss.item(), batch_count)
+        summary_writer.add_scalar("TestLoss/total", test_loss.item(), batch_count)
 
         summary_writer.add_scalar(
-            "LossTest/mlm_loss", test_cat_loss.item(), batch_count
+            "TestLoss/categorical", test_cat_loss.item(), batch_count
         )
         summary_writer.add_scalar(
-            "LossTest/mnm_loss", test_numeric_loss.item(), batch_count
+            "TestLoss/numeric", test_numeric_loss.item(), batch_count
         )
         if early_stopping is not None:
             early_stopping_status = early_stopping(model, test_loss)
