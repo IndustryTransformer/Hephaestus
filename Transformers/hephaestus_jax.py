@@ -9,6 +9,7 @@ import pandas as pd
 from flax import linen as nn
 from flax import struct  # Flax dataclasses
 from jax import random
+from jax.lax import stop_gradient
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
@@ -124,22 +125,6 @@ class MultiheadAttention(nn.Module):
         return out
 
     def scaled_dot_product_attention(self, q, k, v, mask=None):
-        """Calculate the attention weights.
-        q, k, v must have matching leading dimensions.
-        k, v must have matching penultimate dimension, i.e.: seq_len_k = seq_len_v.
-        The mask has different shapes depending on its type(padding or look ahead)
-        but it must be broadcastable for addition.
-
-        Args:
-        q: query shape == (..., seq_len_q, depth)
-        k: key shape == (..., seq_len_k, depth)
-        v: value shape == (..., seq_len_v, depth_v)
-        mask: Float tensor with shape broadcastable
-            to (..., seq_len_q, seq_len_k). Defaults to None.
-
-        Returns:
-        output, attention_weights
-        """
         matmul_qk = jnp.matmul(q, jnp.swapaxes(k, -2, -1))
         d_k = q.shape[-1]
         matmul_qk = matmul_qk / jnp.sqrt(d_k)
@@ -203,28 +188,28 @@ class TabTransformer(nn.Module):
             self.dataset.numeric_indices, (numeric_inputs.shape[0], 1)
         )
 
+        # Nan Masking
         numeric_col_embeddings = embedding(repeated_numeric_indices)
-        nan_mask = jnp.isnan(numeric_inputs)
-        assert nan_mask.shape == numeric_col_embeddings.shape[:2]
+        nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
         base_numeric = jnp.zeros_like(numeric_col_embeddings)
-        numeric_inputs = jnp.where(nan_mask, 0, numeric_inputs)
+        numeric_inputs = stop_gradient(jnp.where(nan_mask, 0.0, numeric_inputs))
         base_numeric = jnp.where(
             nan_mask[:, :, None],
-            numeric_col_embeddings * numeric_inputs[:, :, None],
             base_numeric,
+            numeric_col_embeddings * numeric_inputs[:, :, None],
         )
 
         base_numeric = jnp.where(
             nan_mask[:, :, None], self.dataset.numeric_mask_token, base_numeric
         )
-
-        query_embeddings = jnp.concatenate([cat_embeddings, base_numeric], axis=1)
+        # End Nan Masking
+        kv_embeddings = jnp.concatenate([cat_embeddings, base_numeric], axis=1)
         out = TransformerBlock(
             d_model=self.d_model,
             n_heads=self.n_heads,
             d_ff=self.d_model * 4,
             dropout_rate=0.1,
-        )(q=col_embeddings, k=query_embeddings, v=query_embeddings)
+        )(q=col_embeddings, k=kv_embeddings, v=kv_embeddings)
 
         out = TransformerBlock(
             d_model=self.d_model,
@@ -254,17 +239,19 @@ class MTM(nn.Module):
             name="categorical_out", features=self.dataset.n_tokens
         )(out)
         # categorical_out = nn.softmax(categorical_out, axis=-1)
-        numeric_out = jnp.reshape(out, (out.shape[0], -1))
+        # print(f"NumericStart Out shape: {categorical_out.shape}")
+        out = jnp.reshape(out, (out.shape[0], -1))
         numeric_out = nn.Sequential(
             [
-                nn.Dense(name="numeric_dense1", features=self.d_model * 4),
+                nn.Dense(name="numeric_dense_1", features=self.d_model * 6),
                 nn.relu,
                 nn.Dense(
-                    name="numeric_dense2", features=len(self.dataset.numeric_columns)
+                    name="numeric_dense_2", features=len(self.dataset.numeric_columns)
                 ),
-            ]
-        )(numeric_out)
-
+            ],
+            name="NumericOutputChain",
+        )(out)
+        # print(f"Numeric Out shape: {numeric_out.shape}")
         return categorical_out, numeric_out
 
 
