@@ -188,7 +188,6 @@ class MultiHeadAttention(nn.Module):
         self.v_linear = nn.Linear(d_model, d_model)
         self.out_linear = nn.Linear(d_model, d_model)
 
-        # self.initialize_parameters()
         self.apply(initialize_parameters)
 
     def forward(self, q, k, v, mask=None, input_feed_forward=False):
@@ -250,7 +249,6 @@ class TransformerEncoderLayer(nn.Module):
 
         self.layernorm1 = nn.LayerNorm(d_model)
         self.layernorm2 = nn.LayerNorm(d_model)
-        # self.initialize_parameters()
         self.apply(initialize_parameters)
 
     def forward(self, q, k, v, mask=None, input_feed_forward=False):
@@ -354,12 +352,12 @@ class TabTransformer(nn.Module):
         cat_embeddings = self.embeddings(cat_inputs)
 
         expanded_num_inputs = num_inputs.unsqueeze(2).repeat(1, 1, self.d_model)
-        with torch.no_grad():
-            repeated_numeric_indices = self.numeric_indices.unsqueeze(0).repeat(
-                num_inputs.size(0), 1
-            )
-            numeric_col_embeddings = self.embeddings(repeated_numeric_indices)
-            nan_mask = torch.isnan(expanded_num_inputs).all(dim=2)
+
+        repeated_numeric_indices = self.numeric_indices.unsqueeze(0).repeat(
+            num_inputs.size(0), 1
+        )
+        numeric_col_embeddings = self.embeddings(repeated_numeric_indices)
+        nan_mask = torch.isnan(expanded_num_inputs).all(dim=2)
 
         base_numeric = torch.zeros_like(expanded_num_inputs)
         num_embeddings = (
@@ -368,12 +366,12 @@ class TabTransformer(nn.Module):
 
         base_numeric[~nan_mask] = num_embeddings
         base_numeric[nan_mask] = self.embeddings(self.numeric_mask_token)
-        query_embeddings = torch.cat([cat_embeddings, base_numeric], dim=1)
+        kv_embeddings = torch.cat([cat_embeddings, base_numeric], dim=1)
         out = self.transformer_encoder1(
             col_embeddings,
             # query_embeddings,
-            query_embeddings,
-            query_embeddings
+            kv_embeddings,
+            kv_embeddings
             # col_embeddings, query_embeddings, query_embeddings
         )
         out = self.transformer_encoder2(out, out, out)
@@ -488,6 +486,7 @@ def mtm(
             )  # TODO investigate as possible bug
 
             cat_loss = ce_loss(categorical_preds, categorical_targets)
+            # numeric_values = torch.where(numeric_values.isnan(), 0, numeric_values)
             numeric_values[numeric_values.isnan()] = torch.tensor([0.0])
 
             numeric_loss = mse_loss(numeric_preds, numeric_values)  # Hyper param
