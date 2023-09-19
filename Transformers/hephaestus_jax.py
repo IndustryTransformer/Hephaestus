@@ -272,33 +272,33 @@ class TRM(nn.Module):
 
         out = nn.Sequential(
             [
-                nn.Dense(name="dense1", features=self.d_model * 2),
+                nn.Dense(name="RegressionDense1", features=self.d_model * 2),
                 nn.relu,
-                nn.Dense(name="dense2", features=1),
-            ]
+                nn.Dense(name="RegressionDense2", features=1),
+            ],
+            name="RegressionOutputChain",
         )(out)
         out = jnp.reshape(out, (out.shape[0], -1))
+        out = nn.Dense(name="RegressionFlatten", features=1)(out)
         return out
 
 
 # %%
-
-
 @struct.dataclass
-class ModelInputs:
+class MTMModelInputs:
     categorical_mask: jnp.ndarray
     numeric_mask: jnp.ndarray
     numeric_targets: jnp.ndarray
     categorical_targets: jnp.ndarray
 
 
-def create_mi(
+def create_mtm_model_inputs(
     dataset: TabularDS,
     idx: int = None,
     batch_size: int = None,
     set: str = "train",
     probability=0.8,
-    device=None,
+    device: jax.Device = None,
 ):
     if device is None:
         device = jax.devices()[0]
@@ -339,7 +339,7 @@ def create_mi(
 
     numeric_targets = numeric_targets.at[jnp.isnan(numeric_targets)].set(0.0)
 
-    mi = ModelInputs(
+    mi = MTMModelInputs(
         categorical_mask=jax.device_put(categorical_mask, device=device),
         numeric_mask=jax.device_put(numeric_mask, device=device),
         numeric_targets=jax.device_put(numeric_targets, device=device),
@@ -348,8 +348,54 @@ def create_mi(
     return mi
 
 
+@struct.dataclass
+class TRMModelInputs:
+    categorical_inputs: jnp.ndarray
+    numeric_inputs: jnp.ndarray
+    y: jnp.ndarray = None
+
+
+def create_trm_model_inputs(
+    dataset: TabularDS,
+    idx: int = None,
+    batch_size: int = None,
+    set: str = "train",
+    device: jax.Device = None,
+):
+    if device is None:
+        device = jax.devices()[0]
+    if set == "train":
+        categorical_values = dataset.X_train_categorical
+        numeric_values = dataset.X_train_numeric
+        y = dataset.y_train
+    elif set == "test":
+        categorical_values = dataset.X_test_categorical
+        numeric_values = dataset.X_test_numeric
+        y = dataset.y_test
+    else:
+        raise ValueError("set must be either 'train' or 'test'")
+
+    if idx is None:
+        idx = 0
+    if batch_size is None:
+        batch_size = numeric_values.shape[0]
+
+    categorical_values = categorical_values[idx : idx + batch_size, :]
+    numeric_values = numeric_values[idx : idx + batch_size, :]
+    y = y[idx : idx + batch_size, :]
+
+    mi = TRMModelInputs(
+        categorical_inputs=jax.device_put(categorical_values, device=device),
+        numeric_inputs=jax.device_put(numeric_values, device=device),
+        y=jax.device_put(y, device=device),
+    )
+    return mi
+
+
 def show_mask_pred(params, model, i, dataset, probability=0.8, set="train"):
-    mi = create_mi(dataset, idx=i, batch_size=1, set=set, probability=probability)
+    mi = create_mtm_model_inputs(
+        dataset, idx=i, batch_size=1, set=set, probability=probability
+    )
 
     logits, numeric_preds = model.apply(
         {"params": params}, mi.categorical_mask, mi.numeric_mask
