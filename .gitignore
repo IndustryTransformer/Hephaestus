@@ -169,3 +169,4 @@ Transformers/model_path.pt
 runs/
 models/
 Transformers/DiamondsTesting.ipynb
+pre_trained_models/
