@@ -1,22 +1,22 @@
 from datetime import datetime as dt
+from functools import partial
 
 import jax
 import jax.numpy as jnp
-import jaxlib.xla_extension.ArrayImpl as ArrayImpl
 import numpy as np
 import optax
-from data_utils import TabularDS, TRMModelInputs
 from flax.training import train_state
-from jax import jit
+from jaxlib.xla_extension import ArrayImpl as ArrayImpl
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.notebook import trange
 
-import model.hephaestus as hp
+from ..models import models
+from .data_utils import TabularDS, TRMModelInputs, create_trm_model_inputs
 
 
-def create_regression_state(
-    params_key,
-    mi: hp.TRMModelInputs,
+def create_trm_train_state(
+    params_key: ArrayImpl,
+    mi: TRMModelInputs,
     dataset: TabularDS,
     mtm_params=None,
     lr=0.01,
@@ -25,7 +25,7 @@ def create_regression_state(
     if device is None:
         device = jax.devices()[0]
 
-    model = hp.TRM(dataset, d_model=64, n_heads=4)
+    model = models.TRM(dataset, d_model=64, n_heads=4)
     params = jax.device_put(
         model.init(params_key, mi.categorical_inputs, mi.numeric_inputs)["params"],
         device,
@@ -42,17 +42,19 @@ def create_regression_state(
 def calculate_reg_loss(
     params,
     trm,
-    mi: hp.TRMModelInputs,
+    mi: TRMModelInputs,
 ):
-    regression = trm.apply({"params": params}, mi.categorical_inputs, mi.numeric_inputs)
+    trm_out = trm.apply({"params": params}, mi.categorical_inputs, mi.numeric_inputs)
 
-    loss = optax.squared_error(regression, mi.y).mean()
+    loss = optax.squared_error(trm_out, mi.y).mean()
 
     return loss
 
 
-@jit
-def reg_train_step(state: train_state, model: hp.TRM, mi: TRMModelInputs):
+# @jax.jit
+def trm_train_step_no_jit(model: models.TRM, state: train_state, mi: TRMModelInputs):
+    """Remember to jit this function before using it in training"""
+
     def loss_fn(params):
         return calculate_reg_loss(params, model, mi)
 
@@ -62,60 +64,60 @@ def reg_train_step(state: train_state, model: hp.TRM, mi: TRMModelInputs):
     return state, loss
 
 
-@jit
-def reg_eval_step(params: dict, mi: TRMModelInputs, model: hp.TRM):
+# @jax.jit
+def trm_eval_step_no_jit(model: models.TRM, params: dict, mi: TRMModelInputs):
     return calculate_reg_loss(params, model, mi)
 
 
-# regression_root_key = random.PRNGKey(0)
-# reg_main_key, reg_params_key, reg_dropout_key = random.split(root_key, 3)
-
-# reg_mi = hp.create_trm_model_inputs(dataset, idx=0, batch_size=3, set="train")
-# trm_state = create_regression_state(params_key, reg_mi, mtm_state.params)
-
-
 def train_trm(
-    trm_state: train_state,
-    model: hp.TRM,
+    model_state: train_state,
+    model: models.TRM,
     dataset: TabularDS,
     epochs: int = 100,
     model_name: str = "TRM",
+    batch_size=10_000,
 ):
     total_loss = []
     summary_writer = SummaryWriter(
         "runs/" + dt.now().strftime("%Y-%m:%dT%H:%M:%S") + "_" + model_name
     )
 
-    reg_test_mi = hp.create_trm_model_inputs(dataset, set="test")
-    batch_size = 10_000
+    reg_test_mi = create_trm_model_inputs(dataset, set="test")
     data = [
-        hp.create_trm_model_inputs(dataset, i, batch_size)
+        create_trm_model_inputs(dataset, i, batch_size)
         for i in trange(0, len(dataset.X_train_numeric), batch_size)
     ]
-    test_loss = reg_eval_step(trm_state.params, reg_test_mi)
-    # mi = hp.create_mi(dataset)
+    # mi = models.create_mi(dataset)
     pbar = trange(epochs)
     batch_counter = 0
+
+    # Jit the functions
+    trm_train_step_partial = partial(trm_train_step_no_jit, model)
+    trm_eval_step_partial = partial(trm_eval_step_no_jit, model)
+    trm_train_step = jax.jit(trm_train_step_partial)
+    trm_eval_step = jax.jit(trm_eval_step_partial)
+    test_loss = trm_eval_step(model_state.params, reg_test_mi)
+
     for epoch in pbar:
         for mi in data:
-            # mi = hp.create_mi(dataset, i, batch_size)
+            # mi = models.create_mi(dataset, i, batch_size)
 
-            trm_state, loss = reg_train_step(trm_state, model, mi)
+            model_state, loss = trm_train_step(model_state, mi)
             # train_loss_dict = trm_eval_step(trm_state.params, mi)
 
             total_loss.append(loss.item())
             # Train Loss
             summary_writer.add_scalar(
-                "TrainLoss/regression_total",
+                "TrainLoss/trm_total",
                 np.array(loss),
                 batch_counter,
             )
             batch_counter += 1
             # Test Loss
             if epoch % 10 == 0:
-                test_loss = reg_eval_step(trm_state.params, reg_test_mi)
+                test_loss = trm_eval_step(model_state.params, reg_test_mi)
                 summary_writer.add_scalar(
-                    "TestLoss/regression_total",
+                    "TestLoss/trm_total",
                     np.array(test_loss),
                     batch_counter,
                 )
@@ -126,4 +128,4 @@ def train_trm(
     total_loss = jnp.array(total_loss)
     # categorical_loss = jnp.array(categorical_loss)
     #  # A100: 14.00it/s V100: 8.71it/s T4: 2.70it/s
-    return {"trm_state": trm_state, "total_loss": total_loss}
+    return {"trm_state": model_state, "total_loss": total_loss}

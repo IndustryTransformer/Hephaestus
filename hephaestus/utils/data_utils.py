@@ -4,10 +4,10 @@ from itertools import chain
 
 import jax
 import jax.numpy as jnp
-import jaxlib
 import pandas as pd
 from flax import struct  # Flax dataclasses
 from jax import random
+from jaxlib.xla_extension import ArrayImpl
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
@@ -252,9 +252,7 @@ def show_mask_pred(params, model, i, dataset, probability=0.8, set="train"):
     return result_dict
 
 
-def mask_tensor(
-    tensor, dataset, probability=0.8, prng_key: jaxlib.xla_extension.ArrayImpl = None
-):
+def mask_tensor(tensor, dataset, probability=0.8, prng_key: ArrayImpl = None):
     if tensor.dtype == "float32" or tensor.dtype == "float64":
         is_numeric = True
     elif tensor.dtype == "int32" or tensor.dtype == "int64":
