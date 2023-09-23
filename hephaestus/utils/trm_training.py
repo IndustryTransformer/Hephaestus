@@ -6,7 +6,6 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 from flax.training import train_state
-from flax.training.early_stopping import EarlyStopping
 from jaxlib.xla_extension import ArrayImpl as ArrayImpl
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.notebook import trange
