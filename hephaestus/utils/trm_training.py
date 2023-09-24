@@ -21,11 +21,12 @@ def create_trm_train_state(
     mtm_params=None,
     lr=0.01,
     device=None,
+    n_heads=4,
 ):
     if device is None:
         device = jax.devices()[0]
 
-    model = models.TRM(dataset, d_model=64, n_heads=4)
+    model = models.TRM(dataset, d_model=64, n_heads=n_heads)
     params = jax.device_put(
         model.init(params_key, mi.categorical_inputs, mi.numeric_inputs)["params"],
         device,

@@ -167,6 +167,6 @@ Manifest.toml
 hephaestus_julia/vocab/*
 Transformers/model_path.pt
 runs/
-models/
+pre_trained_models/
 Transformers/DiamondsTesting.ipynb
 pre_trained_models/

@@ -44,10 +44,11 @@ def create_mtm_train_state(
     dataset: TabularDS,
     lr=0.01,
     device=None,
+    n_heads=4,
 ):
     if device is None:
         device = jax.devices()[0]
-    model = models.MTM(dataset, d_model=64, n_heads=4)
+    model = models.MTM(dataset, d_model=64, n_heads=n_heads)
     params = jax.device_put(
         model.init(
             params_key,
