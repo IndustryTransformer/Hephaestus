@@ -76,7 +76,7 @@ def train_tts(
     dataset: TabularDS,
     epochs: int = 100,
     model_name: str = "TRM",
-    batch_size=10_000,
+    batch_size=100,
     n_rows=None,
     early_stopping=None,
 ):
