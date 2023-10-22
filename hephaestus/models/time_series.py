@@ -1,5 +1,5 @@
 # %%
-import jax
+# import jax
 import jax.numpy as jnp
 from flax import linen as nn
 from jax.lax import stop_gradient
@@ -15,15 +15,15 @@ class MultiheadAttention(nn.Module):
 
     @nn.compact
     def __call__(self, q, k, v, input_feed_forward=True, mask=None):
+        """Self Attention"""
         if input_feed_forward:
             q = nn.Dense(name="q_linear", features=self.d_model)(q)
             k = nn.Dense(name="k_linear", features=self.d_model)(k)
             v = nn.Dense(name="v_linear", features=self.d_model)(v)
 
-        print(f"Q shape: {q.shape}, K shape: {k.shape}, V shape: {v.shape}")
-        attention_output, attention_weights = self.scaled_dot_product_attention(
-            q, k, v, mask
-        )
+        # print(f"Q shape: {q.shape}, K shape: {k.shape}, V shape: {v.shape}")
+        # here _ = attention_weights
+        attention_output, _ = self.scaled_dot_product_attention(q, k, v, mask)
 
         atten_out = attention_output.transpose(0, 2, 1).reshape(
             attention_output.shape[0], -1, self.d_model
@@ -33,8 +33,9 @@ class MultiheadAttention(nn.Module):
         return out
 
     def scaled_dot_product_attention(self, q, k, v, mask=None):
+        """Calculate the attention weights."""
         matmul_qk = jnp.matmul(q, jnp.swapaxes(k, -2, -1))
-        print(f"Matmul shape: {matmul_qk.shape}")
+        # print(f"Matmul shape: {matmul_qk.shape}")
         d_k = q.shape[-1]
         matmul_qk = matmul_qk / jnp.sqrt(d_k)
 
@@ -44,7 +45,7 @@ class MultiheadAttention(nn.Module):
         attention_weights = nn.softmax(matmul_qk, axis=-1)
 
         output = jnp.matmul(attention_weights, v)
-        print(f"Scaled Output shape: {output.shape}")
+        # print(f"Scaled Output shape: {output.shape}")
 
         return output, attention_weights
 
@@ -118,10 +119,10 @@ class TimeSeriesTransformer(nn.Module):
             kv_embeddings.reshape(-1, kv_embeddings.shape[2]), axis=0
         )
         col_embeddings = jnp.expand_dims(col_embeddings, axis=0)
-        print(
-            f"KV Embedding shape: {kv_embeddings.shape}",
-            f"Col Embedding shape: {col_embeddings.shape}",
-        )
+        # print(
+        #     f"KV Embedding shape: {kv_embeddings.shape}",
+        #     f"Col Embedding shape: {col_embeddings.shape}",
+        # )
         kv_embeddings = PositionalEncoding(d_model=self.d_model)(kv_embeddings)
         col_embeddings = PositionalEncoding(d_model=self.d_model)(col_embeddings)
         out = TransformerBlock(
@@ -130,7 +131,7 @@ class TimeSeriesTransformer(nn.Module):
             d_ff=self.d_model * 4,
             dropout_rate=0.1,
         )(q=col_embeddings, k=kv_embeddings, v=kv_embeddings)
-        print(f"First MHA out shape: {out.shape}")
+        # print(f"First MHA out shape: {out.shape}")
         out = TransformerBlock(
             d_model=self.d_model,
             n_heads=self.n_heads,
@@ -139,11 +140,20 @@ class TimeSeriesTransformer(nn.Module):
         )(
             q=col_embeddings, k=out, v=out
         )  # Check if we should reuse the col embeddings here
-        print(f"Second MHA out shape: {out.shape}")
+        # print(f"Second MHA out shape: {out.shape}")
         return out
 
 
 # %%
+
+
+def multivariate_regression(
+    dataset: TabularDS,
+    d_model: int = 64,
+    n_heads: int = 4,
+) -> nn.Module:
+    """ """
+    return TimeSeriesRegression(dataset, d_model, n_heads)
 
 
 class TimeSeriesRegression(nn.Module):
@@ -156,16 +166,17 @@ class TimeSeriesRegression(nn.Module):
         self,
         categorical_inputs: jnp.array,
         numeric_inputs: jnp.array,
-    ):
+    ) -> jnp.array:
+        """ """
         n_vals = categorical_inputs.shape[0]
-        print(
-            f"Cat inputs shape: {categorical_inputs.shape}",
-            f"Numeric inputs shape: {numeric_inputs.shape}",
-        )
+        # print(
+        #     f"Cat inputs shape: {categorical_inputs.shape}",
+        #     f"Numeric inputs shape: {numeric_inputs.shape}",
+        # )
         out = TimeSeriesTransformer(self.dataset, self.d_model, self.n_heads)(
             numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
         )
-        print(f"Out shape: {out.shape}")
+        # print(f"Out shape: {out.shape}")
         out = nn.Sequential(
             [
                 nn.Dense(name="RegressionDense1", features=self.d_model * 2),
@@ -174,7 +185,7 @@ class TimeSeriesRegression(nn.Module):
             ],
             name="RegressionOutputChain",
         )(out)
-        print(f"Out shape: {out.shape}")
+        # print(f"Out shape: {out.shape}")
         out = jnp.reshape(out, (out.shape[0], -1))
         out = nn.Dense(name="RegressionFlatten", features=n_vals)(out)
         return out
@@ -206,7 +217,8 @@ class PositionalEncoding(nn.Module):
 #     max_len: int = 5000  # Maximum length of a sequence to expect.
 
 #     def setup(self):
-#         # Create matrix of [SeqLen, HiddenDim] representing the positional encoding for max_len inputs
+#         # Create matrix of [SeqLen, HiddenDim] representing the positional
+# encoding for max_len inputs
 #         pe = jnp.zeros((self.max_len, self.d_model))
 #         position = jnp.arange(0, self.max_len, dtype=jnp.float32)[:, None]
 #         div_term = jnp.exp(

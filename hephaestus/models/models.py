@@ -19,7 +19,7 @@ class MultiheadAttention(nn.Module):
             k = nn.Dense(features=self.d_model)(k)
             v = nn.Dense(features=self.d_model)(v)
 
-        print(f"Q shape: {q.shape}, K shape: {k.shape}, V shape: {v.shape}")
+        # print(f"Q shape: {q.shape}, K shape: {k.shape}, V shape: {v.shape}")
         attention_output, attention_weights = self.scaled_dot_product_attention(
             q, k, v, mask
         )
@@ -33,7 +33,7 @@ class MultiheadAttention(nn.Module):
 
     def scaled_dot_product_attention(self, q, k, v, mask=None):
         matmul_qk = jnp.matmul(q, jnp.swapaxes(k, -2, -1))
-        print(f"Matmul shape: {matmul_qk.shape}")
+        # print(f"Matmul shape: {matmul_qk.shape}")
         d_k = q.shape[-1]
         matmul_qk = matmul_qk / jnp.sqrt(d_k)
 
@@ -43,7 +43,7 @@ class MultiheadAttention(nn.Module):
         attention_weights = nn.softmax(matmul_qk, axis=-1)
 
         output = jnp.matmul(attention_weights, v)
-        print(f"Scaled Output shape: {output.shape}")
+        # print(f"Scaled Output shape: {output.shape}")
 
         return output, attention_weights
 
@@ -113,14 +113,14 @@ class TimeSeriesTransformer(nn.Module):
         kv_embeddings = jnp.expand_dims(
             kv_embeddings.reshape(-1, kv_embeddings.shape[2]), axis=0
         )
-        print(f"KV Embedding shape: {kv_embeddings.shape}")
+        # print(f"KV Embedding shape: {kv_embeddings.shape}")
         out = TransformerBlock(
             d_model=self.d_model,
             n_heads=self.n_heads,
             d_ff=self.d_model * 4,
             dropout_rate=0.1,
         )(q=col_embeddings, k=kv_embeddings, v=kv_embeddings)
-        print(f"First MHA out shape: {out.shape}")
+        # print(f"First MHA out shape: {out.shape}")
         out = TransformerBlock(
             d_model=self.d_model,
             n_heads=self.n_heads,
@@ -129,7 +129,7 @@ class TimeSeriesTransformer(nn.Module):
         )(
             q=col_embeddings, k=out, v=out
         )  # Check if we should reuse the col embeddings here
-        print(f"Second MHA out shape: {out.shape}")
+        # print(f"Second MHA out shape: {out.shape}")
         return out
 
 
@@ -271,14 +271,14 @@ class TimeSeriesRegression(nn.Module):
         categorical_inputs: jnp.array,
         numeric_inputs: jnp.array,
     ):
-        print(
-            f"Cat inputs shape: {categorical_inputs.shape}",
-            f"Numeric inputs shape: {numeric_inputs.shape}",
-        )
+        # print(
+        #     f"Cat inputs shape: {categorical_inputs.shape}",
+        #     f"Numeric inputs shape: {numeric_inputs.shape}",
+        # )
         out = TimeSeriesTransformer(self.dataset, self.d_model, self.n_heads)(
             numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
         )
-        print(f"Out shape: {out.shape}")
+        # print(f"Out shape: {out.shape}")
         out = nn.Sequential(
             [
                 nn.Dense(name="RegressionDense1", features=self.d_model * 2),
@@ -287,7 +287,7 @@ class TimeSeriesRegression(nn.Module):
             ],
             name="RegressionOutputChain",
         )(out)
-        print(f"Out shape: {out.shape}")
+        # print(f"Out shape: {out.shape}")
         out = jnp.reshape(out, (out.shape[0], -1))
         out = nn.Dense(name="RegressionFlatten", features=1)(out)
         return out

@@ -31,11 +31,13 @@ class TabularDS:
     numeric_mask_token: list = field(init=False)
     numeric_indices: jnp.array = field(init=False)
     col_indices: jnp.array = field(init=False)
+    shuffle: bool = True
 
     def __post_init__(self):
-        self.df = self.df.sample(frac=1, random_state=self.seed).reset_index(
-            drop=True
-        )  # This is where randomness is introduced
+        if self.shuffle:
+            self.df = self.df.sample(frac=1, random_state=self.seed).reset_index(
+                drop=True
+            )  # This is where randomness is introduced
         self.category_columns = self.df.select_dtypes(
             include=["object"]
         ).columns.tolist()
@@ -97,6 +99,24 @@ class TabularDS:
         self.y_train = jnp.array(self.y_train.values)
 
         self.y_test = jnp.array(self.y_test.values)
+
+
+@struct.dataclass
+class TimeSeriesRegression:
+    categorical_inputs: jnp.ndarray
+    numeric_inputs: jnp.ndarray
+    y: jnp.ndarray = None
+    time_window: int = 100
+
+
+def create_time_series_regression_model_inputs(
+    dataset: TabularDS,
+    idx: int = None,
+    batch_size: int = None,
+    set: str = "train",
+    device: jax.Device = None,
+):
+    pass
 
 
 @struct.dataclass
