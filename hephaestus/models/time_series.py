@@ -115,14 +115,16 @@ class TimeSeriesTransformer(nn.Module):
         )
         # End Nan Masking
         kv_embeddings = jnp.concatenate([cat_embeddings, base_numeric], axis=1)
+        print(f"KV Embedding shape: {kv_embeddings.shape}")
         kv_embeddings = jnp.expand_dims(
             kv_embeddings.reshape(-1, kv_embeddings.shape[2]), axis=0
         )
         col_embeddings = jnp.expand_dims(col_embeddings, axis=0)
-        # print(
-        #     f"KV Embedding shape: {kv_embeddings.shape}",
-        #     f"Col Embedding shape: {col_embeddings.shape}",
-        # )
+        print(
+            f"KV Embedding shape: {kv_embeddings.shape}",
+            f"Col Embedding shape: {col_embeddings.shape}",
+            sep="\n",
+        )
         kv_embeddings = PositionalEncoding(d_model=self.d_model)(kv_embeddings)
         col_embeddings = PositionalEncoding(d_model=self.d_model)(col_embeddings)
         out = TransformerBlock(
@@ -131,7 +133,7 @@ class TimeSeriesTransformer(nn.Module):
             d_ff=self.d_model * 4,
             dropout_rate=0.1,
         )(q=col_embeddings, k=kv_embeddings, v=kv_embeddings)
-        # print(f"First MHA out shape: {out.shape}")
+        print(f"First MHA out shape: {out.shape}")
         out = TransformerBlock(
             d_model=self.d_model,
             n_heads=self.n_heads,
