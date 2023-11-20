@@ -15,7 +15,7 @@ from sklearn.preprocessing import StandardScaler
 @dataclass
 class TabularDS:
     df: pd.DataFrame = field(repr=False)
-    target_column: str
+    target_column: str = field(default=None)
     seed: int = 42
     special_tokens: list = field(
         default_factory=lambda: ["[PAD]", "[NUMERIC_MASK]", "[MASK]"]
@@ -44,7 +44,6 @@ class TabularDS:
         self.numeric_columns = self.df.select_dtypes(
             include=["int64", "float64"]
         ).columns.tolist()
-        self.target_column = [self.target_column]
         self.tokens = list(
             chain(
                 self.special_tokens,
@@ -56,7 +55,11 @@ class TabularDS:
         self.token_decoder_dict = {i: token for i, token in enumerate(self.tokens)}
         self.cat_mask_token = self.token_dict[self.cat_mask]
         self.scaler = StandardScaler()
-        self.numeric_columns.remove(self.target_column[0])
+
+        if self.target_column is not None:
+            self.numeric_columns.remove(self.target_column)
+            self.target_column = [self.target_column]
+
         self.col_tokens = self.category_columns + self.numeric_columns
         self.n_cat_cols = len(self.category_columns)
         # self.numeric_columns = self.numeric_columns.remove(self.target_column[0])
@@ -70,12 +73,18 @@ class TabularDS:
             [self.tokens.index(col) for col in self.numeric_columns]
         )
         self.numeric_mask_token = jnp.array(self.token_dict["[NUMERIC_MASK]"])
-        X = self.df.drop(self.target_column, axis=1)
-        y = self.df[self.target_column]
+        if self.target_column is not None:
+            X = self.df.drop(self.target_column, axis=1)
+            y = self.df[self.target_column]
+            self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
+                X, y, test_size=0.2
+            )
+        else:
+            X = self.df
+            y = None
+            self.X_train, self.X_test = train_test_split(X, test_size=0.2)
+            self.y_train, self.y_test = None, None
 
-        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
-            X, y, test_size=0.2
-        )
         self.n_tokens = len(self.tokens)
         self.numeric_col_tokens = jnp.array(
             [self.token_dict[i] for i in self.numeric_columns]
@@ -96,9 +105,13 @@ class TabularDS:
 
         self.X_test_categorical = jnp.array(X_test_categorical.values)
 
-        self.y_train = jnp.array(self.y_train.values)
+        if self.target_column is not None:
+            self.y_train = jnp.array(self.y_train.values)
 
-        self.y_test = jnp.array(self.y_test.values)
+            self.y_test = jnp.array(self.y_test.values)
+        else:
+            self.y_train = None
+            self.y_test = None
 
 
 @struct.dataclass

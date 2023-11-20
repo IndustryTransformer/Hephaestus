@@ -2,9 +2,12 @@
 # import jax
 import jax.numpy as jnp
 from flax import linen as nn
+from icecream import ic
 from jax.lax import stop_gradient
 
 from ..utils.data_utils import TabularDS
+
+ic.configureOutput(includeContext=True)
 
 # %%
 
@@ -21,7 +24,7 @@ class MultiheadAttention(nn.Module):
             k = nn.Dense(name="k_linear", features=self.d_model)(k)
             v = nn.Dense(name="v_linear", features=self.d_model)(v)
 
-        # print(f"Q shape: {q.shape}, K shape: {k.shape}, V shape: {v.shape}")
+        # ic(f"Q shape: {q.shape}, K shape: {k.shape}, V shape: {v.shape}")
         # here _ = attention_weights
         attention_output, _ = self.scaled_dot_product_attention(q, k, v, mask)
 
@@ -35,7 +38,7 @@ class MultiheadAttention(nn.Module):
     def scaled_dot_product_attention(self, q, k, v, mask=None):
         """Calculate the attention weights."""
         matmul_qk = jnp.matmul(q, jnp.swapaxes(k, -2, -1))
-        # print(f"Matmul shape: {matmul_qk.shape}")
+        # ic(f"Matmul shape: {matmul_qk.shape}")
         d_k = q.shape[-1]
         matmul_qk = matmul_qk / jnp.sqrt(d_k)
 
@@ -45,7 +48,7 @@ class MultiheadAttention(nn.Module):
         attention_weights = nn.softmax(matmul_qk, axis=-1)
 
         output = jnp.matmul(attention_weights, v)
-        # print(f"Scaled Output shape: {output.shape}")
+        # ic(f"Scaled Output shape: {output.shape}")
 
         return output, attention_weights
 
@@ -71,6 +74,31 @@ class TransformerBlock(nn.Module):
 
 
 class TimeSeriesTransformer(nn.Module):
+    """
+    Transformer-based model for time series data.
+
+    Args:
+        dataset (TabularDS): Tabular dataset object containing the column indices and number of tokens.
+        d_model (int): Dimensionality of the model.
+        n_heads (int): Number of attention heads.
+        time_window (int): Length of the time window.
+
+    Attributes:
+        dataset (TabularDS): Tabular dataset object containing the column indices and number of tokens.
+        d_model (int): Dimensionality of the model.
+        n_heads (int): Number of attention heads.
+        time_window (int): Length of the time window.
+
+    Methods:
+        __call__(categorical_inputs, numeric_inputs): Applies the transformer to the inputs.
+
+    Example:
+        >>> transformer = TimeSeriesTransformer(dataset, d_model=64, n_heads=4, time_window=100)
+        >>> categorical_inputs = jnp.array([[1, 2, 3], [4, 5, 6]])
+        >>> numeric_inputs = jnp.array([[[1, 2, 3], [4, 5, 6]], [[7, 8, 9], [10, 11, 12]]])
+        >>> output = transformer(categorical_inputs, numeric_inputs)
+    """
+
     dataset: TabularDS
     d_model: int = 64
     n_heads: int = 4
@@ -92,11 +120,12 @@ class TimeSeriesTransformer(nn.Module):
         )
         # Embed column indices
 
-        col_embeddings = embedding(repeated_numeric_indices)
+        col_embeddings = embedding(self.dataset.col_indices)
+        ic(f"{col_embeddings.shape=}")
         cat_embeddings = embedding(categorical_inputs)
-        # TODO implement no grad here
+        ic(f"Numeric inputs shape: {numeric_inputs.shape}")
         repeated_numeric_indices = jnp.tile(
-            self.dataset.numeric_indices, (numeric_inputs.shape[0], 1)
+            self.dataset.numeric_indices, (numeric_inputs.shape[1], 1)
         )
 
         # Nan Masking
@@ -104,36 +133,60 @@ class TimeSeriesTransformer(nn.Module):
         nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
         base_numeric = jnp.zeros_like(numeric_col_embeddings)
         numeric_inputs = stop_gradient(jnp.where(nan_mask, 0.0, numeric_inputs))
+        numeric_mat_mull = numeric_col_embeddings * numeric_inputs[:, :, :, None]
+        ic(
+            f"{base_numeric.shape=}",
+            f"{numeric_col_embeddings.shape=}",
+            f"{numeric_inputs.shape=}",
+            f"{numeric_inputs[:, :, :, None].shape=}",
+            f"{nan_mask[:, :, :].shape=}",
+            f"{jnp.expand_dims(nan_mask, axis=-1).shape=}",
+            f"{numeric_mat_mull.shape=}",
+        )
+        ic(
+            f"{base_numeric.shape=}",
+            f"{numeric_col_embeddings.shape=}",
+            f"{numeric_inputs.shape=}",
+            f"{numeric_inputs[:, :, :, None].shape=}",
+            f"{nan_mask[:, :, :].shape=}",
+            f"{jnp.expand_dims(nan_mask, axis=-1).shape=}",
+            f"{numeric_mat_mull.shape=}",
+        )
         base_numeric = jnp.where(
-            nan_mask[:, :, None],
+            # nan_mask[:, :, :, None],
+            jnp.expand_dims(nan_mask, axis=-1),
             base_numeric,
-            numeric_col_embeddings * numeric_inputs[:, :, None],
+            numeric_mat_mull,
         )
 
         base_numeric = jnp.where(
-            nan_mask[:, :, None], self.dataset.numeric_mask_token, base_numeric
+            nan_mask[:, :, :, None], self.dataset.numeric_mask_token, base_numeric
         )
         # End Nan Masking
-        kv_embeddings = jnp.concatenate([cat_embeddings, base_numeric], axis=1)
-        print(f"KV Embedding shape: {kv_embeddings.shape}")
+        ic(
+            f"{cat_embeddings.shape=}",
+            f"{base_numeric.shape=}",
+        )
+        kv_embeddings = jnp.concatenate([cat_embeddings, base_numeric], axis=2)
+        ic(f"KV Embedding shape: {kv_embeddings.shape}")
         kv_embeddings = jnp.expand_dims(
             kv_embeddings.reshape(-1, kv_embeddings.shape[2]), axis=0
         )
         col_embeddings = jnp.expand_dims(col_embeddings, axis=0)
-        print(
+        ic(
             f"KV Embedding shape: {kv_embeddings.shape}",
             f"Col Embedding shape: {col_embeddings.shape}",
-            sep="\n",
         )
-        kv_embeddings = PositionalEncoding(d_model=self.d_model)(kv_embeddings)
-        col_embeddings = PositionalEncoding(d_model=self.d_model)(col_embeddings)
+        # TODO Add positional encoding
+        # kv_embeddings = PositionalEncoding(d_model=self.d_model)(kv_embeddings)
+        # col_embeddings = PositionalEncoding(d_model=self.d_model)(col_embeddings)
         out = TransformerBlock(
             d_model=self.d_model,
             n_heads=self.n_heads,
             d_ff=self.d_model * 4,
             dropout_rate=0.1,
         )(q=col_embeddings, k=kv_embeddings, v=kv_embeddings)
-        print(f"First MHA out shape: {out.shape}")
+        ic(f"First MHA out shape: {out.shape}")
         out = TransformerBlock(
             d_model=self.d_model,
             n_heads=self.n_heads,
@@ -142,7 +195,7 @@ class TimeSeriesTransformer(nn.Module):
         )(
             q=col_embeddings, k=out, v=out
         )  # Check if we should reuse the col embeddings here
-        # print(f"Second MHA out shape: {out.shape}")
+        ic(f"Second MHA out shape: {out.shape}")
         return out
 
 
@@ -160,7 +213,7 @@ def multivariate_regression(
 
 class TimeSeriesRegression(nn.Module):
     dataset: TabularDS
-    d_model: int = 64
+    d_model: int = 64 * 10
     n_heads: int = 4
 
     @nn.compact
@@ -171,14 +224,14 @@ class TimeSeriesRegression(nn.Module):
     ) -> jnp.array:
         """ """
         n_vals = categorical_inputs.shape[0]
-        # print(
-        #     f"Cat inputs shape: {categorical_inputs.shape}",
-        #     f"Numeric inputs shape: {numeric_inputs.shape}",
-        # )
+        ic(
+            f"Cat inputs shape: {categorical_inputs.shape}",
+            f"Numeric inputs shape: {numeric_inputs.shape}",
+        )
         out = TimeSeriesTransformer(self.dataset, self.d_model, self.n_heads)(
             numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
         )
-        # print(f"Out shape: {out.shape}")
+        # ic(f"Out shape: {out.shape}")
         out = nn.Sequential(
             [
                 nn.Dense(name="RegressionDense1", features=self.d_model * 2),
@@ -187,7 +240,42 @@ class TimeSeriesRegression(nn.Module):
             ],
             name="RegressionOutputChain",
         )(out)
-        # print(f"Out shape: {out.shape}")
+        # ic(f"Out shape: {out.shape}")
+        out = jnp.reshape(out, (out.shape[0], -1))
+        out = nn.Dense(name="RegressionFlatten", features=n_vals)(out)
+        return out
+
+
+class MaskedTimeSeries(nn.Module):
+    dataset: TabularDS
+    d_model: int = 64 * 10
+    n_heads: int = 4
+
+    @nn.compact
+    def __call__(
+        self,
+        categorical_inputs: jnp.array,
+        numeric_inputs: jnp.array,
+    ) -> jnp.array:
+        """ """
+        n_vals = categorical_inputs.shape[0]
+        ic(
+            f"Cat inputs shape: {categorical_inputs.shape}",
+            f"Numeric inputs shape: {numeric_inputs.shape}",
+        )
+        out = TimeSeriesTransformer(self.dataset, self.d_model, self.n_heads)(
+            numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
+        )
+        # ic(f"Out shape: {out.shape}")
+        out = nn.Sequential(
+            [
+                nn.Dense(name="RegressionDense1", features=self.d_model * 2),
+                nn.relu,
+                nn.Dense(name="RegressionDense2", features=1),
+            ],
+            name="RegressionOutputChain",
+        )(out)
+        # ic(f"Out shape: {out.shape}")
         out = jnp.reshape(out, (out.shape[0], -1))
         out = nn.Dense(name="RegressionFlatten", features=n_vals)(out)
         return out
@@ -208,7 +296,7 @@ class PositionalEncoding(nn.Module):
         )
         pe = pe.at[:, :, 0::2].set(jnp.sin(x))
         pe = pe.at[:, :, 1::2].set(jnp.cos(x))
-        X = X + pe[:, : X.shape[1], :]
+        X = X + pe[:, : X.shape[2], :]
         # return dropout(X, deterministic=not train)
 
         return X
