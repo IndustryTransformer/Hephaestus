@@ -8,7 +8,7 @@ from jax.lax import stop_gradient
 from ..utils.data_utils import TabularDS
 
 ic.configureOutput(includeContext=True)
-
+ic.disable()
 # %%
 
 
@@ -78,24 +78,29 @@ class TimeSeriesTransformer(nn.Module):
     Transformer-based model for time series data.
 
     Args:
-        dataset (TabularDS): Tabular dataset object containing the column indices and number of tokens.
+        dataset (TabularDS): Tabular dataset object containing the column indices and
+        number of tokens.
         d_model (int): Dimensionality of the model.
         n_heads (int): Number of attention heads.
         time_window (int): Length of the time window.
 
     Attributes:
-        dataset (TabularDS): Tabular dataset object containing the column indices and number of tokens.
+        dataset (TabularDS): Tabular dataset object containing the column indices and
+        number of tokens.
         d_model (int): Dimensionality of the model.
         n_heads (int): Number of attention heads.
         time_window (int): Length of the time window.
 
     Methods:
-        __call__(categorical_inputs, numeric_inputs): Applies the transformer to the inputs.
+        __call__(categorical_inputs, numeric_inputs): Applies the transformer to the
+        inputs.
 
     Example:
-        >>> transformer = TimeSeriesTransformer(dataset, d_model=64, n_heads=4, time_window=100)
+        >>> transformer = TimeSeriesTransformer(dataset, d_model=64, n_heads=4,
+        time_window=100)
         >>> categorical_inputs = jnp.array([[1, 2, 3], [4, 5, 6]])
-        >>> numeric_inputs = jnp.array([[[1, 2, 3], [4, 5, 6]], [[7, 8, 9], [10, 11, 12]]])
+        >>> numeric_inputs =
+            jnp.array([[[1, 2, 3], [4, 5, 6]], [[7, 8, 9], [10, 11, 12]]])
         >>> output = transformer(categorical_inputs, numeric_inputs)
     """
 
@@ -134,24 +139,16 @@ class TimeSeriesTransformer(nn.Module):
         base_numeric = jnp.zeros_like(numeric_col_embeddings)
         numeric_inputs = stop_gradient(jnp.where(nan_mask, 0.0, numeric_inputs))
         numeric_mat_mull = numeric_col_embeddings * numeric_inputs[:, :, :, None]
-        ic(
-            f"{base_numeric.shape=}",
-            f"{numeric_col_embeddings.shape=}",
-            f"{numeric_inputs.shape=}",
-            f"{numeric_inputs[:, :, :, None].shape=}",
-            f"{nan_mask[:, :, :].shape=}",
-            f"{jnp.expand_dims(nan_mask, axis=-1).shape=}",
-            f"{numeric_mat_mull.shape=}",
-        )
-        ic(
-            f"{base_numeric.shape=}",
-            f"{numeric_col_embeddings.shape=}",
-            f"{numeric_inputs.shape=}",
-            f"{numeric_inputs[:, :, :, None].shape=}",
-            f"{nan_mask[:, :, :].shape=}",
-            f"{jnp.expand_dims(nan_mask, axis=-1).shape=}",
-            f"{numeric_mat_mull.shape=}",
-        )
+        # ic(
+        #     f"{base_numeric.shape=}",
+        #     f"{numeric_col_embeddings.shape=}",
+        #     f"{numeric_inputs.shape=}",
+        #     f"{numeric_inputs[:, :, :, None].shape=}",
+        #     f"{nan_mask[:, :, :].shape=}",
+        #     f"{jnp.expand_dims(nan_mask, axis=-1).shape=}",
+        #     f"{numeric_mat_mull.shape=}",
+        # )
+
         base_numeric = jnp.where(
             # nan_mask[:, :, :, None],
             jnp.expand_dims(nan_mask, axis=-1),
@@ -163,23 +160,23 @@ class TimeSeriesTransformer(nn.Module):
             nan_mask[:, :, :, None], self.dataset.numeric_mask_token, base_numeric
         )
         # End Nan Masking
-        ic(
-            f"{cat_embeddings.shape=}",
-            f"{base_numeric.shape=}",
-        )
+        ic(cat_embeddings.shape, base_numeric.shape)
         kv_embeddings = jnp.concatenate([cat_embeddings, base_numeric], axis=2)
-        ic(f"KV Embedding shape: {kv_embeddings.shape}")
-        kv_embeddings = jnp.expand_dims(
-            kv_embeddings.reshape(-1, kv_embeddings.shape[2]), axis=0
+        ic(kv_embeddings.shape)
+        kv_embeddings = kv_embeddings.reshape(
+            kv_embeddings.shape[0], -1, kv_embeddings.shape[3]
         )
-        col_embeddings = jnp.expand_dims(col_embeddings, axis=0)
-        ic(
-            f"KV Embedding shape: {kv_embeddings.shape}",
-            f"Col Embedding shape: {col_embeddings.shape}",
-        )
+        # kv_embeddings = jnp.expand_dims(
+        #     kv_embeddings.reshape(kv_embeddings.shape[0], -1, kv_embeddings.shape[3]),
+        #     axis=0,
+        # )
+        ic(kv_embeddings.shape, col_embeddings.shape)
+        col_embeddings = jnp.tile(col_embeddings, (kv_embeddings.shape[0], 1, 1))
+        ic(kv_embeddings.shape, col_embeddings.shape)
         # TODO Add positional encoding
         # kv_embeddings = PositionalEncoding(d_model=self.d_model)(kv_embeddings)
         # col_embeddings = PositionalEncoding(d_model=self.d_model)(col_embeddings)
+        ic(col_embeddings.shape, kv_embeddings.shape)
         out = TransformerBlock(
             d_model=self.d_model,
             n_heads=self.n_heads,
@@ -231,7 +228,7 @@ class TimeSeriesRegression(nn.Module):
         out = TimeSeriesTransformer(self.dataset, self.d_model, self.n_heads)(
             numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
         )
-        # ic(f"Out shape: {out.shape}")
+        ic(out.shape)
         out = nn.Sequential(
             [
                 nn.Dense(name="RegressionDense1", features=self.d_model * 2),
@@ -258,7 +255,7 @@ class MaskedTimeSeries(nn.Module):
         numeric_inputs: jnp.array,
     ) -> jnp.array:
         """ """
-        n_vals = categorical_inputs.shape[0]
+        # n_vals = categorical_inputs.shape[0]
         ic(
             f"Cat inputs shape: {categorical_inputs.shape}",
             f"Numeric inputs shape: {numeric_inputs.shape}",
@@ -267,39 +264,83 @@ class MaskedTimeSeries(nn.Module):
             numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
         )
         # ic(f"Out shape: {out.shape}")
-        out = nn.Sequential(
-            [
-                nn.Dense(name="RegressionDense1", features=self.d_model * 2),
-                nn.relu,
-                nn.Dense(name="RegressionDense2", features=1),
-            ],
-            name="RegressionOutputChain",
-        )(out)
+        # out = nn.Sequential(
+        #     [
+        #         nn.Dense(name="RegressionDense1", features=self.d_model * 2),
+        #         nn.relu,
+        #         nn.Dense(name="RegressionDense2", features=1),
+        #     ],
+        #     name="RegressionOutputChain",
+        # )(out)
         # ic(f"Out shape: {out.shape}")
-        out = jnp.reshape(out, (out.shape[0], -1))
-        out = nn.Dense(name="RegressionFlatten", features=n_vals)(out)
-        return out
+        ic(out.shape)
+        categorical_out = nn.Dense(
+            name="CategoricalOut", features=self.dataset.n_tokens
+        )(out)
+
+        numeric_out = nn.Sequential(
+            [
+                nn.Dense(name="numeric_dense_1", features=self.d_model * 6),
+                nn.relu,
+                nn.Dense(
+                    name="numeric_dense_2", features=len(self.dataset.numeric_columns)
+                ),
+            ],
+            name="NumericOutputChain",
+        )(out)
+        return categorical_out, numeric_out
 
 
-class PositionalEncoding(nn.Module):
-    d_model: int
-    dropout: float = 0.1
-    max_len = 10000
+# class PositionalEncoding(nn.Module):
+#     d_model: int
+#     dropout: float = 0.1
+#     max_len = 10000
 
-    @nn.compact
-    def __call__(self, X):
-        # dropout = nn.Dropout(self.dropout) train=True
-        pe = jnp.zeros((1, self.max_len, self.d_model))
-        x = jnp.arange(self.max_len, dtype=jnp.float32).reshape(-1, 1) / jnp.power(
-            10000,
-            jnp.arange(0, self.d_model, 2, dtype=jnp.float32) / self.d_model,
+#     @nn.compact
+#     def __call__(self, X):
+#         # dropout = nn.Dropout(self.dropout) train=True
+#         pe = jnp.zeros((1, self.max_len, self.d_model))
+#         x = jnp.arange(self.max_len, dtype=jnp.float32).reshape(-1, 1) / jnp.power(
+#             10000,
+#             jnp.arange(0, self.d_model, 2, dtype=jnp.float32) / self.d_model,
+#         )
+#         pe = pe.at[:, :, 0::2].set(jnp.sin(x))
+#         pe = pe.at[:, :, 1::2].set(jnp.cos(x))
+#         X = X + pe[:, : X.shape[2], :]
+#         # return dropout(X, deterministic=not train)
+
+#         return X
+
+
+class StaticPositionalEmbedding:
+    def __init__(self, n_rows, n_features):
+        # Initialize the static positional embedding
+        self.positional_embedding = self._create_positional_embedding(
+            n_rows, n_features
         )
-        pe = pe.at[:, :, 0::2].set(jnp.sin(x))
-        pe = pe.at[:, :, 1::2].set(jnp.cos(x))
-        X = X + pe[:, : X.shape[2], :]
-        # return dropout(X, deterministic=not train)
 
-        return X
+    def _create_positional_embedding(self, n_rows, n_features):
+        # Adjust n_features to be even for the sinusoidal generation, then clip
+        n_features_adjusted = n_features + (n_features % 2)  # Make even if odd
+        position = jnp.arange(n_rows)[:, jnp.newaxis]
+        div_term = jnp.exp(
+            jnp.arange(0, n_features_adjusted, 2)
+            * -(jnp.log(10000.0) / n_features_adjusted)
+        )
+        pe = jnp.zeros((n_rows, n_features_adjusted))
+        pe = pe.at[:, 0::2].set(jnp.sin(position * div_term))
+        pe = pe.at[:, 1::2].set(jnp.cos(position * div_term))
+
+        # Clip to the original n_features if n_features was odd
+        return pe[:, :n_features]
+
+    def add_positional_embedding(self, batch):
+        # This function concatenates the positional embedding to each row in the batch.
+        batch_size, n_rows, n_features = batch.shape
+        # Replicate the positional embedding for the whole batch
+        pe_batch = jnp.tile(self.positional_embedding, (batch_size, 1, 1))
+        # Concatenate along the feature dimension
+        return jnp.concatenate([batch, pe_batch], axis=2)
 
 
 # class PositionalEncoding(nn.Module):
