@@ -1,9 +1,12 @@
 # %%
 import jax.numpy as jnp
 from flax import linen as nn
+from icecream import ic
 from jax.lax import stop_gradient
 
 from ..utils.data_utils import TabularDS
+
+ic.configureOutput(includeContext=True, contextAbsPath=False)
 
 # %%
 
@@ -68,7 +71,7 @@ class TransformerBlock(nn.Module):
         return out
 
 
-class TimeSeriesTransformer(nn.Module):
+class TimeSeriesTransformerModel(nn.Module):
     dataset: TabularDS
     d_model: int = 64
     n_heads: int = 4
@@ -113,6 +116,7 @@ class TimeSeriesTransformer(nn.Module):
         kv_embeddings = jnp.expand_dims(
             kv_embeddings.reshape(-1, kv_embeddings.shape[2]), axis=0
         )
+        ic(kv_embeddings.shape)
         # print(f"KV Embedding shape: {kv_embeddings.shape}")
         out = TransformerBlock(
             d_model=self.d_model,
@@ -127,9 +131,10 @@ class TimeSeriesTransformer(nn.Module):
             d_ff=self.d_model * 4,
             dropout_rate=0.1,
         )(
-            q=col_embeddings, k=out, v=out
+            q=out, k=out, v=out
         )  # Check if we should reuse the col embeddings here
         # print(f"Second MHA out shape: {out.shape}")
+        print(f"here1 {out.shape}")
         return out
 
 
@@ -214,11 +219,13 @@ class MTM(nn.Module):
         out = TabTransformer(self.dataset, self.d_model, self.n_heads)(
             numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
         )
+        ic(out.shape)
         categorical_out = nn.Dense(
             name="categorical_out", features=self.dataset.n_tokens
         )(out)
-
+        ic(categorical_out.shape)
         out = jnp.reshape(out, (out.shape[0], -1))
+        ic(out.shape)
         numeric_out = nn.Sequential(
             [
                 nn.Dense(name="numeric_dense_1", features=self.d_model * 6),
@@ -275,10 +282,10 @@ class TimeSeriesRegression(nn.Module):
         #     f"Cat inputs shape: {categorical_inputs.shape}",
         #     f"Numeric inputs shape: {numeric_inputs.shape}",
         # )
-        out = TimeSeriesTransformer(self.dataset, self.d_model, self.n_heads)(
+        out = TimeSeriesTransformerModel(self.dataset, self.d_model, self.n_heads)(
             numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
         )
-        # print(f"Out shape: {out.shape}")
+        ic(f"Out shape: {out.shape}")
         out = nn.Sequential(
             [
                 nn.Dense(name="RegressionDense1", features=self.d_model * 2),
