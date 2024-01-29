@@ -7,8 +7,8 @@ from jax.lax import stop_gradient
 
 from ..utils.data_utils import TabularDS
 
-ic.configureOutput(includeContext=True)
-ic.disable()
+ic.configureOutput(includeContext=True, contextAbsPath=False)
+# ic.disable()
 # %%
 
 
@@ -107,7 +107,7 @@ class TimeSeriesTransformer(nn.Module):
     dataset: TabularDS
     d_model: int = 64
     n_heads: int = 4
-    time_window: int = 100
+    time_window: int = 400
 
     @nn.compact
     def __call__(
@@ -128,7 +128,7 @@ class TimeSeriesTransformer(nn.Module):
         col_embeddings = embedding(self.dataset.col_indices)
         ic(f"{col_embeddings.shape=}")
         cat_embeddings = embedding(categorical_inputs)
-        ic(f"Numeric inputs shape: {numeric_inputs.shape}")
+        ic(numeric_inputs.shape, cat_embeddings.shape)
         repeated_numeric_indices = jnp.tile(
             self.dataset.numeric_indices, (numeric_inputs.shape[1], 1)
         )
@@ -163,35 +163,48 @@ class TimeSeriesTransformer(nn.Module):
         ic(cat_embeddings.shape, base_numeric.shape)
         kv_embeddings = jnp.concatenate([cat_embeddings, base_numeric], axis=2)
         ic(kv_embeddings.shape)
-        kv_embeddings = kv_embeddings.reshape(
-            kv_embeddings.shape[0], -1, kv_embeddings.shape[3]
-        )
+
+        # kv_embeddings = kv_embeddings.reshape(
+        #     kv_embeddings.shape[0], -1, kv_embeddings.shape[3]
+        # )
         # kv_embeddings = jnp.expand_dims(
         #     kv_embeddings.reshape(kv_embeddings.shape[0], -1, kv_embeddings.shape[3]),
         #     axis=0,
         # )
         ic(kv_embeddings.shape, col_embeddings.shape)
-        col_embeddings = jnp.tile(col_embeddings, (kv_embeddings.shape[0], 1, 1))
-        ic(kv_embeddings.shape, col_embeddings.shape)
+        # col_embeddings = jnp.tile(col_embeddings, (kv_embeddings.shape[0], 1, 1))
+        # col_embeddings = col_embeddings[:, None, :, :]
+        out = kv_embeddings * col_embeddings  # TODO Try plus or normalizing
+        ic(out.shape)
+        # ic(kv_embeddings.shape, col_embeddings.shape)
         # TODO Add positional encoding
+        out = PositionalEncoding(max_len=self.time_window, d_pos_encoding=16)(out)
+        ic(out.shape)
         # kv_embeddings = PositionalEncoding(d_model=self.d_model)(kv_embeddings)
         # col_embeddings = PositionalEncoding(d_model=self.d_model)(col_embeddings)
-        ic(col_embeddings.shape, kv_embeddings.shape)
-        out = TransformerBlock(
-            d_model=self.d_model,
-            n_heads=self.n_heads,
-            d_ff=self.d_model * 4,
-            dropout_rate=0.1,
-        )(q=col_embeddings, k=kv_embeddings, v=kv_embeddings)
+        # ic(col_embeddings.shape, kv_embeddings.shape)
+        # out = TransformerBlock(
+        #     d_model=self.d_model,
+        #     n_heads=self.n_heads,
+        #     d_ff=self.d_model * 4,
+        #     dropout_rate=0.1,
+        # )(q=col_embeddings, k=kv_embeddings, v=kv_embeddings)
+        ic(out.shape)
+        out = nn.MultiHeadDotProductAttention(num_heads=self.n_heads, qkv_features=16)(
+            out  # col_embeddings, kv_embeddings, kv_embeddings
+        )
         ic(f"First MHA out shape: {out.shape}")
-        out = TransformerBlock(
-            d_model=self.d_model,
-            n_heads=self.n_heads,
-            d_ff=self.d_model * 4,
-            dropout_rate=0.1,
-        )(
-            q=col_embeddings, k=out, v=out
-        )  # Check if we should reuse the col embeddings here
+        # out = TransformerBlock(
+        #     d_model=self.d_model,
+        #     n_heads=self.n_heads,
+        #     d_ff=self.d_model * 4,
+        #     dropout_rate=0.1,
+        # )(
+        #     q=out, k=out, v=out
+        # )  # Check if we should reuse the col embeddings here
+        out = nn.MultiHeadDotProductAttention(num_heads=self.n_heads, qkv_features=16)(
+            out
+        )
         ic(f"Second MHA out shape: {out.shape}")
         return out
 
@@ -256,14 +269,11 @@ class MaskedTimeSeries(nn.Module):
     ) -> jnp.array:
         """ """
         # n_vals = categorical_inputs.shape[0]
-        ic(
-            f"Cat inputs shape: {categorical_inputs.shape}",
-            f"Numeric inputs shape: {numeric_inputs.shape}",
-        )
+        ic(categorical_inputs.shape, numeric_inputs.shape)
         out = TimeSeriesTransformer(self.dataset, self.d_model, self.n_heads)(
             numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
         )
-        # ic(f"Out shape: {out.shape}")
+        ic(f"Out shape: {out.shape}")
         # out = nn.Sequential(
         #     [
         #         nn.Dense(name="RegressionDense1", features=self.d_model * 2),
@@ -273,10 +283,13 @@ class MaskedTimeSeries(nn.Module):
         #     name="RegressionOutputChain",
         # )(out)
         # ic(f"Out shape: {out.shape}")
-        ic(out.shape)
+        ic(out.shape)  # %%
+
         categorical_out = nn.Dense(
-            name="CategoricalOut", features=self.dataset.n_tokens
+            name="CategoricalOut", features=len(self.dataset.tokens)
         )(out)
+        ic(categorical_out.shape)
+        out = out.reshape(out.shape[0], out.shape[1], -1)
 
         numeric_out = nn.Sequential(
             [
@@ -288,6 +301,7 @@ class MaskedTimeSeries(nn.Module):
             ],
             name="NumericOutputChain",
         )(out)
+        ic(numeric_out.shape)
         return categorical_out, numeric_out
 
 
@@ -310,6 +324,57 @@ class MaskedTimeSeries(nn.Module):
 #         # return dropout(X, deterministic=not train)
 
 #         return X
+
+
+class PositionalEncoding(nn.Module):
+    """
+    PositionalEncoding module using @nn.compact. This module injects information
+    about the relative or absolute position of the tokens in the sequence.
+    The positional encodings have the same dimension as the embeddings, so that
+    the two can be summed. This allows the model to learn the relative positions
+    of tokens within the sequence.
+    """
+
+    max_len: int  # Maximum length of the input sequences
+    d_pos_encoding: int  # Dimensionality of the embeddings/inputs
+
+    @nn.compact
+    def __call__(self, x):
+        """
+        Forward pass of the positional encoding. Concatenates positional encoding to
+        the input.
+
+        Args:
+            x: Input data. Shape: (batch_size, seq_len, d_model)
+
+        Returns:
+            Output with positional encoding added. Shape: (batch_size, seq_len, d_model)
+        """
+        n_epochs, seq_len, n_features, _ = x.shape
+        if seq_len > self.max_len:
+            raise ValueError(
+                f"Sequence length {seq_len} is larger than the",
+                f"maximum length {self.max_len}",
+            )
+
+        # Calculate positional encoding
+        position = jnp.arange(self.max_len)[:, jnp.newaxis]
+        div_term = jnp.exp(
+            jnp.arange(0, self.d_pos_encoding, 2)
+            * -(jnp.log(10000.0) / self.d_pos_encoding)
+        )
+        pe = jnp.zeros((self.max_len, self.d_pos_encoding))
+        pe = pe.at[:, 0::2].set(jnp.sin(position * div_term))
+        pe = pe.at[:, 1::2].set(jnp.cos(position * div_term))
+        pe = pe[:seq_len, :]
+        pe = pe[None, :, :, None]
+        pe = jnp.tile(pe, (n_epochs, 1, 1, n_features))
+        pe = pe.transpose((0, 1, 3, 2))  # (batch_size, seq_len, n_features, d_model)
+        # concatenate the positional encoding with the input
+        result = jnp.concatenate([x, pe], axis=3)
+
+        # Add positional encoding to the input embedding
+        return result
 
 
 class StaticPositionalEmbedding:
