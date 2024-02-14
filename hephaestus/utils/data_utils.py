@@ -4,12 +4,118 @@ from itertools import chain
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pandas as pd
 from flax import struct  # Flax dataclasses
 from jax import random
 from jaxlib.xla_extension import ArrayImpl
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from torch.utils.data import DataLoader, Dataset
+
+
+class TabularTimeSeriesData(Dataset):
+    def __init__(
+        self,
+        df,
+        target_column=None,
+        batch_size=32,
+        type="train",
+    ):
+        df = df
+        self.batch_size = batch_size
+        self.target_column = target_column
+
+        self.special_tokens = ["[PAD]", "[NUMERIC_MASK]", "[MASK]"]
+
+        self.cat_mask = "[MASK]"
+
+        self.category_columns = df.select_dtypes(include=["object"]).columns.tolist()
+        self.numeric_columns = df.select_dtypes(
+            include=["int64", "float64"]
+        ).columns.tolist()
+        self.tokens = list(
+            chain(
+                self.special_tokens,
+                df.columns.to_list(),
+                list(set(df[self.category_columns].values.flatten().tolist())),
+            )
+        )
+        self.token_dict = {token: i for i, token in enumerate(self.tokens)}
+        self.token_decoder_dict = {i: token for i, token in enumerate(self.tokens)}
+        self.cat_mask_token = self.token_dict[self.cat_mask]
+        self.scaler = StandardScaler()
+
+        if self.target_column is not None:
+            self.numeric_columns.remove(self.target_column)
+            self.target_column = [self.target_column]
+
+        self.col_tokens = self.category_columns + self.numeric_columns
+        self.n_cat_cols = len(self.category_columns)
+        # self.numeric_columns = self.numeric_columns.remove(self.target_column[0])
+        numeric_scaled = self.scaler.fit_transform(df[self.numeric_columns])
+        df[self.numeric_columns] = numeric_scaled
+        self.n_numeric_cols = len(self.numeric_columns)
+        for col in self.category_columns:
+            df[col] = df[col].map(self.token_dict)
+
+        self.numeric_indices = jnp.array(
+            [self.tokens.index(col) for col in self.numeric_columns]
+        )
+        self.numeric_mask_token = jnp.array(self.token_dict["[NUMERIC_MASK]"])
+        if self.target_column is not None:
+            X = df.drop(self.target_column, axis=1)
+            y = df[self.target_column]
+            self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
+                X,
+                y,
+                test_size=0.2,
+                shuffle=False,
+            )
+        else:
+            X = df
+            y = None
+            self.X_train, self.X_test = train_test_split(
+                X,
+                test_size=0.2,
+                shuffle=False,
+            )
+            self.y_train, self.y_test = None, None
+
+        self.n_tokens = len(self.tokens)
+        self.numeric_col_tokens = jnp.array(
+            [self.token_dict[i] for i in self.numeric_columns]
+        )
+        self.col_indices = jnp.array(
+            [self.tokens.index(col) for col in self.col_tokens]
+        )
+        if type == "train":
+            self.X_numeric = self.X_train[self.numeric_columns]
+            self.X_categorical = self.X_train[self.category_columns]
+            self.y = self.y_train
+        elif type == "test":
+            self.X_numeric = self.X_test[self.numeric_columns]
+            self.X_categorical = self.X_test[self.category_columns]
+            self.y = self.y_test
+        else:
+            raise ValueError("type must be either 'train' or 'test'")
+
+    def __len__(self):
+        return len(self.X_categorical)
+
+    def __getitem__(self, idx):
+        start_idx = idx * self.batch_size
+        end_idx = start_idx + self.batch_size
+
+        categorical_values = jnp.array(
+            self.X_categorical.loc[start_idx:end_idx, :].values
+        )
+        numeric_targets = jnp.array(self.X_numeric.loc[start_idx:end_idx, :].values)
+        if self.target_column is not None:
+            y = jnp.array(self.y.loc[start_idx:end_idx, :].values)
+        else:
+            y = None
+        return categorical_values, numeric_targets, y
 
 
 @dataclass
@@ -122,18 +228,16 @@ class TimeSeriesRegression:
     time_window: int = 100
 
 
-def create_time_series_regression_model_inputs(
-    dataset: TabularDS,
-    idx: int = None,
-    batch_size: int = None,
-    set: str = "train",
-    device: jax.Device = None,
-):
-    pass
+@struct.dataclass
+class MTMModelInputs:
+    categorical_mask: jnp.ndarray
+    numeric_mask: jnp.ndarray
+    numeric_targets: jnp.ndarray
+    categorical_targets: jnp.ndarray
 
 
 @struct.dataclass
-class MTMModelInputs:
+class TimeSeriesModelInputs:
     categorical_mask: jnp.ndarray
     numeric_mask: jnp.ndarray
     numeric_targets: jnp.ndarray
@@ -236,6 +340,44 @@ def create_trm_model_inputs(
         categorical_inputs=jax.device_put(categorical_values, device=device),
         numeric_inputs=jax.device_put(numeric_values, device=device),
         y=jax.device_put(y, device=device),
+    )
+    return mi
+
+
+def create_masked_time_series_model_inputs(
+    dataset: TabularDS,
+    idx: int = None,
+    batch_size: int = None,
+    set: str = "train",
+    device: jax.Device = None,
+):
+    if device is None:
+        device = jax.devices()[0]
+    if set == "train":
+        categorical_values = dataset.X_train_categorical
+        numeric_values = dataset.X_train_numeric
+        y = dataset.y_train
+    elif set == "test":
+        categorical_values = dataset.X_test_categorical
+        numeric_values = dataset.X_test_numeric
+        y = dataset.y_test
+    else:
+        raise ValueError("set must be either 'train' or 'test")
+
+    if idx is None:
+        idx = 0
+    if batch_size is None:
+        batch_size = numeric_values.shape[0]
+
+    categorical_values = categorical_values[idx : idx + batch_size, :]
+    numeric_values = numeric_values[idx : idx + batch_size, :]
+    y = y[idx : idx + batch_size, :]
+
+    mi = TimeSeriesModelInputs(
+        categorical_mask=jax.device_put(categorical_values, device=device),
+        numeric_mask=jax.device_put(numeric_values, device=device),
+        numeric_targets=jax.device_put(y, device=device),
+        categorical_targets=jax.device_put(y, device=device),
     )
     return mi
 

@@ -107,7 +107,7 @@ class TimeSeriesTransformer(nn.Module):
     dataset: TabularDS
     d_model: int = 64
     n_heads: int = 4
-    time_window: int = 400
+    time_window: int = 10_000
 
     @nn.compact
     def __call__(

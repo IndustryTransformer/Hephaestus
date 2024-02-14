@@ -12,15 +12,23 @@ from jaxlib.xla_extension import ArrayImpl as ArrayImpl
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.notebook import trange
 
-from ..models import models
-from .data_utils import TabularDS, create_mts_model_inputs, mtsModelInputs
+from ..models import time_series
+from .data_utils import (
+    TabularDS,
+    TimeSeriesModelInputs,
+    create_masked_time_series_model_inputs,
+)
 
 # The rest of your script
 
 
-def calculate_mts_loss(params: dict, mts: models.mts, mi: mtsModelInputs):
+def calculate_masked_time_series_loss(
+    params: dict,
+    masked_time_series: time_series.MaskedTimeSeries,
+    mi: TimeSeriesModelInputs,
+):
     numeric_loss_scaler = 1
-    logits, regression = mts.apply(
+    logits, regression = masked_time_series.apply(
         {"params": params},
         mi.categorical_mask,
         mi.numeric_mask,
@@ -38,9 +46,9 @@ def calculate_mts_loss(params: dict, mts: models.mts, mi: mtsModelInputs):
     }
 
 
-def create_mts_train_state(
+def create_masked_time_series_train_state(
     params_key: ArrayImpl,
-    mi: mtsModelInputs,
+    mi: TimeSeriesModelInputs,
     dataset: TabularDS,
     lr=0.01,
     device=None,
@@ -48,7 +56,7 @@ def create_mts_train_state(
 ):
     if device is None:
         device = jax.devices()[0]
-    model = models.mts(dataset, d_model=64, n_heads=n_heads)
+    model = time_series.MaskedTimeSeries(dataset, d_model=64, n_heads=n_heads)
     params = jax.device_put(
         model.init(
             params_key,
@@ -66,11 +74,15 @@ def create_mts_train_state(
 
 
 # @jax.jit
-def mts_train_step_no_jit(model: models.mts, state: train_state, mi: mtsModelInputs):
+def masked_time_series_train_step_no_jit(
+    model: time_series.MaskedTimeSeries,
+    state: train_state,
+    mi: TimeSeriesModelInputs,
+):
     """Train step for MLM. Makes use of jit to speed up training."""
 
     def loss_fn(params):
-        return calculate_mts_loss(params, model, mi)["total_loss"]
+        return calculate_masked_time_series_loss(params, model, mi)["total_loss"]
 
     grad_fn = jax.value_and_grad(loss_fn)
     loss, grad = grad_fn(state.params)
@@ -79,15 +91,17 @@ def mts_train_step_no_jit(model: models.mts, state: train_state, mi: mtsModelInp
 
 
 # @jax.jit
-def mts_eval_step_no_jit(model: models.mts, params: dict, mi: mtsModelInputs):
-    return calculate_mts_loss(params, model, mi)
+def masked_time_series_eval_step_no_jit(
+    model: time_series.MaskedTimeSeries, params: dict, mi: TimeSeriesModelInputs
+):
+    return calculate_masked_time_series_loss(params, model, mi)
 
 
-def train_mts(
+def train_masked_time_series(
     model_state: train_state,
     model: nn.Module,
     dataset: TabularDS,
-    model_name: str = "mts",
+    model_name: str = "masked_time_series",
     epochs: int = 100,
     batch_size: int = 10_000,
     n_rows: int = None,
@@ -101,26 +115,30 @@ def train_mts(
     summary_writer = SummaryWriter(
         "runs/" + dt.now().strftime("%Y-%m:%dT%H:%M:%S") + "_" + model_name
     )
-    test_mi = create_mts_model_inputs(dataset, set="test")
+    test_mi = create_masked_time_series_model_inputs(dataset, set="test")
     data = [
-        create_mts_model_inputs(dataset, i, batch_size)
+        create_masked_time_series_model_inputs(dataset, i, batch_size)
         for i in trange(0, n_rows, batch_size)
     ]
     pbar = trange(epochs)
     batch_counter = 0
 
     # Jit the functions
-    mts_train_step_partial = partial(mts_train_step_no_jit, model)
-    mts_eval_step_partial = partial(mts_eval_step_no_jit, model)
-    mts_train_step = jax.jit(mts_train_step_partial)
-    mts_eval_step = jax.jit(mts_eval_step_partial)
+    masked_time_series_train_step_partial = partial(
+        masked_time_series_train_step_no_jit, model
+    )
+    masked_time_series_eval_step_partial = partial(
+        masked_time_series_eval_step_no_jit, model
+    )
+    masked_time_series_train_step = jax.jit(masked_time_series_train_step_partial)
+    masked_time_series_eval_step = jax.jit(masked_time_series_eval_step_partial)
     best_test_loss = float("inf")
     for epoch in pbar:
         for mi in data:
             # mi = models.create_mi(dataset, i, batch_size)
 
-            model_state, loss = mts_train_step(model_state, mi)
-            train_loss_dict = mts_eval_step(model_state.params, mi)
+            model_state, loss = masked_time_series_train_step(model_state, mi)
+            train_loss_dict = masked_time_series_eval_step(model_state.params, mi)
 
             # Train Loss
             summary_writer.add_scalar(
@@ -141,7 +159,7 @@ def train_mts(
             batch_counter += 1
             # Test Loss
         if epoch % 1 == 0:  # all logged to tensorboard
-            test_loss_dict = mts_eval_step(model_state.params, test_mi)
+            test_loss_dict = masked_time_series_eval_step(model_state.params, test_mi)
             summary_writer.add_scalar(
                 "TestLoss/total",
                 np.array(test_loss_dict["total_loss"].item()),
