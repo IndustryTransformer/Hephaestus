@@ -4,7 +4,6 @@ from itertools import chain
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 import pandas as pd
 from flax import struct  # Flax dataclasses
 from jax import random
@@ -438,9 +437,9 @@ def mask_tensor(tensor, dataset, probability=0.8, prng_key: ArrayImpl = None):
     tensor = tensor.copy()
     if prng_key is None:
         seed = int(time.time() * 1000000)
-        key = random.PRNGKey(seed)
+        prng_key = random.PRNGKey(seed)
         Warning(f"Using seed {seed}, consider passing a seed to mask_tensor")
-    bit_mask = random.normal(key=key, shape=tensor.shape) > probability
+    bit_mask = random.normal(key=prng_key, shape=tensor.shape) > probability
     if is_numeric:
         tensor = tensor.at[bit_mask].set(float("nan"))
     else:

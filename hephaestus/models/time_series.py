@@ -138,6 +138,7 @@ class TimeSeriesTransformer(nn.Module):
         nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
         base_numeric = jnp.zeros_like(numeric_col_embeddings)
         numeric_inputs = stop_gradient(jnp.where(nan_mask, 0.0, numeric_inputs))
+        ic(numeric_col_embeddings.shape, numeric_inputs.shape)
         numeric_mat_mull = numeric_col_embeddings * numeric_inputs[:, :, :, None]
         # ic(
         #     f"{base_numeric.shape=}",
