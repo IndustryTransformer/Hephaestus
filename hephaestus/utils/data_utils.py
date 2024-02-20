@@ -100,7 +100,7 @@ class TabularTimeSeriesData(Dataset):
             raise ValueError("type must be either 'train' or 'test'")
 
     def __len__(self):
-        return len(self.X_categorical)
+        return len(self.X_categorical) // self.batch_size
 
     def __getitem__(self, idx):
         start_idx = idx * self.batch_size
@@ -113,7 +113,7 @@ class TabularTimeSeriesData(Dataset):
         if self.target_column is not None:
             y = jnp.array(self.y.loc[start_idx:end_idx, :].values)
         else:
-            y = None
+            y = jnp.nan
         return categorical_values, numeric_targets, y
 
 
