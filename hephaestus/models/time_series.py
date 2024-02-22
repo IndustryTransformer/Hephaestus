@@ -285,7 +285,12 @@ class MaskedTimeSeries(nn.Module):
         # )(out)
         # ic(f"Out shape: {out.shape}")
         ic(out.shape)  # %%
-
+        target_out = out.reshape(out.shape[0], -1)
+        target_out = nn.Sequential(
+            nn.Dense(name="TargetDense1", features=self.d_model * 2),
+            nn.relu,
+            nn.Dense(name="TargetDense2", features=1),
+        )(target_out)
         categorical_out = nn.Dense(
             name="CategoricalOut", features=len(self.dataset.tokens)
         )(out)
@@ -303,7 +308,7 @@ class MaskedTimeSeries(nn.Module):
             name="NumericOutputChain",
         )(out)
         ic(numeric_out.shape)
-        return categorical_out, numeric_out
+        return categorical_out, numeric_out, target_out
 
 
 # class PositionalEncoding(nn.Module):
