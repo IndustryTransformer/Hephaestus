@@ -1,9 +1,11 @@
+# %%
+
 from itertools import chain
 
 import pandas as pd
 
 
-def main():
+def main(path: str = None):
     train = pd.read_csv("data/predict-energy-behavior-of-prosumers/train.csv")
     gas_df = pd.read_csv("data/predict-energy-behavior-of-prosumers/gas_prices.csv")
     electricity_df = pd.read_csv(
@@ -106,9 +108,9 @@ def main():
         forecast_weather_datetime["datetime"].dt.to_timestamp(), utc=True
     )
 
-    """Grouping all forecast_weather columns mean values by hour and county, So each hour
-    and county
-    will have the mean values of the forecast_weather columns for each county"""
+    """Grouping all forecast_weather columns mean values by hour and county, So each
+    hour and county will have the mean values of the forecast_weather columns for
+    each county"""
     forecast_weather_datetime_county = (
         forecast_weather.groupby(
             ["county", forecast_weather["datetime"].dt.to_period("h")]
@@ -117,8 +119,8 @@ def main():
         .reset_index()
     )
 
-    # After converting the (datetime) column to hour period for the groupby we convert it
-    #  back to datetime
+    # After converting the (datetime) column to hour period for the groupby we convert
+    # it  back to datetime
     forecast_weather_datetime_county["datetime"] = pd.to_datetime(
         forecast_weather_datetime_county["datetime"].dt.to_timestamp(), utc=True
     )
@@ -128,8 +130,8 @@ def main():
         hist_weather[["latitude", "longitude"]].astype(float).round(1)
     )
 
-    # Merging counties in locations data with the coordinations in the historical_weather
-    # data
+    # Merging counties in locations data with the coordinations in the
+    # historical_weather data
     hist_weather = hist_weather.merge(
         locations, how="left", on=["longitude", "latitude"]
     )
@@ -160,20 +162,20 @@ def main():
         .reset_index()
     )
 
-    # After converting the (datetime) column to hour period for the groupby we convert it
-    # back to datetime
+    # After converting the (datetime) column to hour period for the groupby we convert
+    # it back to datetime
     hist_weather_datetime["datetime"] = pd.to_datetime(
         hist_weather_datetime["datetime"].dt.to_timestamp(), utc=True
     )
 
-    # Merging (data_block_id) back after dropping it in the last step | (data_block_id will
-    #  be used to merge with train data)
+    # Merging (data_block_id) back after dropping it in the last step |
+    # (data_block_id will  be used to merge with train data)
     hist_weather_datetime = hist_weather_datetime.merge(
         hist_weather[["datetime", "data_block_id"]], how="left", on="datetime"
     )
 
-    """Grouping all historical_weather columns mean values by hour and county, So each hour
-    will have the mean values of the historical_weather columns for each county"""
+    """Grouping all historical_weather columns mean values by hour and county, So each
+    hour will have the mean values of the historical_weather columns for each county"""
     hist_weather_datetime_county = (
         hist_weather.groupby(["county", hist_weather["datetime"].dt.to_period("h")])[
             list(
@@ -186,8 +188,8 @@ def main():
         .reset_index()
     )
 
-    # After converting the (datetime) column to hour period for the groupby we convert it
-    # back to datetime
+    # After converting the (datetime) column to hour period for the groupby we convert
+    # it back to datetime
     hist_weather_datetime_county["datetime"] = pd.to_datetime(
         hist_weather_datetime_county["datetime"].dt.to_timestamp(), utc=True
     )
@@ -250,8 +252,8 @@ def main():
         suffixes=("_fcast_mean", "_fcast_mean_by_county"),
     )
 
-    # Creating hour columns in both historical_weather data | used to merge both data with
-    # the train data
+    # Creating hour columns in both historical_weather data | used to merge both data
+    # with the train data
     hist_weather_datetime["hour"] = hist_weather_datetime["datetime"].dt.hour
     hist_weather_datetime_county["hour"] = hist_weather_datetime_county[
         "datetime"
@@ -314,6 +316,13 @@ def main():
         )
     ]
 
+    if path:
+        data.to_csv(path, index=False)
+
+    return data
+
+
+# %%
 
 if __name__ == "__main__":
     main()
