@@ -441,7 +441,9 @@ def mask_tensor(tensor, dataset, probability=0.8, prng_key: ArrayImpl = None):
         Warning(f"Using seed {seed}, consider passing a seed to mask_tensor")
     bit_mask = random.normal(key=prng_key, shape=tensor.shape) > probability
     if is_numeric:
-        tensor = tensor.at[bit_mask].set(float("nan"))
+        # tensor = tensor.at[bit_mask].set(float("nan"))
+        tensor = jnp.where(bit_mask, jnp.nan, tensor)
     else:
-        tensor = tensor.at[bit_mask].set(dataset.cat_mask_token)
+        # tensor = tensor.at[bit_mask].set(dataset.cat_mask_token)
+        tensor = jnp.where(bit_mask, dataset.cat_mask_token, tensor)
     return tensor

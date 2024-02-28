@@ -369,6 +369,53 @@ class MaskedTimeSeriesRegression(nn.Module):
         return target_out
 
 
+class MaskedTimeSeriesRegClass(nn.Module):
+    dataset: TabularDS
+    d_model: int = 64 * 10
+    n_heads: int = 4
+
+    @nn.compact
+    def __call__(
+        self,
+        categorical_inputs: jnp.array,
+        numeric_inputs: jnp.array,
+    ) -> jnp.array:
+        """ """
+        out = MaskedTimeSeries(self.dataset, self.d_model, self.n_heads)(
+            categorical_inputs, numeric_inputs
+        )
+        target_out = nn.Sequential(
+            [
+                nn.Dense(name="TargetDense1", features=self.d_model),
+                nn.relu,
+                nn.Dense(name="TargetDense2", features=1),
+            ]
+        )(out)
+        target_out = target_out.reshape(out.shape[0], -1)
+        ic(target_out.shape)
+        target_out = nn.Dense(name="TargetOut", features=out.shape[1])(target_out)
+        ic(target_out.shape)
+
+        categorical_out = nn.Dense(
+            name="CategoricalOut", features=len(self.dataset.tokens)
+        )(out)
+        ic(categorical_out.shape)
+        out = out.reshape(out.shape[0], out.shape[1], -1)
+
+        numeric_out = nn.Sequential(
+            [
+                nn.Dense(name="numeric_dense_1", features=self.d_model * 6),
+                nn.relu,
+                nn.Dense(
+                    name="numeric_dense_2", features=len(self.dataset.numeric_columns)
+                ),
+            ],
+            name="NumericOutputChain",
+        )(out)
+        ic(numeric_out.shape)
+        return categorical_out, numeric_out, target_out
+
+
 class PositionalEncoding(nn.Module):
     """
     PositionalEncoding module using @nn.compact. This module injects information
