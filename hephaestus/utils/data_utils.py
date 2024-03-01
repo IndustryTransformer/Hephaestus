@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import pandas as pd
 from flax import struct  # Flax dataclasses
+from icecream import ic
 from jax import random
 from jaxlib.xla_extension import ArrayImpl
 from sklearn.model_selection import train_test_split
@@ -30,6 +31,9 @@ class TabularTimeSeriesData(Dataset):
         self.cat_mask = "[MASK]"
 
         self.category_columns = df.select_dtypes(include=["object"]).columns.tolist()
+        ic(self.category_columns)
+        if self.target_column == []:
+            raise ValueError("target_column cannot be an empty list")
         self.numeric_columns = df.select_dtypes(
             include=["int64", "float64"]
         ).columns.tolist()
@@ -98,6 +102,11 @@ class TabularTimeSeriesData(Dataset):
             self.y = self.y_test
         else:
             raise ValueError("type must be either 'train' or 'test'")
+        # Because pandas is the worst
+        self.X_numeric = self.X_numeric.reset_index(drop=True)
+        self.X_categorical = self.X_categorical.reset_index(drop=True)
+        if self.target_column is not None:
+            self.y = self.y.reset_index(drop=True)
 
     def __len__(self):
         return len(self.X_categorical) // self.batch_size
@@ -105,13 +114,13 @@ class TabularTimeSeriesData(Dataset):
     def __getitem__(self, idx):
         start_idx = idx * self.batch_size
         end_idx = start_idx + self.batch_size
-
         categorical_values = jnp.array(
-            self.X_categorical.loc[start_idx:end_idx, :].values
+            self.X_categorical.iloc[start_idx:end_idx, :].values
         )
-        numeric_targets = jnp.array(self.X_numeric.loc[start_idx:end_idx, :].values)
+        # print(categorical_values.shape)
+        numeric_targets = jnp.array(self.X_numeric.iloc[start_idx:end_idx, :].values)
         if self.target_column is not None:
-            y = jnp.array(self.y.loc[start_idx:end_idx, :].values)
+            y = jnp.array(self.y.iloc[start_idx:end_idx, :].values)
         else:
             y = jnp.nan
         return categorical_values, numeric_targets, y
@@ -415,8 +424,7 @@ def show_mask_pred(params, model, i, dataset, probability=0.8, set="train"):
     original_values.extend(numeric_values)
     # zip the original values with the column names
     original_dict = dict(zip(dataset.col_tokens, original_values))
-    # print(numeric_masked)
-    # print(categorical_masked)
+
     result_dict = {
         "masked": masked_dict,
         "actual": original_dict,
