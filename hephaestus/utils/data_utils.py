@@ -20,12 +20,13 @@ class TabularTimeSeriesData(Dataset):
         df,
         target_column=None,
         batch_size=32,
-        type="train",
+        train=True,
+        scale_target=True,
     ):
         df = df
         self.batch_size = batch_size
         self.target_column = target_column
-
+        self.scale_target = scale_target
         self.special_tokens = ["[PAD]", "[NUMERIC_MASK]", "[MASK]"]
 
         self.cat_mask = "[MASK]"
@@ -48,6 +49,15 @@ class TabularTimeSeriesData(Dataset):
         self.token_decoder_dict = {i: token for i, token in enumerate(self.tokens)}
         self.cat_mask_token = self.token_dict[self.cat_mask]
         self.scaler = StandardScaler()
+        if self.target_column is None and not scale_target:
+            raise ValueError("If target_column is None, scale_target must be False")
+        if self.scale_target:
+            self.scaler_target = StandardScaler()
+            df[self.target_column] = self.scaler_target.fit_transform(
+                df[[self.target_column]]
+            )
+        else:
+            self.scaler_target = None
 
         if self.target_column is not None:
             self.numeric_columns.remove(self.target_column)
@@ -92,16 +102,14 @@ class TabularTimeSeriesData(Dataset):
         self.col_indices = jnp.array(
             [self.tokens.index(col) for col in self.col_tokens]
         )
-        if type == "train":
+        if train:
             self.X_numeric = self.X_train[self.numeric_columns]
             self.X_categorical = self.X_train[self.category_columns]
             self.y = self.y_train
-        elif type == "test":
+        else:
             self.X_numeric = self.X_test[self.numeric_columns]
             self.X_categorical = self.X_test[self.category_columns]
             self.y = self.y_test
-        else:
-            raise ValueError("type must be either 'train' or 'test'")
         # Because pandas is the worst
         self.X_numeric = self.X_numeric.reset_index(drop=True)
         self.X_categorical = self.X_categorical.reset_index(drop=True)
