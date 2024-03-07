@@ -32,6 +32,7 @@ class TabularDS:
     numeric_indices: jnp.array = field(init=False)
     col_indices: jnp.array = field(init=False)
     shuffle: bool = True
+    shuffle: bool = True
 
     def __post_init__(self):
         if self.shuffle:
@@ -112,11 +113,27 @@ class TimeSeriesRegression:
 def create_time_series_regression_model_inputs(
     dataset: TabularDS,
     idx: int = None,
+    time_window: int = 100,
     batch_size: int = None,
     set: str = "train",
     device: jax.Device = None,
 ):
-    pass
+    if device is None:
+        device = jax.devices()[0]
+    if set == "train":
+        categorical_values = dataset.X_train_categorical
+        numeric_values = dataset.X_train_numeric
+        y = dataset.y_train
+    elif set == "test":
+        categorical_values = dataset.X_test_categorical
+        numeric_values = dataset.X_test_numeric
+        y = dataset.y_test
+    else:
+        raise ValueError("set must be either 'train' or 'test'")
+    if idx is None:
+        idx = 0
+
+    categorical_values = categorical_values[idx:]
 
 
 @struct.dataclass
