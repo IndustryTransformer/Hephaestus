@@ -1,6 +1,7 @@
 # %%
 import jax.numpy as jnp
 from flax import linen as nn
+from icecream import ic
 from jax.lax import stop_gradient
 
 from ..utils.data_utils import TabularDS
@@ -59,6 +60,7 @@ class TransformerBlock(nn.Module):
         attn_output = MultiheadAttention(n_heads=self.n_heads, d_model=self.d_model)(
             q, k, v, mask=mask, input_feed_forward=input_feed_forward
         )
+        ic(attn_output.shape, q.shape, k.shape, v.shape)
         out = nn.LayerNorm()(q + attn_output)
         ff_out = nn.Sequential(
             [nn.Dense(self.d_model * 2), nn.relu, nn.Dense(self.d_model)]
@@ -114,12 +116,14 @@ class TimeSeriesTransformer(nn.Module):
             kv_embeddings.reshape(-1, kv_embeddings.shape[2]), axis=0
         )
         # print(f"KV Embedding shape: {kv_embeddings.shape}")
+        ic(col_embeddings.shape, kv_embeddings.shape)
         out = TransformerBlock(
             d_model=self.d_model,
             n_heads=self.n_heads,
             d_ff=self.d_model * 4,
             dropout_rate=0.1,
         )(q=col_embeddings, k=kv_embeddings, v=kv_embeddings)
+        ic(out.shape)
         # print(f"First MHA out shape: {out.shape}")
         out = TransformerBlock(
             d_model=self.d_model,
@@ -130,6 +134,7 @@ class TimeSeriesTransformer(nn.Module):
             q=col_embeddings, k=out, v=out
         )  # Check if we should reuse the col embeddings here
         # print(f"Second MHA out shape: {out.shape}")
+        ic(out.shape)
         return out
 
 
