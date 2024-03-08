@@ -24,14 +24,18 @@ class MultiheadAttention(nn.Module):
             k = nn.Dense(name="k_linear", features=self.d_model)(k)
             v = nn.Dense(name="v_linear", features=self.d_model)(v)
 
+        ic(q.shape, k.shape, v.shape)
         # ic(f"Q shape: {q.shape}, K shape: {k.shape}, V shape: {v.shape}")
         # here _ = attention_weights
         attention_output, _ = self.scaled_dot_product_attention(q, k, v, mask)
 
-        atten_out = attention_output.transpose(0, 2, 1).reshape(
+        attention_out = attention_output.transpose(
+            0, 2, 1, 3
+        ).reshape(  # TODO Check if this is correct
             attention_output.shape[0], -1, self.d_model
         )
-        out = nn.Dense(features=self.d_model)(atten_out)
+        ic(attention_out.shape)
+        out = nn.Dense(features=self.d_model)(attention_out)
 
         return out
 
@@ -61,10 +65,12 @@ class TransformerBlock(nn.Module):
 
     @nn.compact
     def __call__(self, q, k, v, mask=None, train=True, input_feed_forward=True):
+
         attn_output = MultiheadAttention(n_heads=self.n_heads, d_model=self.d_model)(
             q, k, v, mask=mask, input_feed_forward=input_feed_forward
         )
-        out = nn.LayerNorm()(q + attn_output)
+        ic(attn_output.shape, k.shape)
+        out = nn.LayerNorm()(k + attn_output)
         ff_out = nn.Sequential(
             [nn.Dense(self.d_model * 2), nn.relu, nn.Dense(self.d_model)]
         )
@@ -190,11 +196,10 @@ class TimeSeriesTransformer(nn.Module):
         #     d_ff=self.d_model * 4,
         #     dropout_rate=0.1,
         # )(q=col_embeddings, k=kv_embeddings, v=kv_embeddings)
-        ic(out.shape)
         out = nn.MultiHeadDotProductAttention(num_heads=self.n_heads, qkv_features=16)(
             out  # col_embeddings, kv_embeddings, kv_embeddings
         )
-        ic(f"First MHA out shape: {out.shape}")
+        ic(out.shape)
         # out = TransformerBlock(
         #     d_model=self.d_model,
         #     n_heads=self.n_heads,

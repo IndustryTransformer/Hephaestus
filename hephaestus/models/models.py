@@ -27,10 +27,10 @@ class MultiheadAttention(nn.Module):
             q, k, v, mask
         )
 
-        atten_out = attention_output.transpose(0, 2, 1).reshape(
+        attention_output = attention_output.transpose(0, 2, 1).reshape(
             attention_output.shape[0], -1, self.d_model
         )
-        out = nn.Dense(features=self.d_model)(atten_out)
+        out = nn.Dense(features=self.d_model)(attention_output)
 
         return out
 
@@ -62,6 +62,7 @@ class TransformerBlock(nn.Module):
         attn_output = MultiheadAttention(n_heads=self.n_heads, d_model=self.d_model)(
             q, k, v, mask=mask, input_feed_forward=input_feed_forward
         )
+        ic(attn_output.shape, q.shape, k.shape, v.shape)
         out = nn.LayerNorm()(q + attn_output)
         ff_out = nn.Sequential(
             [nn.Dense(self.d_model * 2), nn.relu, nn.Dense(self.d_model)]
