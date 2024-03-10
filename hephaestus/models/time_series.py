@@ -25,15 +25,15 @@ class MultiheadAttention(nn.Module):
             v = nn.Dense(name="v_linear", features=self.d_model)(v)
 
         ic(q.shape, k.shape, v.shape)
+
         # ic(f"Q shape: {q.shape}, K shape: {k.shape}, V shape: {v.shape}")
         # here _ = attention_weights
-        attention_output, _ = self.scaled_dot_product_attention(q, k, v, mask)
-
-        attention_out = attention_output.transpose(
-            0, 2, 1, 3
-        ).reshape(  # TODO Check if this is correct
-            attention_output.shape[0], -1, self.d_model
-        )
+        attention_out, _ = self.scaled_dot_product_attention(q, k, v, mask)
+        ic(attention_out.shape)
+        # attention_out = attention_output.transpose(0, 2, 1, 3)
+        # .reshape(  # TODO Check if this is correct
+        #     attention_output.shape[0], -1, self.d_model
+        # )
         ic(attention_out.shape)
         out = nn.Dense(features=self.d_model)(attention_out)
 
@@ -190,27 +190,27 @@ class TimeSeriesTransformer(nn.Module):
         # kv_embeddings = PositionalEncoding(d_model=self.d_model)(kv_embeddings)
         # col_embeddings = PositionalEncoding(d_model=self.d_model)(col_embeddings)
         # ic(col_embeddings.shape, kv_embeddings.shape)
-        # out = TransformerBlock(
-        #     d_model=self.d_model,
-        #     n_heads=self.n_heads,
-        #     d_ff=self.d_model * 4,
-        #     dropout_rate=0.1,
-        # )(q=col_embeddings, k=kv_embeddings, v=kv_embeddings)
-        out = nn.MultiHeadDotProductAttention(num_heads=self.n_heads, qkv_features=16)(
-            out  # col_embeddings, kv_embeddings, kv_embeddings
-        )
+        out = TransformerBlock(
+            d_model=self.d_model,
+            n_heads=self.n_heads,
+            d_ff=self.d_model * 4,
+            dropout_rate=0.1,
+        )(q=col_embeddings, k=kv_embeddings, v=kv_embeddings)
+        # out = nn.MultiHeadDotProductAttention(num_heads=self.n_heads, qkv_features=16)(
+        #     out  # col_embeddings, kv_embeddings, kv_embeddings
+        # )
         ic(out.shape)
-        # out = TransformerBlock(
-        #     d_model=self.d_model,
-        #     n_heads=self.n_heads,
-        #     d_ff=self.d_model * 4,
-        #     dropout_rate=0.1,
-        # )(
-        #     q=out, k=out, v=out
-        # )  # Check if we should reuse the col embeddings here
-        out = nn.MultiHeadDotProductAttention(num_heads=self.n_heads, qkv_features=16)(
-            out
-        )
+        out = TransformerBlock(
+            d_model=self.d_model,
+            n_heads=self.n_heads,
+            d_ff=self.d_model * 4,
+            dropout_rate=0.1,
+        )(
+            q=out, k=out, v=out
+        )  # Check if we should reuse the col embeddings here
+        # out = nn.MultiHeadDotProductAttention(num_heads=self.n_heads, qkv_features=16)(
+        #     out
+        # )
         ic(f"Second MHA out shape: {out.shape}")
         return out
 
