@@ -70,72 +70,72 @@ class TransformerBlock(nn.Module):
         return out
 
 
-class TimeSeriesTransformer(nn.Module):
-    dataset: TabularDS
-    d_model: int = 64
-    n_heads: int = 4
-    time_window: int = 100
+# class TimeSeriesTransformer(nn.Module):
+#     dataset: TabularDS
+#     d_model: int = 64
+#     n_heads: int = 4
+#     time_window: int = 100
 
-    @nn.compact
-    def __call__(
-        self,
-        categorical_inputs: jnp.array,
-        numeric_inputs: jnp.array,
-    ):
-        embedding = nn.Embed(
-            num_embeddings=self.dataset.n_tokens,
-            features=self.d_model,
-            name="embedding",
-        )
+#     @nn.compact
+#     def __call__(
+#         self,
+#         categorical_inputs: jnp.array,
+#         numeric_inputs: jnp.array,
+#     ):
+#         embedding = nn.Embed(
+#             num_embeddings=self.dataset.n_tokens,
+#             features=self.d_model,
+#             name="embedding",
+#         )
 
-        # Embed column indices
-        col_embeddings = embedding(jnp.array(self.dataset.col_indices))
-        cat_embeddings = embedding(categorical_inputs)
-        # TODO implement no grad here
-        repeated_numeric_indices = jnp.tile(
-            self.dataset.numeric_indices, (numeric_inputs.shape[0], 1)
-        )
+#         # Embed column indices
+#         col_embeddings = embedding(jnp.array(self.dataset.col_indices))
+#         cat_embeddings = embedding(categorical_inputs)
+#         # TODO implement no grad here
+#         repeated_numeric_indices = jnp.tile(
+#             self.dataset.numeric_indices, (numeric_inputs.shape[0], 1)
+#         )
 
-        # Nan Masking
-        numeric_col_embeddings = embedding(repeated_numeric_indices)
-        nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
-        base_numeric = jnp.zeros_like(numeric_col_embeddings)
-        numeric_inputs = stop_gradient(jnp.where(nan_mask, 0.0, numeric_inputs))
-        base_numeric = jnp.where(
-            nan_mask[:, :, None],
-            base_numeric,
-            numeric_col_embeddings * numeric_inputs[:, :, None],
-        )
+#         # Nan Masking
+#         numeric_col_embeddings = embedding(repeated_numeric_indices)
+#         nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
+#         base_numeric = jnp.zeros_like(numeric_col_embeddings)
+#         numeric_inputs = stop_gradient(jnp.where(nan_mask, 0.0, numeric_inputs))
+#         base_numeric = jnp.where(
+#             nan_mask[:, :, None],
+#             base_numeric,
+#             numeric_col_embeddings * numeric_inputs[:, :, None],
+#         )
 
-        base_numeric = jnp.where(
-            nan_mask[:, :, None], self.dataset.numeric_mask_token, base_numeric
-        )
-        # End Nan Masking
-        kv_embeddings = jnp.concatenate([cat_embeddings, base_numeric], axis=1)
-        kv_embeddings = jnp.expand_dims(
-            kv_embeddings.reshape(-1, kv_embeddings.shape[2]), axis=0
-        )
-        # print(f"KV Embedding shape: {kv_embeddings.shape}")
-        ic(col_embeddings.shape, kv_embeddings.shape)
-        out = TransformerBlock(
-            d_model=self.d_model,
-            n_heads=self.n_heads,
-            d_ff=self.d_model * 4,
-            dropout_rate=0.1,
-        )(q=col_embeddings, k=kv_embeddings, v=kv_embeddings)
-        ic(out.shape)
-        # print(f"First MHA out shape: {out.shape}")
-        out = TransformerBlock(
-            d_model=self.d_model,
-            n_heads=self.n_heads,
-            d_ff=self.d_model * 4,
-            dropout_rate=0.1,
-        )(
-            q=col_embeddings, k=out, v=out
-        )  # Check if we should reuse the col embeddings here
-        # print(f"Second MHA out shape: {out.shape}")
-        ic(out.shape)
-        return out
+#         base_numeric = jnp.where(
+#             nan_mask[:, :, None], self.dataset.numeric_mask_token, base_numeric
+#         )
+#         # End Nan Masking
+#         kv_embeddings = jnp.concatenate([cat_embeddings, base_numeric], axis=1)
+#         kv_embeddings = jnp.expand_dims(
+#             kv_embeddings.reshape(-1, kv_embeddings.shape[2]), axis=0
+#         )
+#         # print(f"KV Embedding shape: {kv_embeddings.shape}")
+#         ic(col_embeddings.shape, kv_embeddings.shape)
+#         out = TransformerBlock(
+#             d_model=self.d_model,
+#             n_heads=self.n_heads,
+#             d_ff=self.d_model * 4,
+#             dropout_rate=0.1,
+#         )(q=col_embeddings, k=kv_embeddings, v=kv_embeddings)
+#         ic(out.shape)
+#         # print(f"First MHA out shape: {out.shape}")
+#         out = TransformerBlock(
+#             d_model=self.d_model,
+#             n_heads=self.n_heads,
+#             d_ff=self.d_model * 4,
+#             dropout_rate=0.1,
+#         )(
+#             q=col_embeddings, k=out, v=out
+#         )  # Check if we should reuse the col embeddings here
+#         # print(f"Second MHA out shape: {out.shape}")
+#         ic(out.shape)
+#         return out
 
 
 # %%
@@ -187,21 +187,21 @@ class TabTransformer(nn.Module):
         #     f"KV Embedding shape: {kv_embeddings.shape}",
         #     f"Col Embedding shape: {col_embeddings.shape}",
         # )
-
+        ic(col_embeddings.shape, kv_embeddings.shape)
         out = TransformerBlock(
             d_model=self.d_model,
             n_heads=self.n_heads,
             d_ff=self.d_model * 4,
             dropout_rate=0.1,
         )(q=col_embeddings, k=kv_embeddings, v=kv_embeddings)
-
+        ic(out.shape)
         out = TransformerBlock(
             d_model=self.d_model,
             n_heads=self.n_heads,
             d_ff=self.d_model * 4,
             dropout_rate=0.1,
         )(q=out, k=out, v=out)
-
+        ic(out.shape)
         return out
 
 
