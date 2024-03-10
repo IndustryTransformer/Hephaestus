@@ -194,6 +194,9 @@ class TabTransformer(nn.Module):
             d_ff=self.d_model * 4,
             dropout_rate=0.1,
         )(q=col_embeddings, k=kv_embeddings, v=kv_embeddings)
+        # out = nn.MultiHeadAttention(num_heads=self.n_heads, qkv_features=self.d_model)(
+        #     col_embeddings, kv_embeddings, kv_embeddings
+        # )
         ic(out.shape)
         out = TransformerBlock(
             d_model=self.d_model,
@@ -201,6 +204,9 @@ class TabTransformer(nn.Module):
             d_ff=self.d_model * 4,
             dropout_rate=0.1,
         )(q=out, k=out, v=out)
+        # out = nn.MultiHeadAttention(num_heads=self.n_heads, qkv_features=self.d_model)(
+        #     out
+        # )
         ic(out.shape)
         return out
 
