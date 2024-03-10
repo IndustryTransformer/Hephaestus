@@ -25,7 +25,28 @@ class MultiheadAttention(nn.Module):
             v = nn.Dense(name="v_linear", features=self.d_model)(v)
 
         ic(q.shape, k.shape, v.shape)
+        # split the d_model into n_heads
+        assert self.d_model % self.n_heads == 0, "d_model must be divisible by n_heads"
 
+        k = k.reshape(
+            k.shape[0],
+            k.shape[1],
+            k.shape[2],
+            self.n_heads,
+            self.d_model // self.n_heads,
+        )  # .transpose(0, 2, 1, 3)
+        q = q.reshape(
+            q.shape[0],
+            self.n_heads,
+            self.d_model // self.n_heads,
+        )  # .transpose(0, 2, 1, 3)
+        v = v.reshape(
+            v.shape[0],
+            v.shape[1],
+            v.shape[2],
+            self.n_heads,
+            self.d_model // self.n_heads,
+        )  # .transpose(0, 2, 1, 3)
         # ic(f"Q shape: {q.shape}, K shape: {k.shape}, V shape: {v.shape}")
         # here _ = attention_weights
         attention_out, _ = self.scaled_dot_product_attention(q, k, v, mask)
@@ -34,7 +55,11 @@ class MultiheadAttention(nn.Module):
         # .reshape(  # TODO Check if this is correct
         #     attention_output.shape[0], -1, self.d_model
         # )
+        attention_out = attention_out.transpose(0, 2, 1, 3).reshape(
+            attention_out.shape[0], -1, self.d_model
+        )
         ic(attention_out.shape)
+
         out = nn.Dense(features=self.d_model)(attention_out)
 
         return out
