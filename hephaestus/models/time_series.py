@@ -17,9 +17,17 @@ class MultiheadAttention(nn.Module):
     d_model: int
 
     @nn.compact
-    def __call__(self, q, k, v, input_feed_forward=True, mask=None):
+    def __call__(
+        self, q=None, k=None, v=None, qkv=None, input_feed_forward=True, mask=None
+    ):
         """Self Attention"""
+        # Assert that either qkv or q, k, v are provided
+        assert (qkv is not None) or (
+            q is not None and k is not None and v is not None
+        ), "Either qkv or q, k, v must be provided"
         if input_feed_forward:
+            if qkv is not None:
+                q, k, v = (qkv, qkv, qkv)
             q = nn.Dense(name="q_linear", features=self.d_model)(q)
             k = nn.Dense(name="k_linear", features=self.d_model)(k)
             v = nn.Dense(name="v_linear", features=self.d_model)(v)
@@ -35,11 +43,21 @@ class MultiheadAttention(nn.Module):
             self.n_heads,
             self.d_model // self.n_heads,
         )  # .transpose(0, 2, 1, 3)
-        q = q.reshape(
-            q.shape[0],
-            self.n_heads,
-            self.d_model // self.n_heads,
-        )  # .transpose(0, 2, 1, 3)
+
+        if qkv is not None:
+            q = q.reshape(
+                q.shape[0],
+                q.shape[1],
+                q.shape[2],
+                self.n_heads,
+                self.d_model // self.n_heads,
+            )
+        else:
+            q = q.reshape(
+                q.shape[0],
+                self.n_heads,
+                self.d_model // self.n_heads,
+            )  # .transpose(0, 2, 1, 3)
         v = v.reshape(
             v.shape[0],
             v.shape[1],
@@ -55,8 +73,11 @@ class MultiheadAttention(nn.Module):
         # .reshape(  # TODO Check if this is correct
         #     attention_output.shape[0], -1, self.d_model
         # )
-        attention_out = attention_out.transpose(0, 2, 1, 3).reshape(
-            attention_out.shape[0], -1, self.d_model
+        attention_out = attention_out.reshape(
+            attention_out.shape[0],
+            attention_out.shape[1],
+            attention_out.shape[2],
+            -1,
         )
         ic(attention_out.shape)
 
@@ -89,12 +110,24 @@ class TransformerBlock(nn.Module):
     dropout_rate: float
 
     @nn.compact
-    def __call__(self, q, k, v, mask=None, train=True, input_feed_forward=True):
+    def __call__(
+        self,
+        q=None,
+        k=None,
+        v=None,
+        qkv=None,
+        mask=None,
+        train=True,
+        input_feed_forward=True,
+    ):
 
         attn_output = MultiheadAttention(n_heads=self.n_heads, d_model=self.d_model)(
-            q, k, v, mask=mask, input_feed_forward=input_feed_forward
+            q, k, v, qkv, mask=mask, input_feed_forward=input_feed_forward
         )
-        ic(attn_output.shape, k.shape)
+        # ic(attn_output.shape, k.shape)
+        # TODO Try adding q instead of k.
+        if qkv is not None:
+            k = qkv
         out = nn.LayerNorm()(k + attn_output)
         ff_out = nn.Sequential(
             [nn.Dense(self.d_model * 2), nn.relu, nn.Dense(self.d_model)]
@@ -231,7 +264,7 @@ class TimeSeriesTransformer(nn.Module):
             d_ff=self.d_model * 4,
             dropout_rate=0.1,
         )(
-            q=out, k=out, v=out
+            qkv=out
         )  # Check if we should reuse the col embeddings here
         # out = nn.MultiHeadDotProductAttention(num_heads=self.n_heads, qkv_features=16)(
         #     out
