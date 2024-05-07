@@ -51,7 +51,7 @@ class TabularTimeSeriesData(Dataset):
         self.scaler = StandardScaler()
         if self.target_column is None and not scale_target:
             raise ValueError("If target_column is None, scale_target must be False")
-        if self.scale_target:
+        if self.scale_target and self.target_column is not None:
             self.scaler_target = StandardScaler()
             df[self.target_column] = self.scaler_target.fit_transform(
                 df[[self.target_column]]
