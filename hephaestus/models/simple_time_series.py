@@ -181,9 +181,8 @@ class TimeSeriesTransformer(nn.Module):
             features=self.d_model,
             name="embedding",
         )
-        repeated_numeric_indices = jnp.tile(
-            self.dataset.numeric_indices, (numeric_inputs.shape[0],)
-        )
+        numeric_indices = [i for i in range(len(self.dataset.df.columns))]
+        repeated_numeric_indices = jnp.tile(numeric_indices, (numeric_inputs.shape[0],))
         # Embed column indices
 
         col_embeddings = embedding(self.dataset.col_indices)
