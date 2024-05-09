@@ -7,7 +7,7 @@ from jax.lax import stop_gradient
 
 from ..utils.data_utils import TabularDS
 
-ic.configureOutput(includeContext=True, contextAbsPath=False)
+ic.configureOutput(includeContext=True, contextAbsPath=True)
 # ic.disable()
 # %%
 
@@ -181,15 +181,15 @@ class TimeSeriesTransformer(nn.Module):
             features=self.d_model,
             name="embedding",
         )
-        numeric_indices = [i for i in range(len(self.dataset.df.columns))]
-        repeated_numeric_indices = jnp.tile(numeric_indices, (numeric_inputs.shape[0],))
+        # numeric_indices = jnp.array([i for i in range(len(self.dataset.df.columns))])
         # Embed column indices
 
-        col_embeddings = embedding(self.dataset.col_indices)
-        ic(f"{col_embeddings.shape=}")
+        col_embeddings = embedding(self.dataset.numeric_indices)
+        ic(col_embeddings.shape, numeric_inputs.shape)
         repeated_numeric_indices = jnp.tile(
             self.dataset.numeric_indices, (numeric_inputs.shape[1], 1)
         )
+        ic(repeated_numeric_indices.shape)
 
         # Nan Masking
         numeric_col_embeddings = embedding(repeated_numeric_indices)
@@ -197,7 +197,8 @@ class TimeSeriesTransformer(nn.Module):
         base_numeric = jnp.zeros_like(numeric_col_embeddings)
         numeric_inputs = stop_gradient(jnp.where(nan_mask, 0.0, numeric_inputs))
         ic(numeric_col_embeddings.shape, numeric_inputs.shape)
-        numeric_mat_mull = numeric_col_embeddings * numeric_inputs[:, :, :, None]
+        ic(numeric_col_embeddings.shape, numeric_inputs[:, :, :, None].shape)
+        numeric_mat_mull = numeric_inputs[:, :, :, None] * numeric_col_embeddings
 
         base_numeric = jnp.where(
             # nan_mask[:, :, :, None],
@@ -265,6 +266,35 @@ def multivariate_regression(
 ) -> nn.Module:
     """ """
     return TimeSeriesRegression(dataset, d_model, n_heads)
+
+
+class SimplePred(nn.Module):
+    dataset: TabularDS
+    d_model: int = 64 * 10
+    n_heads: int = 4
+
+    @nn.compact
+    def __call__(
+        self,
+        numeric_inputs: jnp.array,
+    ) -> jnp.array:
+        """ """
+        out = TimeSeriesTransformer(self.dataset, self.d_model, self.n_heads)(
+            numeric_inputs=numeric_inputs
+        )
+        ic(out.shape)
+        out = nn.Sequential(
+            [
+                nn.Dense(name="RegressionDense1", features=self.d_model * 2),
+                nn.relu,
+                nn.Dense(name="RegressionDense2", features=1),
+            ],
+            name="RegressionOutputChain",
+        )(out)
+        # ic(f"Out shape: {out.shape}")
+        out = jnp.reshape(out, (out.shape[0], -1))
+        out = nn.Dense(name="RegressionFlatten", features=16)(out)
+        return out
 
 
 class TimeSeriesRegression(nn.Module):
