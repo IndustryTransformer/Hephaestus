@@ -291,9 +291,11 @@ class SimplePred(nn.Module):
             ],
             name="RegressionOutputChain",
         )(out)
-        # ic(f"Out shape: {out.shape}")
-        out = jnp.reshape(out, (out.shape[0], -1))
-        out = nn.Dense(name="RegressionFlatten", features=16)(out)
+        ic(f"Penultimate Simple OUT: {out.shape}")
+        out = jnp.squeeze(out, axis=-1)
+        # out = jnp.reshape(out, (out.shape[0], -1))
+        ic(f"FInal Simple OUT: {out.shape}")
+        # out = nn.Dense(name="RegressionFlatten", features=16)(out)
         return out
 
 
@@ -322,7 +324,7 @@ class TimeSeriesRegression(nn.Module):
         )(out)
         # ic(f"Out shape: {out.shape}")
         out = jnp.reshape(out, (out.shape[0], -1))
-        out = nn.Dense(name="RegressionFlatten", features=n_vals)(out)
+        out = nn.Dense(name="RegressionFlatten", features=16)(out)
         return out
 
 
