@@ -91,7 +91,7 @@ class MultiheadAttention(nn.Module):
         # ic(f"Matmul shape: {matmul_qk.shape}")
         d_k = q.shape[-1]
         matmul_qk = matmul_qk / jnp.sqrt(d_k)
-
+        print(f"Before Masking matulqk: {matmul_qk.shape=}")
         if mask is not None:
             matmul_qk += mask * -1e9
 
@@ -214,58 +214,42 @@ class TimeSeriesTransformer(nn.Module):
         kv_embeddings = base_numeric  # TODO remove...
         ic(kv_embeddings.shape)
 
-        # kv_embeddings = kv_embeddings.reshape(
-        #     kv_embeddings.shape[0], -1, kv_embeddings.shape[3]
-        # )
-        # kv_embeddings = jnp.expand_dims(
-        #     kv_embeddings.reshape(kv_embeddings.shape[0], -1, kv_embeddings.shape[3]),
-        #     axis=0,
-        # )
         ic(kv_embeddings.shape, col_embeddings.shape)
-        # col_embeddings = jnp.tile(col_embeddings, (kv_embeddings.shape[0], 1, 1))
-        # col_embeddings = col_embeddings[:, None, :, :]
+
         out = kv_embeddings * col_embeddings  # TODO Try plus or normalizing
         ic(out.shape)
         # ic(kv_embeddings.shape, col_embeddings.shape)
         # TODO Add positional encoding
         out = PositionalEncoding(max_len=self.time_window, d_pos_encoding=16)(out)
         ic(out.shape)
+        out = nn.MultiHeadAttention(num_heads=self.n_heads, qkv_features=16)(
+            inputs_q=out, inputs_kv=kv_embeddings
+        )
         # kv_embeddings = PositionalEncoding(d_model=self.d_model)(kv_embeddings)
         # col_embeddings = PositionalEncoding(d_model=self.d_model)(col_embeddings)
         # ic(col_embeddings.shape, kv_embeddings.shape)
-        out = TransformerBlock(
-            d_model=self.d_model,
-            n_heads=self.n_heads,
-            d_ff=self.d_model * 4,
-            dropout_rate=0.1,
-        )(q=col_embeddings, k=kv_embeddings, v=kv_embeddings)
+        # out = TransformerBlock(
+        #     d_model=self.d_model,
+        #     n_heads=self.n_heads,
+        #     d_ff=self.d_model * 4,
+        #     dropout_rate=0.1,
+        # )(q=col_embeddings, k=kv_embeddings, v=kv_embeddings)
         # out = nn.MultiHeadDotProductAttention(num_heads=self.n_heads, qkv_features=16)(
         #     out  # col_embeddings, kv_embeddings, kv_embeddings
         # )
-        ic(out.shape)
-        out = TransformerBlock(
-            d_model=self.d_model,
-            n_heads=self.n_heads,
-            d_ff=self.d_model * 4,
-            dropout_rate=0.1,
-        )(qkv=out)  # Check if we should reuse the col embeddings here
+        ic("After first MH", out.shape)
+        out = nn.MultiHeadAttention(num_heads=self.n_heads, qkv_features=16)(out)
+        # out = TransformerBlock(
+        #     d_model=self.d_model,
+        #     n_heads=self.n_heads,
+        #     d_ff=self.d_model * 4,
+        #     dropout_rate=0.1,
+        # )(qkv=out)  # Check if we should reuse the col embeddings here
         # out = nn.MultiHeadDotProductAttention(num_heads=self.n_heads, qkv_features=16)(
         #     out
         # )
-        ic(f"Second MHA out shape: {out.shape}")
+        ic("Second MHA out shape:", out.shape)
         return out
-
-
-# %%
-
-
-def multivariate_regression(
-    dataset: TabularDS,
-    d_model: int = 64,
-    n_heads: int = 4,
-) -> nn.Module:
-    """ """
-    return TimeSeriesRegression(dataset, d_model, n_heads)
 
 
 class SimplePred(nn.Module):
@@ -297,122 +281,6 @@ class SimplePred(nn.Module):
         ic(f"FInal Simple OUT: {out.shape}")
         # out = nn.Dense(name="RegressionFlatten", features=16)(out)
         return out
-
-
-class TimeSeriesRegression(nn.Module):
-    dataset: TabularDS
-    d_model: int = 64 * 10
-    n_heads: int = 4
-
-    @nn.compact
-    def __call__(
-        self,
-        numeric_inputs: jnp.array,
-    ) -> jnp.array:
-        """ """
-        out = TimeSeriesTransformer(self.dataset, self.d_model, self.n_heads)(
-            numeric_inputs=numeric_inputs
-        )
-        ic(out.shape)
-        out = nn.Sequential(
-            [
-                nn.Dense(name="RegressionDense1", features=self.d_model * 2),
-                nn.relu,
-                nn.Dense(name="RegressionDense2", features=1),
-            ],
-            name="RegressionOutputChain",
-        )(out)
-        # ic(f"Out shape: {out.shape}")
-        out = jnp.reshape(out, (out.shape[0], -1))
-        out = nn.Dense(name="RegressionFlatten", features=16)(out)
-        return out
-
-
-class MaskedTimeSeries(nn.Module):
-    dataset: TabularDS
-    d_model: int = 64 * 10
-    n_heads: int = 4
-
-    @nn.compact
-    def __call__(
-        self,
-        numeric_inputs: jnp.array,
-    ) -> jnp.array:
-        """ """
-        ic(numeric_inputs.shape)
-        out = TimeSeriesTransformer(self.dataset, self.d_model, self.n_heads)(
-            numeric_inputs=numeric_inputs
-        )
-        ic(f"Out shape: {out.shape}")
-        # out = nn.Sequential(
-        #     [
-        #         nn.Dense(name="RegressionDense1", features=self.d_model * 2),
-        #         nn.relu,
-        #         nn.Dense(name="RegressionDense2", features=1),
-        #     ],
-        #     name="RegressionOutputChain",
-        # )(out)
-        # ic(f"Out shape: {out.shape}")
-        ic(out.shape)  # %%
-        return out
-
-
-class MaskedTimeSeriesRegClass(nn.Module):
-    dataset: TabularDS
-    d_model: int = 64 * 10
-    n_heads: int = 4
-
-    @nn.compact
-    def __call__(
-        self,
-        numeric_inputs: jnp.array,
-    ) -> jnp.array:
-        """ """
-        out = MaskedTimeSeries(self.dataset, self.d_model, self.n_heads)(numeric_inputs)
-
-        out = out.reshape(out.shape[0], out.shape[1], -1)
-
-        numeric_out = nn.Sequential(
-            [
-                nn.Dense(name="numeric_dense_1", features=self.d_model * 6),
-                nn.relu,
-                nn.Dense(
-                    name="numeric_dense_2", features=len(self.dataset.numeric_columns)
-                ),
-            ],
-            name="NumericOutputChain",
-        )(out)
-        ic(numeric_out.shape)
-        return numeric_out
-
-
-class MaskedTimeSeriesClass(nn.Module):
-    dataset: TabularDS
-    d_model: int = 64 * 10
-    n_heads: int = 4
-
-    @nn.compact
-    def __call__(
-        self,
-        numeric_inputs: jnp.array,
-    ) -> jnp.array:
-        """ """
-        out = MaskedTimeSeries(self.dataset, self.d_model, self.n_heads)(numeric_inputs)
-
-        out = out.reshape(out.shape[0], out.shape[1], -1)
-
-        numeric_out = nn.Sequential(
-            [
-                nn.Dense(name="numeric_dense_1", features=self.d_model * 6),
-                nn.relu,
-                nn.Dense(
-                    name="numeric_dense_2", features=len(self.dataset.numeric_columns)
-                ),
-            ],
-            name="NumericOutputChain",
-        )(out)
-        ic(numeric_out.shape)
-        return numeric_out
 
 
 class PositionalEncoding(nn.Module):
@@ -464,56 +332,3 @@ class PositionalEncoding(nn.Module):
 
         # Add positional encoding to the input embedding
         return result
-
-
-class StaticPositionalEmbedding:
-    def __init__(self, n_rows, n_features):
-        # Initialize the static positional embedding
-        self.positional_embedding = self._create_positional_embedding(
-            n_rows, n_features
-        )
-
-    def _create_positional_embedding(self, n_rows, n_features):
-        # Adjust n_features to be even for the sinusoidal generation, then clip
-        n_features_adjusted = n_features + (n_features % 2)  # Make even if odd
-        position = jnp.arange(n_rows)[:, jnp.newaxis]
-        div_term = jnp.exp(
-            jnp.arange(0, n_features_adjusted, 2)
-            * -(jnp.log(10000.0) / n_features_adjusted)
-        )
-        pe = jnp.zeros((n_rows, n_features_adjusted))
-        pe = pe.at[:, 0::2].set(jnp.sin(position * div_term))
-        pe = pe.at[:, 1::2].set(jnp.cos(position * div_term))
-
-        # Clip to the original n_features if n_features was odd
-        return pe[:, :n_features]
-
-    def add_positional_embedding(self, batch):
-        # This function concatenates the positional embedding to each row in the batch.
-        batch_size, n_rows, n_features = batch.shape
-        # Replicate the positional embedding for the whole batch
-        pe_batch = jnp.tile(self.positional_embedding, (batch_size, 1, 1))
-        # Concatenate along the feature dimension
-        return jnp.concatenate([batch, pe_batch], axis=2)
-
-
-# class PositionalEncoding(nn.Module):
-#     d_model: int  # Hidden dimensionality of the input.
-#     max_len: int = 5000  # Maximum length of a sequence to expect.
-
-#     def setup(self):
-#         # Create matrix of [SeqLen, HiddenDim] representing the positional
-# encoding for max_len inputs
-#         pe = jnp.zeros((self.max_len, self.d_model))
-#         position = jnp.arange(0, self.max_len, dtype=jnp.float32)[:, None]
-#         div_term = jnp.exp(
-#             jnp.arange(0, self.d_model, 2) * (-jnp.log(10000.0) / self.d_model)
-#         )
-#         pe = pe.at[:, 0::2].set(jnp.sin(position * div_term))
-#         pe = pe.at[:, 1::2].set(jnp.cos(position * div_term))
-#         pe = pe[None]
-#         self.pe = jax.device_put(pe)
-
-#     def __call__(self, x):
-#         x = x + self.pe[:, : x.shape[1]]
-#         return x
