@@ -91,7 +91,7 @@ class MultiheadAttention(nn.Module):
         # ic(f"Matmul shape: {matmul_qk.shape}")
         d_k = q.shape[-1]
         matmul_qk = matmul_qk / jnp.sqrt(d_k)
-        print(f"Before Masking matulqk: {matmul_qk.shape=}")
+        ic(f"Before Masking matmul_qk: {matmul_qk.shape=}")
         if mask is not None:
             matmul_qk += mask * -1e9
 
@@ -191,64 +191,37 @@ class TimeSeriesTransformer(nn.Module):
         )
         ic(repeated_numeric_indices.shape)
 
-        # Nan Masking
         numeric_col_embeddings = embedding(repeated_numeric_indices)
+        # Nan Masking
         nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
-        base_numeric = jnp.zeros_like(numeric_col_embeddings)
-        numeric_inputs = stop_gradient(jnp.where(nan_mask, 0.0, numeric_inputs))
-        ic(numeric_col_embeddings.shape, numeric_inputs.shape)
-        ic(numeric_col_embeddings.shape, numeric_inputs[:, :, :, None].shape)
+
+        # numeric_inputs = stop_gradient(
+        #     jnp.where(jnp.isnan(numeric_inputs), 0.0, numeric_inputs)
+        # )
+        numeric_inputs = jnp.where(nan_mask, 0.0, numeric_inputs)
+        # numeric_inputs = stop_gradient(jnp.where(nan_mask, 0.0, numeric_inputs))
         numeric_mat_mull = numeric_inputs[:, :, :, None] * numeric_col_embeddings
 
-        base_numeric = jnp.where(
-            # nan_mask[:, :, :, None],
+        out = jnp.where(
             jnp.expand_dims(nan_mask, axis=-1),
-            base_numeric,
+            embedding(jnp.array(self.dataset.numeric_mask_token)),
             numeric_mat_mull,
         )
-
-        base_numeric = jnp.where(
-            nan_mask[:, :, :, None], self.dataset.numeric_mask_token, base_numeric
-        )
         # End Nan Masking
-        kv_embeddings = base_numeric  # TODO remove...
-        ic(kv_embeddings.shape)
+        ic(f"Nan values in out: {jnp.isnan(out).any()}")
 
-        ic(kv_embeddings.shape, col_embeddings.shape)
-
-        out = kv_embeddings * col_embeddings  # TODO Try plus or normalizing
-        ic(out.shape)
         # ic(kv_embeddings.shape, col_embeddings.shape)
         # TODO Add positional encoding
         out = PositionalEncoding(max_len=self.time_window, d_pos_encoding=16)(out)
         ic(out.shape)
-        out = nn.MultiHeadAttention(num_heads=self.n_heads, qkv_features=16)(
-            inputs_q=out, inputs_kv=kv_embeddings
-        )
-        # kv_embeddings = PositionalEncoding(d_model=self.d_model)(kv_embeddings)
-        # col_embeddings = PositionalEncoding(d_model=self.d_model)(col_embeddings)
-        # ic(col_embeddings.shape, kv_embeddings.shape)
-        # out = TransformerBlock(
-        #     d_model=self.d_model,
-        #     n_heads=self.n_heads,
-        #     d_ff=self.d_model * 4,
-        #     dropout_rate=0.1,
-        # )(q=col_embeddings, k=kv_embeddings, v=kv_embeddings)
-        # out = nn.MultiHeadDotProductAttention(num_heads=self.n_heads, qkv_features=16)(
-        #     out  # col_embeddings, kv_embeddings, kv_embeddings
-        # )
-        ic("After first MH", out.shape)
+        ic(f"Nan values in out positional: {jnp.isnan(out).any()}")
+
         out = nn.MultiHeadAttention(num_heads=self.n_heads, qkv_features=16)(out)
-        # out = TransformerBlock(
-        #     d_model=self.d_model,
-        #     n_heads=self.n_heads,
-        #     d_ff=self.d_model * 4,
-        #     dropout_rate=0.1,
-        # )(qkv=out)  # Check if we should reuse the col embeddings here
-        # out = nn.MultiHeadDotProductAttention(num_heads=self.n_heads, qkv_features=16)(
-        #     out
-        # )
-        ic("Second MHA out shape:", out.shape)
+        ic(f"Nan values in out 1st mha: {jnp.isnan(out).any()}")
+
+        out = nn.MultiHeadAttention(num_heads=self.n_heads, qkv_features=16)(out)
+        ic(f"Nan values in in out 2nd mha: {jnp.isnan(out).any()}")
+
         return out
 
 
@@ -267,6 +240,7 @@ class SimplePred(nn.Module):
             numeric_inputs=numeric_inputs
         )
         ic(out.shape)
+        ic(f"Nan values in simplePred out 1: {jnp.isnan(out).any()}")
         out = nn.Sequential(
             [
                 nn.Dense(name="RegressionDense1", features=self.d_model * 2),
@@ -275,8 +249,12 @@ class SimplePred(nn.Module):
             ],
             name="RegressionOutputChain",
         )(out)
+        ic(f"Nan values in simplePred out after seq: {jnp.isnan(out).any()}")
+
         ic(f"Penultimate Simple OUT: {out.shape}")
         out = jnp.squeeze(out, axis=-1)
+        ic(f"Nan values in simplePred out after seq: {jnp.isnan(out).any()}")
+
         # out = jnp.reshape(out, (out.shape[0], -1))
         ic(f"FInal Simple OUT: {out.shape}")
         # out = nn.Dense(name="RegressionFlatten", features=16)(out)
