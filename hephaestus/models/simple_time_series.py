@@ -215,8 +215,10 @@ class TimeSeriesTransformer(nn.Module):
         out = PositionalEncoding(max_len=self.time_window, d_pos_encoding=16)(out)
         ic(out.shape)
         ic(f"Nan values in out positional: {jnp.isnan(out).any()}")
-
+        ic("Starting Attention")
+        ic(out.shape)
         out = nn.MultiHeadAttention(num_heads=self.n_heads, qkv_features=16)(out)
+        ic(out.shape)
         ic(f"Nan values in out 1st mha: {jnp.isnan(out).any()}")
 
         out = nn.MultiHeadAttention(num_heads=self.n_heads, qkv_features=16)(out)
