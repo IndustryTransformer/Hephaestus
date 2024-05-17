@@ -217,11 +217,23 @@ class TimeSeriesTransformer(nn.Module):
         ic(f"Nan values in out positional: {jnp.isnan(out).any()}")
         ic("Starting Attention")
         ic(out.shape)
-        out = nn.MultiHeadAttention(num_heads=self.n_heads, qkv_features=16)(out)
+        out = TransformerBlock(
+            d_model=self.d_model + 16,  # TODO Make this more elegant
+            n_heads=self.n_heads,
+            d_ff=self.d_model * 4,
+            dropout_rate=0.1,
+        )(qkv=out)
+        # out = nn.MultiHeadAttention(num_heads=self.n_heads, qkv_features=None)(out)
         ic(out.shape)
         ic(f"Nan values in out 1st mha: {jnp.isnan(out).any()}")
 
-        out = nn.MultiHeadAttention(num_heads=self.n_heads, qkv_features=16)(out)
+        # out = nn.MultiHeadAttention(num_heads=self.n_heads, qkv_features=None)(out)
+        out = TransformerBlock(
+            d_model=self.d_model + 16,  # TODO Make this more elegant
+            n_heads=self.n_heads,
+            d_ff=self.d_model * 4,
+            dropout_rate=0.1,
+        )(qkv=out)  # Check if we should reuse the col embeddings here
         ic(f"Nan values in in out 2nd mha: {jnp.isnan(out).any()}")
 
         return out
