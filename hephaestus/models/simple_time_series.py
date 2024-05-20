@@ -8,107 +8,56 @@ from jax.lax import stop_gradient
 from ..utils.data_utils import TabularDS
 
 ic.configureOutput(includeContext=True, contextAbsPath=True)
+
+
 # ic.disable()
 # %%
-
-
-class MultiheadAttention(nn.Module):
-    n_heads: int
+class FeedForwardNetwork(nn.Module):
     d_model: int
+    d_ff: int
+    dropout_rate: float
 
     @nn.compact
-    def __call__(
-        self, q=None, k=None, v=None, qkv=None, input_feed_forward=True, mask=None
-    ):
-        """Self Attention"""
-        # Assert that either qkv or q, k, v are provided
-        assert (qkv is not None) or (
-            q is not None and k is not None and v is not None
-        ), "Either qkv or q, k, v must be provided"
-        if input_feed_forward:
-            if qkv is not None:
-                q, k, v = (qkv, qkv, qkv)
-            q = nn.Dense(name="q_linear", features=self.d_model)(q)
-            k = nn.Dense(name="k_linear", features=self.d_model)(k)
-            v = nn.Dense(name="v_linear", features=self.d_model)(v)
-
-        ic(q.shape, k.shape, v.shape)
-        # split the d_model into n_heads
-        assert self.d_model % self.n_heads == 0, "d_model must be divisible by n_heads"
-
-        k = k.reshape(
-            k.shape[0],
-            k.shape[1],
-            k.shape[2],
-            self.n_heads,
-            self.d_model // self.n_heads,
-        )  # .transpose(0, 2, 1, 3)
-
-        if qkv is not None:
-            q = q.reshape(
-                q.shape[0],
-                q.shape[1],
-                q.shape[2],
-                self.n_heads,
-                self.d_model // self.n_heads,
-            )
-        else:
-            q = q.reshape(
-                q.shape[0],
-                self.n_heads,
-                self.d_model // self.n_heads,
-            )  # .transpose(0, 2, 1, 3)
-        v = v.reshape(
-            v.shape[0],
-            v.shape[1],
-            v.shape[2],
-            self.n_heads,
-            self.d_model // self.n_heads,
-        )  # .transpose(0, 2, 1, 3)
-        # ic(f"Q shape: {q.shape}, K shape: {k.shape}, V shape: {v.shape}")
-        # here _ = attention_weights
-        attention_out, _ = self.scaled_dot_product_attention(q, k, v, mask)
-        ic(attention_out.shape)
-        # attention_out = attention_output.transpose(0, 2, 1, 3)
-        # .reshape(  # TODO Check if this is correct
-        #     attention_output.shape[0], -1, self.d_model
-        # )
-        attention_out = attention_out.reshape(
-            attention_out.shape[0],
-            attention_out.shape[1],
-            attention_out.shape[2],
-            -1,
-        )
-        ic(attention_out.shape)
-
-        out = nn.Dense(features=self.d_model)(attention_out)
-
-        return out
-
-    def scaled_dot_product_attention(self, q, k, v, mask=None):
-        """Calculate the attention weights."""
-        matmul_qk = jnp.matmul(q, jnp.swapaxes(k, -2, -1))
-        # ic(f"Matmul shape: {matmul_qk.shape}")
-        d_k = q.shape[-1]
-        matmul_qk = matmul_qk / jnp.sqrt(d_k)
-        ic(f"Before Masking matmul_qk: {matmul_qk.shape=}")
-        if mask is not None:
-            matmul_qk += mask * -1e9
-
-        attention_weights = nn.softmax(matmul_qk, axis=-1)
-
-        output = jnp.matmul(attention_weights, v)
-        # ic(f"Scaled Output shape: {output.shape}")
-
-        return output, attention_weights
+    def __call__(self, x, deterministic: bool):
+        # Feed Forward Network
+        x = nn.Dense(self.d_ff)(x)
+        x = nn.relu(x)
+        x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)
+        x = nn.Dense(self.d_model)(x)
+        x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)
+        return x
 
 
 class TransformerBlock(nn.Module):
+    num_heads: int
     d_model: int
-    n_heads: int
     d_ff: int
     dropout_rate: float
-    custom_attention: bool = True
+
+    @nn.compact
+    def __call__(self, x, deterministic: bool):
+        # Multi-head self-attention
+        attention = nn.MultiHeadDotProductAttention(
+            num_heads=self.num_heads,
+            qkv_features=self.d_model,
+            dropout_rate=self.dropout_rate,
+        )(x, deterministic=deterministic)
+        x = x + attention
+        x = nn.LayerNorm()(x)
+
+        # Feed Forward Network
+        ffn = FeedForwardNetwork(
+            d_model=self.d_model, d_ff=self.d_ff, dropout_rate=self.dropout_rate
+        )(x, deterministic=deterministic)
+        x = x + ffn
+        x = nn.LayerNorm()(x)
+        return x
+
+
+class TransformerBlockOld(nn.Module):
+    d_model: int
+    n_heads: int
+    dropout_rate: float
 
     @nn.compact
     def __call__(
@@ -119,22 +68,16 @@ class TransformerBlock(nn.Module):
         qkv=None,
         mask=None,
         train=True,
-        input_feed_forward=True,
     ):
-        if self.custom_attention:
-            attn_output = MultiheadAttention(
-                n_heads=self.n_heads, d_model=self.d_model
-            )(q, k, v, qkv, mask=mask, input_feed_forward=input_feed_forward)
-        else:
+        if qkv is not None:
             q, k, v = (qkv, qkv, qkv)
-            #  out = nn.MultiHeadAttention(num_heads=self.n_heads, qkv_features=None)(out)
-            attn_output = nn.MultiHeadDotProductAttention(
-                num_heads=self.n_heads, qkv_features=None
-            )(q, k, v, mask=mask, deterministic=not train)
+        #  out = nn.MultiHeadAttention(num_heads=self.n_heads, qkv_features=None)(out)
+        attn_output = nn.MultiHeadDotProductAttention(
+            num_heads=self.n_heads, qkv_features=None
+        )(q, k, v, mask=mask, deterministic=not train)
         # ic(attn_output.shape, k.shape)
         # TODO Try adding q instead of k.
-        if qkv is not None:
-            k = qkv
+
         out = nn.LayerNorm()(k + attn_output)
         ff_out = nn.Sequential(
             [nn.Dense(self.d_model * 2), nn.relu, nn.Dense(self.d_model)]
@@ -180,10 +123,7 @@ class TimeSeriesTransformer(nn.Module):
     time_window: int = 10_000
 
     @nn.compact
-    def __call__(
-        self,
-        numeric_inputs: jnp.array,
-    ):
+    def __call__(self, numeric_inputs: jnp.array, deterministic: bool):
         embedding = nn.Embed(
             num_embeddings=self.dataset.n_tokens,
             features=self.d_model,
@@ -236,20 +176,18 @@ class TimeSeriesTransformer(nn.Module):
         ic(out.shape)
         out = TransformerBlock(
             d_model=self.d_model + 16,  # TODO Make this more elegant
-            n_heads=self.n_heads,
-            d_ff=self.d_model * 4,
+            num_heads=self.n_heads,
+            d_ff=64,
             dropout_rate=0.1,
-            custom_attention=self.dataset.custom_attention,
-        )(qkv=out)
+        )(x=out, deterministic=deterministic)
 
         ic(f"Nan values in out 1st mha: {jnp.isnan(out).any()}")
         out = TransformerBlock(
             d_model=self.d_model + 16,  # TODO Make this more elegant
-            n_heads=self.n_heads,
-            d_ff=self.d_model * 4,
+            num_heads=self.n_heads,
+            d_ff=64,
             dropout_rate=0.1,
-            custom_attention=self.dataset.custom_attention,
-        )(qkv=out)  # Check if we should reuse the col embeddings here
+        )(x=out, deterministic=deterministic)
 
         ic(f"Nan values in in out 2nd mha: {jnp.isnan(out).any()}")
 
@@ -263,12 +201,11 @@ class SimplePred(nn.Module):
 
     @nn.compact
     def __call__(
-        self,
-        numeric_inputs: jnp.array,
+        self, numeric_inputs: jnp.array, deterministic: bool = False
     ) -> jnp.array:
         """ """
         out = TimeSeriesTransformer(self.dataset, self.d_model, self.n_heads)(
-            numeric_inputs=numeric_inputs
+            numeric_inputs=numeric_inputs, deterministic=deterministic
         )
         ic(out.shape)
         ic(f"Nan values in simplePred out 1: {jnp.isnan(out).any()}")
