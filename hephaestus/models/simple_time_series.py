@@ -108,6 +108,7 @@ class TransformerBlock(nn.Module):
     n_heads: int
     d_ff: int
     dropout_rate: float
+    custom_attention: bool = True
 
     @nn.compact
     def __call__(
@@ -120,9 +121,16 @@ class TransformerBlock(nn.Module):
         train=True,
         input_feed_forward=True,
     ):
-        attn_output = MultiheadAttention(n_heads=self.n_heads, d_model=self.d_model)(
-            q, k, v, qkv, mask=mask, input_feed_forward=input_feed_forward
-        )
+        if self.custom_attention:
+            attn_output = MultiheadAttention(
+                n_heads=self.n_heads, d_model=self.d_model
+            )(q, k, v, qkv, mask=mask, input_feed_forward=input_feed_forward)
+        else:
+            q, k, v = (qkv, qkv, qkv)
+            #  out = nn.MultiHeadAttention(num_heads=self.n_heads, qkv_features=None)(out)
+            attn_output = nn.MultiHeadDotProductAttention(
+                num_heads=self.n_heads, qkv_features=None
+            )(q, k, v, mask=mask, deterministic=not train)
         # ic(attn_output.shape, k.shape)
         # TODO Try adding q instead of k.
         if qkv is not None:
@@ -231,18 +239,18 @@ class TimeSeriesTransformer(nn.Module):
             n_heads=self.n_heads,
             d_ff=self.d_model * 4,
             dropout_rate=0.1,
+            custom_attention=self.dataset.custom_attention,
         )(qkv=out)
-        # out = nn.MultiHeadAttention(num_heads=self.n_heads, qkv_features=None)(out)
-        ic(out.shape)
-        ic(f"Nan values in out 1st mha: {jnp.isnan(out).any()}")
 
-        # out = nn.MultiHeadAttention(num_heads=self.n_heads, qkv_features=None)(out)
+        ic(f"Nan values in out 1st mha: {jnp.isnan(out).any()}")
         out = TransformerBlock(
             d_model=self.d_model + 16,  # TODO Make this more elegant
             n_heads=self.n_heads,
             d_ff=self.d_model * 4,
             dropout_rate=0.1,
+            custom_attention=self.dataset.custom_attention,
         )(qkv=out)  # Check if we should reuse the col embeddings here
+
         ic(f"Nan values in in out 2nd mha: {jnp.isnan(out).any()}")
 
         return out
