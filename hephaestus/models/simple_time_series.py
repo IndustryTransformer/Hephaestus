@@ -199,10 +199,19 @@ class TimeSeriesTransformer(nn.Module):
         #     jnp.where(jnp.isnan(numeric_inputs), 0.0, numeric_inputs)
         # )
         numeric_inputs = jnp.where(nan_mask, 0.0, numeric_inputs)
+        ic(numeric_inputs.shape, numeric_col_embeddings.shape)
         # numeric_inputs = stop_gradient(jnp.where(nan_mask, 0.0, numeric_inputs))
         numeric_mat_mull = numeric_inputs[:, :, :, None] * numeric_col_embeddings
-
+        # numeric_inputs = numeric_inputs[:, :, :, None]
+        ic(
+            "here!!!!!!",
+            numeric_inputs.shape,
+            numeric_col_embeddings.shape,
+            nan_mask.shape,
+            numeric_mat_mull.shape,
+        )
         out = jnp.where(
+            # nan_mask,
             jnp.expand_dims(nan_mask, axis=-1),
             embedding(jnp.array(self.dataset.numeric_mask_token)),
             numeric_mat_mull,
