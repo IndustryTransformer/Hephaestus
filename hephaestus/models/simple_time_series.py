@@ -37,7 +37,9 @@ class TransformerBlock(nn.Module):
     @nn.compact
     def __call__(self, q: jnp.array, k: jnp.array, v: jnp.array, deterministic: bool):
         # Multi-head self-attention
-        causal_mask = nn.make_causal_mask(q.shape[1])
+        causal_mask = causal_mask = nn.make_causal_mask(
+            q[:, :, :, 0], dtype=jnp.float32
+        )
         attention = nn.MultiHeadDotProductAttention(
             num_heads=self.num_heads,
             qkv_features=self.d_model,
