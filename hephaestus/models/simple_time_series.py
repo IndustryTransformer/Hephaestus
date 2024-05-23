@@ -43,6 +43,7 @@ class TransformerBlock(nn.Module):
             dropout_rate=self.dropout_rate,
         )(x, deterministic=deterministic)
         x = x + attention
+        print(f"\nAttention: {attention.shape}\n")
         x = nn.LayerNorm()(x)
 
         # Feed Forward Network
@@ -54,37 +55,7 @@ class TransformerBlock(nn.Module):
         return x
 
 
-class TransformerBlockOld(nn.Module):
-    d_model: int
-    n_heads: int
-    dropout_rate: float
 
-    @nn.compact
-    def __call__(
-        self,
-        q=None,
-        k=None,
-        v=None,
-        qkv=None,
-        mask=None,
-        train=True,
-    ):
-        if qkv is not None:
-            q, k, v = (qkv, qkv, qkv)
-        #  out = nn.MultiHeadAttention(num_heads=self.n_heads, qkv_features=None)(out)
-        attn_output = nn.MultiHeadDotProductAttention(
-            num_heads=self.n_heads, qkv_features=None
-        )(q, k, v, mask=mask, deterministic=not train)
-        # ic(attn_output.shape, k.shape)
-        # TODO Try adding q instead of k.
-
-        out = nn.LayerNorm()(k + attn_output)
-        ff_out = nn.Sequential(
-            [nn.Dense(self.d_model * 2), nn.relu, nn.Dense(self.d_model)]
-        )
-        out = nn.LayerNorm()(out + ff_out(out))
-
-        return out
 
 
 class TimeSeriesTransformer(nn.Module):
