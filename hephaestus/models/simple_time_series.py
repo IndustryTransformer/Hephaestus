@@ -35,27 +35,24 @@ class TransformerBlock(nn.Module):
     dropout_rate: float
 
     @nn.compact
-    def __call__(self, x, deterministic: bool):
+    def __call__(self, q: jnp.array, k: jnp.array, v: jnp.array, deterministic: bool):
         # Multi-head self-attention
         attention = nn.MultiHeadDotProductAttention(
             num_heads=self.num_heads,
             qkv_features=self.d_model,
             dropout_rate=self.dropout_rate,
-        )(x, deterministic=deterministic)
-        x = x + attention
+        )(q, k, v, deterministic=deterministic)
+        out = q + attention
         print(f"\nAttention: {attention.shape}\n")
-        x = nn.LayerNorm()(x)
+        out = nn.LayerNorm()(out)
 
         # Feed Forward Network
         ffn = FeedForwardNetwork(
             d_model=self.d_model, d_ff=self.d_ff, dropout_rate=self.dropout_rate
-        )(x, deterministic=deterministic)
-        x = x + ffn
-        x = nn.LayerNorm()(x)
-        return x
-
-
-
+        )(out, deterministic=deterministic)
+        out = out + ffn
+        out = nn.LayerNorm()(out)
+        return out
 
 
 class TimeSeriesTransformer(nn.Module):
@@ -120,37 +117,44 @@ class TimeSeriesTransformer(nn.Module):
         numeric_inputs = jnp.where(nan_mask, 0.0, numeric_inputs)
         ic(numeric_inputs.shape, numeric_col_embeddings.shape)
         # numeric_inputs = stop_gradient(jnp.where(nan_mask, 0.0, numeric_inputs))
-        numeric_mat_mull = numeric_inputs[:, :, :, None] * numeric_col_embeddings
+        numeric_broadcast = numeric_inputs[:, :, :, None] * numeric_col_embeddings
         # numeric_inputs = numeric_inputs[:, :, :, None]
         ic(
             "here!!!!!!",
             numeric_inputs.shape,
             numeric_col_embeddings.shape,
             nan_mask.shape,
-            numeric_mat_mull.shape,
+            numeric_broadcast.shape,
         )
-        out = jnp.where(
+        numeric_broadcast = jnp.where(
             # nan_mask,
             jnp.expand_dims(nan_mask, axis=-1),
             embedding(jnp.array(self.dataset.numeric_mask_token)),
-            numeric_mat_mull,
+            numeric_broadcast,
         )
         # End Nan Masking
-        ic(f"Nan values in out: {jnp.isnan(out).any()}")
+        ic(f"Nan values in out: {jnp.isnan(numeric_broadcast).any()}")
 
         # ic(kv_embeddings.shape, col_embeddings.shape)
         # TODO Add positional encoding
-        out = PositionalEncoding(max_len=self.time_window, d_pos_encoding=16)(out)
-        ic(out.shape)
-        ic(f"Nan values in out positional: {jnp.isnan(out).any()}")
+        numeric_broadcast = PositionalEncoding(
+            max_len=self.time_window, d_pos_encoding=16
+        )(numeric_broadcast)
+        ic(numeric_broadcast.shape)
+        ic(f"Nan values in out positional: {jnp.isnan(numeric_broadcast).any()}")
         ic("Starting Attention")
-        ic(out.shape)
+        ic(numeric_broadcast.shape)
         out = TransformerBlock(
             d_model=self.d_model + 16,  # TODO Make this more elegant
             num_heads=self.n_heads,
             d_ff=64,
             dropout_rate=0.1,
-        )(x=out, deterministic=deterministic)
+        )(
+            q=numeric_broadcast,
+            k=numeric_broadcast,
+            v=numeric_broadcast,  # TODO differentiate this
+            deterministic=deterministic,
+        )
 
         ic(f"Nan values in out 1st mha: {jnp.isnan(out).any()}")
         out = TransformerBlock(
@@ -158,7 +162,7 @@ class TimeSeriesTransformer(nn.Module):
             num_heads=self.n_heads,
             d_ff=64,
             dropout_rate=0.1,
-        )(x=out, deterministic=deterministic)
+        )(q=out, k=out, v=out, deterministic=deterministic)
 
         ic(f"Nan values in in out 2nd mha: {jnp.isnan(out).any()}")
 
