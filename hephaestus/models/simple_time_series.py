@@ -38,11 +38,8 @@ class TransformerBlock(nn.Module):
     def __call__(self, q: jnp.array, k: jnp.array, v: jnp.array, deterministic: bool):
         # Multi-head self-attention
         causal_mask = causal_mask = nn.make_causal_mask(q[:, :, :, 0])
-        print("Causal Mask Shape: ", causal_mask.shape)
-        print("q shape: ", q.shape)
-        print("k shape: ", k.shape)
+
         # Write out the jax array to a file for more debugging
-        jnp.save("data/causal_mask.npy", causal_mask)
         attention = nn.MultiHeadDotProductAttention(
             num_heads=self.num_heads,
             qkv_features=self.d_model,
@@ -50,7 +47,6 @@ class TransformerBlock(nn.Module):
         )(q, k, v, deterministic=deterministic, mask=causal_mask)
         out = q + attention
         out = nn.LayerNorm()(out)
-        jnp.save("data/attention.npy", attention)
         # Feed Forward Network
         ffn = FeedForwardNetwork(
             d_model=self.d_model, d_ff=self.d_ff, dropout_rate=self.dropout_rate
