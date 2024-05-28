@@ -49,6 +49,7 @@ class SimpleDS(Dataset):
         pad_len = self.max_seq_len - batch_len
         padding = np.full((pad_len, n_cols), jnp.nan)
         batch = np.concatenate([batch, padding], axis=0)
+        # batch = batch.T
         return batch
 
 
@@ -123,45 +124,45 @@ class TransformerBlock(nn.Module):
 
 #     # The combined_mask will be of shape: (batch_size, n_rows, n_columns, n_rows)
 #     return combined_mask
-def create_padding_mask(batch_input):
-    # Input shape: (batch_size, n_rows, n_columns, embedding_dim)
-    padding_mask = ~jnp.isnan(batch_input).any(
-        axis=-1
-    )  # shape: (batch_size, n_rows, n_columns)
-    padding_mask = jnp.all(padding_mask, axis=-1)  # shape: (batch_size, n_rows)
-    return padding_mask[
-        :, jnp.newaxis, jnp.newaxis, :
-    ]  # shape: (batch_size, 1, 1, n_rows)
+# def create_padding_mask(batch_input):
+#     # Input shape: (batch_size, n_rows, n_columns, embedding_dim)
+#     padding_mask = ~jnp.isnan(batch_input).any(
+#         axis=-1
+#     )  # shape: (batch_size, n_rows, n_columns)
+#     padding_mask = jnp.all(padding_mask, axis=-1)  # shape: (batch_size, n_rows)
+#     return padding_mask[
+#         :, jnp.newaxis, jnp.newaxis, :
+#     ]  # shape: (batch_size, 1, 1, n_rows)
 
 
-def create_causal_mask(n_rows):
-    return jnp.tril(
-        jnp.ones((n_rows, n_rows), dtype=bool), k=0
-    )  # shape: (n_rows, n_rows)
+# def create_causal_mask(n_rows):
+#     return jnp.tril(
+#         jnp.ones((n_rows, n_rows), dtype=bool), k=0
+#     )  # shape: (n_rows, n_rows)
 
 
-def combine_masks(padding_mask, causal_mask):
-    # Ensure both masks are boolean
-    padding_mask = padding_mask.astype(bool)
-    causal_mask = causal_mask.astype(bool)
+# def combine_masks(padding_mask, causal_mask):
+#     # Ensure both masks are boolean
+#     padding_mask = padding_mask.astype(bool)
+#     causal_mask = causal_mask.astype(bool)
 
-    # Expand causal mask to match the batch size and heads dimension
-    batch_size = padding_mask.shape[0]
-    causal_mask = causal_mask[
-        jnp.newaxis, jnp.newaxis, :, :
-    ]  # shape: (1, 1, n_rows, n_rows)
+#     # Expand causal mask to match the batch size and heads dimension
+#     batch_size = padding_mask.shape[0]
+#     causal_mask = causal_mask[
+#         jnp.newaxis, jnp.newaxis, :, :
+#     ]  # shape: (1, 1, n_rows, n_rows)
 
-    # Combine the masks
-    combined_mask = padding_mask & causal_mask  # shape: (batch_size, 1, n_rows, n_rows)
-    return combined_mask
+#     # Combine the masks
+#     combined_mask = padding_mask & causal_mask  # shape: (batch_size, 1, n_rows, n_rows)
+#     return combined_mask
 
 
-def create_masks(batch_input):
-    n_rows = batch_input.shape[1]
-    padding_mask = create_padding_mask(batch_input)
-    causal_mask = create_causal_mask(n_rows)
-    combined_mask = combine_masks(padding_mask, causal_mask)
-    return combined_mask
+# def create_masks(batch_input):
+#     n_rows = batch_input.shape[1]
+#     padding_mask = create_padding_mask(batch_input)
+#     causal_mask = create_causal_mask(n_rows)
+#     combined_mask = combine_masks(padding_mask, causal_mask)
+#     return combined_mask
 
 
 class TimeSeriesTransformer(nn.Module):
@@ -211,17 +212,23 @@ class TimeSeriesTransformer(nn.Module):
         # causal_mask = create_causal_mask(numeric_inputs)
         # attention_mask = create_padding_mask(numeric_inputs)
         # mask = combine_masks(attention_mask, causal_mask)
-        mask = create_masks(numeric_inputs)
+        numeric_inputs = jnp.swapaxes(numeric_inputs, 1, 2)
+        causal_mask = nn.make_causal_mask(numeric_inputs)
+        pad_mask = nn.make_attention_mask(numeric_inputs, numeric_inputs)
+        mask = nn.combine_masks(causal_mask, pad_mask)
         ic(mask.shape)
         # causal_mask = nn.make_causal_mask(numeric_inputs[:, :, :, 0])
         col_embeddings = embedding(self.dataset.numeric_indices)
         ic(col_embeddings.shape, numeric_inputs.shape)
         repeated_numeric_indices = jnp.tile(
-            self.dataset.numeric_indices, (numeric_inputs.shape[1], 1)
+            self.dataset.numeric_indices, (numeric_inputs.shape[2], 1)
         )
-        ic(repeated_numeric_indices.shape)
-
+        ic("before swap", repeated_numeric_indices.shape)
+        # repeated_numeric_indices = jnp.swapaxes(repeated_numeric_indices, 0, 1)
+        repeated_numeric_indices = repeated_numeric_indices.T
+        ic("after swap", repeated_numeric_indices.shape)
         numeric_col_embeddings = embedding(repeated_numeric_indices)
+        ic("Embedding!!", numeric_col_embeddings.shape)
         # Nan Masking
         nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
         # Add dimension to numeric_col_embeddings and tile it so that it has the same
@@ -229,13 +236,16 @@ class TimeSeriesTransformer(nn.Module):
         numeric_col_embeddings = jnp.tile(
             numeric_col_embeddings[None, :, :, :], (numeric_inputs.shape[0], 1, 1, 1)
         )
+        ic("Retiling", numeric_col_embeddings.shape)
         # numeric_inputs = stop_gradient(
         #     jnp.where(jnp.isnan(numeric_inputs), 0.0, numeric_inputs)
         # )
         numeric_inputs = jnp.where(nan_mask, 0.0, numeric_inputs)
-        ic(numeric_inputs.shape, numeric_col_embeddings.shape)
+        ic("Before Broadcast", numeric_inputs.shape, numeric_col_embeddings.shape)
         # numeric_inputs = stop_gradient(jnp.where(nan_mask, 0.0, numeric_inputs))
-        numeric_broadcast = numeric_inputs[:, :, :, None] * numeric_col_embeddings
+        numeric_broadcast = (
+            numeric_inputs[:, :, :, None] * numeric_col_embeddings[:, :, :, :]
+        )
         # numeric_inputs = numeric_inputs[:, :, :, None]
         # ic(
         #     "here!!!!!!",
@@ -244,9 +254,11 @@ class TimeSeriesTransformer(nn.Module):
         #     nan_mask.shape,
         #     numeric_broadcast.shape,
         # )
+        ic("Before where", numeric_broadcast.shape, nan_mask.shape)
         numeric_broadcast = jnp.where(
             # nan_mask,
-            jnp.expand_dims(nan_mask, axis=-1),
+            # jnp.expand_dims(nan_mask, axis=-1),
+            nan_mask[:, :, :, None],
             embedding(jnp.array(self.dataset.numeric_mask_token)),
             numeric_broadcast,
         )
@@ -255,6 +267,9 @@ class TimeSeriesTransformer(nn.Module):
 
         # ic(kv_embeddings.shape, col_embeddings.shape)
         # TODO Add positional encoding
+        # numeric_broadcast.shape: (4, 26, 59, 59, 256)
+        ic("Before Positional Encoding", numeric_broadcast.shape)
+
         numeric_broadcast = PositionalEncoding(
             max_len=self.time_window, d_pos_encoding=16
         )(numeric_broadcast)
@@ -347,7 +362,7 @@ class PositionalEncoding(nn.Module):
         Returns:
             Output with positional encoding added. Shape: (batch_size, seq_len, d_model)
         """
-        n_epochs, seq_len, n_features, _ = x.shape
+        n_epochs, n_columns, seq_len, _ = x.shape
         if seq_len > self.max_len:
             raise ValueError(
                 f"Sequence length {seq_len} is larger than the",
@@ -365,10 +380,16 @@ class PositionalEncoding(nn.Module):
         pe = pe.at[:, 1::2].set(jnp.cos(position * div_term))
         pe = pe[:seq_len, :]
         pe = pe[None, :, :, None]
-        pe = jnp.tile(pe, (n_epochs, 1, 1, n_features))
-        pe = pe.transpose((0, 1, 3, 2))  # (batch_size, seq_len, n_features, d_model)
+        ic("pe before tiling", pe.shape)
+        pe = jnp.tile(pe, (n_epochs, 1, 1, n_columns))
+        ic("pe after tiling", pe.shape)
+        pe = pe.transpose((0, 3, 1, 2))  #
+        ic("pe after transpose", pe.shape)
         # concatenate the positional encoding with the input
         result = jnp.concatenate([x, pe], axis=3)
 
         # Add positional encoding to the input embedding
         return result
+
+
+# %%
