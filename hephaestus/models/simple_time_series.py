@@ -16,6 +16,10 @@ class SimpleDS(Dataset):
         # use the idx column to group by
         self.max_seq_len = df.groupby("idx").count().time_step.max()
         self.custom_attention = custom_attention
+        # Set df.idx to start from 0
+        if df.idx.max() - df.idx.min() != df.idx.nunique() - 1:
+            raise ValueError("idx column should start from 0 and be continuous")
+        df.idx = df.idx - df.idx.min()
         self.df = df
         self.batch_size = self.max_seq_len
 
@@ -37,7 +41,8 @@ class SimpleDS(Dataset):
         self.numeric_mask_token = self.tokens.index(self.numeric_mask)
 
     def __len__(self):
-        return self.df.idx.max() + 1  # probably should be max idx + 1 thanks
+        # return self.df.idx.max() + 1  # probably should be max idx + 1 thanks
+        return self.df.idx.nunique()
 
     def __getitem__(self, set_idx):
         batch = self.df.loc[
