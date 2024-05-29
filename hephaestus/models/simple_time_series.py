@@ -109,67 +109,6 @@ class TransformerBlock(nn.Module):
         return out
 
 
-# def create_masks(batch_input):
-#     # Input shape: (batch_size, n_rows, n_columns, embedding_dim)
-#     batch_size, n_rows, n_columns = batch_input.shape
-
-#     # Create padding mask for jnp.nan values
-#     padding_mask = ~jnp.isnan(batch_input).any(
-#         axis=-1
-#     )  # shape: (batch_size, n_rows, n_columns)
-
-#     # Create a causal mask
-#     causal_mask = jnp.tril(jnp.ones((n_rows, n_rows)), k=0)  # shape: (n_rows, n_rows)
-
-#     # Combine the masks
-#     combined_mask = jnp.logical_and(
-#         padding_mask[..., jnp.newaxis], causal_mask[jnp.newaxis, :, :]
-#     )
-
-
-#     # The combined_mask will be of shape: (batch_size, n_rows, n_columns, n_rows)
-#     return combined_mask
-# def create_padding_mask(batch_input):
-#     # Input shape: (batch_size, n_rows, n_columns, embedding_dim)
-#     padding_mask = ~jnp.isnan(batch_input).any(
-#         axis=-1
-#     )  # shape: (batch_size, n_rows, n_columns)
-#     padding_mask = jnp.all(padding_mask, axis=-1)  # shape: (batch_size, n_rows)
-#     return padding_mask[
-#         :, jnp.newaxis, jnp.newaxis, :
-#     ]  # shape: (batch_size, 1, 1, n_rows)
-
-
-# def create_causal_mask(n_rows):
-#     return jnp.tril(
-#         jnp.ones((n_rows, n_rows), dtype=bool), k=0
-#     )  # shape: (n_rows, n_rows)
-
-
-# def combine_masks(padding_mask, causal_mask):
-#     # Ensure both masks are boolean
-#     padding_mask = padding_mask.astype(bool)
-#     causal_mask = causal_mask.astype(bool)
-
-#     # Expand causal mask to match the batch size and heads dimension
-#     batch_size = padding_mask.shape[0]
-#     causal_mask = causal_mask[
-#         jnp.newaxis, jnp.newaxis, :, :
-#     ]  # shape: (1, 1, n_rows, n_rows)
-
-#     # Combine the masks
-#     combined_mask = padding_mask & causal_mask  # shape: (batch_size, 1, n_rows, n_rows)
-#     return combined_mask
-
-
-# def create_masks(batch_input):
-#     n_rows = batch_input.shape[1]
-#     padding_mask = create_padding_mask(batch_input)
-#     causal_mask = create_causal_mask(n_rows)
-#     combined_mask = combine_masks(padding_mask, causal_mask)
-#     return combined_mask
-
-
 class TimeSeriesTransformer(nn.Module):
     """
     Transformer-based model for time series data.
@@ -219,8 +158,9 @@ class TimeSeriesTransformer(nn.Module):
         # mask = combine_masks(attention_mask, causal_mask)
         numeric_inputs = jnp.swapaxes(numeric_inputs, 1, 2)
         causal_mask = nn.make_causal_mask(numeric_inputs)
-        pad_mask = nn.make_attention_mask(numeric_inputs, numeric_inputs)
-        mask = nn.combine_masks(causal_mask, pad_mask)
+        # pad_mask = nn.make_attention_mask(numeric_inputs, numeric_inputs)
+        # mask = nn.combine_masks(causal_mask, pad_mask)
+        mask = causal_mask
         ic(mask.shape)
         # causal_mask = nn.make_causal_mask(numeric_inputs[:, :, :, 0])
         col_embeddings = embedding(self.dataset.numeric_indices)
