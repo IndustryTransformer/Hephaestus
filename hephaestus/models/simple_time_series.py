@@ -158,9 +158,9 @@ class TimeSeriesTransformer(nn.Module):
         # mask = combine_masks(attention_mask, causal_mask)
         numeric_inputs = jnp.swapaxes(numeric_inputs, 1, 2)
         causal_mask = nn.make_causal_mask(numeric_inputs)
-        # pad_mask = nn.make_attention_mask(numeric_inputs, numeric_inputs)
-        # mask = nn.combine_masks(causal_mask, pad_mask)
-        mask = causal_mask
+        pad_mask = nn.make_attention_mask(numeric_inputs, numeric_inputs)
+        mask = nn.combine_masks(causal_mask, pad_mask)
+        # mask = causal_mask
         ic(mask.shape)
         # causal_mask = nn.make_causal_mask(numeric_inputs[:, :, :, 0])
         col_embeddings = embedding(self.dataset.numeric_indices)
@@ -191,14 +191,7 @@ class TimeSeriesTransformer(nn.Module):
         numeric_broadcast = (
             numeric_inputs[:, :, :, None] * numeric_col_embeddings[:, :, :, :]
         )
-        # numeric_inputs = numeric_inputs[:, :, :, None]
-        # ic(
-        #     "here!!!!!!",
-        #     numeric_inputs.shape,
-        #     numeric_col_embeddings.shape,
-        #     nan_mask.shape,
-        #     numeric_broadcast.shape,
-        # )
+
         ic("Before where", numeric_broadcast.shape, nan_mask.shape)
         numeric_broadcast = jnp.where(
             # nan_mask,
@@ -271,11 +264,9 @@ class SimplePred(nn.Module):
             ],
             name="RegressionOutputChain",
         )(out)
-        ic(f"Nan values in simplePred out after seq: {jnp.isnan(out).any()}")
 
         ic(f"Penultimate Simple OUT: {out.shape}")
         out = jnp.squeeze(out, axis=-1)
-        ic(f"Nan values in simplePred out after seq: {jnp.isnan(out).any()}")
 
         # out = jnp.reshape(out, (out.shape[0], -1))
         ic(f"FInal Simple OUT: {out.shape}")
