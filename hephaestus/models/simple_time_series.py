@@ -145,7 +145,9 @@ class TimeSeriesTransformer(nn.Module):
     time_window: int = 10_000
 
     @nn.compact
-    def __call__(self, numeric_inputs: jnp.array, deterministic: bool):
+    def __call__(
+        self, numeric_inputs: jnp.array, deterministic: bool, mask_data: bool = True
+    ):
         embedding = nn.Embed(
             num_embeddings=self.dataset.n_tokens,
             features=self.d_model,
@@ -158,10 +160,12 @@ class TimeSeriesTransformer(nn.Module):
         # mask = combine_masks(attention_mask, causal_mask)
         numeric_inputs = jnp.swapaxes(numeric_inputs, 1, 2)
         causal_mask = nn.make_causal_mask(numeric_inputs)
-        pad_mask = nn.make_attention_mask(numeric_inputs, numeric_inputs)
-        mask = nn.combine_masks(causal_mask, pad_mask)
-        # mask = causal_mask
-        ic(mask.shape)
+        if mask_data:
+            pad_mask = nn.make_attention_mask(numeric_inputs, numeric_inputs)
+            mask = nn.combine_masks(causal_mask, pad_mask)
+            ic(mask.shape)
+        else:
+            mask = None
         # causal_mask = nn.make_causal_mask(numeric_inputs[:, :, :, 0])
         col_embeddings = embedding(self.dataset.numeric_indices)
         ic(col_embeddings.shape, numeric_inputs.shape)
