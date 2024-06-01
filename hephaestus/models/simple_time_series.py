@@ -55,6 +55,7 @@ class SimpleDS(Dataset):
         padding = np.full((pad_len, n_cols), jnp.nan)
         batch = np.concatenate([batch, padding], axis=0)
         # batch = batch.T
+        batch = np.swapaxes(batch, 0, 1)
         return batch
 
 
@@ -158,7 +159,7 @@ class TimeSeriesTransformer(nn.Module):
         # causal_mask = create_causal_mask(numeric_inputs)
         # attention_mask = create_padding_mask(numeric_inputs)
         # mask = combine_masks(attention_mask, causal_mask)
-        numeric_inputs = jnp.swapaxes(numeric_inputs, 1, 2)
+        # numeric_inputs = jnp.swapaxes(numeric_inputs, 1, 2)
         causal_mask = nn.make_causal_mask(numeric_inputs)
         if mask_data:
             pad_mask = nn.make_attention_mask(numeric_inputs, numeric_inputs)
@@ -252,11 +253,16 @@ class SimplePred(nn.Module):
 
     @nn.compact
     def __call__(
-        self, numeric_inputs: jnp.array, deterministic: bool = False
+        self,
+        numeric_inputs: jnp.array,
+        deterministic: bool = False,
+        mask_data: bool = True,
     ) -> jnp.array:
         """ """
         out = TimeSeriesTransformer(self.dataset, self.d_model, self.n_heads)(
-            numeric_inputs=numeric_inputs, deterministic=deterministic
+            numeric_inputs=numeric_inputs,
+            deterministic=deterministic,
+            mask_data=mask_data,
         )
         ic(out.shape)
         ic(f"Nan values in simplePred out 1: {jnp.isnan(out).any()}")
