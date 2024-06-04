@@ -214,14 +214,15 @@ class TimeSeriesTransformer(nn.Module):
         ic("Before Positional Encoding", numeric_broadcast.shape)
 
         numeric_broadcast = PositionalEncoding(
-            max_len=self.time_window, d_pos_encoding=16
+            max_len=self.time_window, d_pos_encoding=2048
         )(numeric_broadcast)
         ic(numeric_broadcast.shape, numeric_col_embeddings.shape)
         # ic(f"Nan values in out positional: {jnp.isnan(numeric_broadcast).any()}")
         # ic("Starting Attention")
         # ic(numeric_broadcast.shape)
+        pos_dim = 2048
         out = TransformerBlock(
-            d_model=self.d_model + 16,  # TODO Make this more elegant
+            d_model=self.d_model + pos_dim,  # TODO Make this more elegant
             num_heads=self.n_heads,
             d_ff=64,
             dropout_rate=0.1,
@@ -235,7 +236,7 @@ class TimeSeriesTransformer(nn.Module):
 
         # ic(f"Nan values in out 1st mha: {jnp.isnan(out).any()}")
         out = TransformerBlock(
-            d_model=self.d_model + 16,  # TODO Make this more elegant
+            d_model=self.d_model + pos_dim,  # TODO Make this more elegant
             num_heads=self.n_heads,
             d_ff=64,
             dropout_rate=0.1,
@@ -332,7 +333,9 @@ class PositionalEncoding(nn.Module):
         pe = pe.transpose((0, 3, 1, 2))  #
         ic("pe after transpose", pe.shape)
         # concatenate the positional encoding with the input
+        # result = x + pe
         result = jnp.concatenate([x, pe], axis=3)
+        ic("PE Result shape", result.shape)
 
         # Add positional encoding to the input embedding
         return result
