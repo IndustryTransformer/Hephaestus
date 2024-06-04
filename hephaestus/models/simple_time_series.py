@@ -220,7 +220,7 @@ class TimeSeriesTransformer(nn.Module):
         # ic(f"Nan values in out positional: {jnp.isnan(numeric_broadcast).any()}")
         # ic("Starting Attention")
         # ic(numeric_broadcast.shape)
-        pos_dim = 2048
+        pos_dim = 0  # 2048
         out = TransformerBlock(
             d_model=self.d_model + pos_dim,  # TODO Make this more elegant
             num_heads=self.n_heads,
@@ -333,8 +333,8 @@ class PositionalEncoding(nn.Module):
         pe = pe.transpose((0, 3, 1, 2))  #
         ic("pe after transpose", pe.shape)
         # concatenate the positional encoding with the input
-        # result = x + pe
-        result = jnp.concatenate([x, pe], axis=3)
+        result = x + pe
+        # result = jnp.concatenate([x, pe], axis=3)
         ic("PE Result shape", result.shape)
 
         # Add positional encoding to the input embedding
