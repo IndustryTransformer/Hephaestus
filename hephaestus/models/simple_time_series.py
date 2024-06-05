@@ -214,7 +214,7 @@ class TimeSeriesTransformer(nn.Module):
         ic("Before Positional Encoding", numeric_broadcast.shape)
 
         numeric_broadcast = PositionalEncoding(
-            max_len=self.time_window, d_pos_encoding=2048
+            max_len=self.time_window, d_pos_encoding=self.d_model
         )(numeric_broadcast)
         ic(numeric_broadcast.shape, numeric_col_embeddings.shape)
         # ic(f"Nan values in out positional: {jnp.isnan(numeric_broadcast).any()}")
