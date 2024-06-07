@@ -22,8 +22,8 @@ class SimpleDS(Dataset):
         df.idx = df.idx - df.idx.min()
         self.df = df
         self.batch_size = self.max_seq_len
-
-        self.special_tokens = ["[PAD]", "[NUMERIC_MASK]", "[MASK]"]
+        self.numeric_token = "[NUMERIC_EMBEDDING]"
+        self.special_tokens = ["[PAD]", "[NUMERIC_MASK]", "[MASK]", self.numeric_token]
         self.cat_mask = "[MASK]"
         self.numeric_mask = "[NUMERIC_MASK]"
 
@@ -160,14 +160,19 @@ class TimeSeriesTransformer(nn.Module):
         # attention_mask = create_padding_mask(numeric_inputs)
         # mask = combine_masks(attention_mask, causal_mask)
         # numeric_inputs = jnp.swapaxes(numeric_inputs, 1, 2)
-        causal_mask = nn.make_causal_mask(numeric_inputs)
         if mask_data:
+            causal_mask = nn.make_causal_mask(numeric_inputs)
             pad_mask = nn.make_attention_mask(numeric_inputs, numeric_inputs)
             mask = nn.combine_masks(causal_mask, pad_mask)
             ic(mask.shape)
         else:
             mask = None
         # causal_mask = nn.make_causal_mask(numeric_inputs[:, :, :, 0])
+
+        nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
+        numeric_inputs = jnp.where(nan_mask, 0.0, numeric_inputs)
+
+        col_wise_embeddings = False
         col_embeddings = embedding(self.dataset.numeric_indices)
         ic(col_embeddings.shape, numeric_inputs.shape)
         repeated_numeric_indices = jnp.tile(
@@ -180,22 +185,20 @@ class TimeSeriesTransformer(nn.Module):
         numeric_col_embeddings = embedding(repeated_numeric_indices)
         ic("Embedding!!", numeric_col_embeddings.shape)
         # Nan Masking
-        nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
-        # Add dimension to numeric_col_embeddings and tile it so that it has the same
-        # Batch size as numeric_inputs
         numeric_col_embeddings = jnp.tile(
-            numeric_col_embeddings[None, :, :, :], (numeric_inputs.shape[0], 1, 1, 1)
+            numeric_col_embeddings[None, :, :, :],
+            (numeric_inputs.shape[0], 1, 1, 1),
         )
-        ic("Retiling", numeric_col_embeddings.shape)
-        # numeric_inputs = stop_gradient(
-        #     jnp.where(jnp.isnan(numeric_inputs), 0.0, numeric_inputs)
-        # )
-        numeric_inputs = jnp.where(nan_mask, 0.0, numeric_inputs)
-        ic("Before Broadcast", numeric_inputs.shape, numeric_col_embeddings.shape)
-        # numeric_inputs = stop_gradient(jnp.where(nan_mask, 0.0, numeric_inputs))
-        numeric_broadcast = (
-            numeric_inputs[:, :, :, None] * numeric_col_embeddings[:, :, :, :]
-        )
+        ic("Re-tiling", numeric_col_embeddings.shape)
+        if col_wise_embeddings:
+            numeric_broadcast = (
+                numeric_inputs[:, :, :, None] * numeric_col_embeddings[:, :, :, :]
+            )
+        else:
+            numeric_embedding = embedding(
+                jnp.array(self.dataset.token_dict[self.dataset.numeric_token])
+            )
+            numeric_broadcast = numeric_inputs[:, :, :, None] * numeric_embedding
 
         ic("Before where", numeric_broadcast.shape, nan_mask.shape)
         numeric_broadcast = jnp.where(
@@ -246,30 +249,30 @@ class TimeSeriesTransformer(nn.Module):
             deterministic=deterministic,
             mask=mask,
         )  # ic(f"Nan values in out 1st mha: {jnp.isnan(out).any()}")
-        out = TransformerBlock(
-            d_model=self.d_model + pos_dim,  # TODO Make this more elegant
-            num_heads=self.n_heads,
-            d_ff=64,
-            dropout_rate=0.1,
-        )(
-            q=out,
-            k=numeric_col_embeddings,
-            v=out,
-            deterministic=deterministic,
-            mask=mask,
-        )
-        out = TransformerBlock(
-            d_model=self.d_model + pos_dim,  # TODO Make this more elegant
-            num_heads=self.n_heads,
-            d_ff=64,
-            dropout_rate=0.1,
-        )(
-            q=out,
-            k=numeric_col_embeddings,
-            v=out,
-            deterministic=deterministic,
-            mask=mask,
-        )
+        # out = TransformerBlock(
+        #     d_model=self.d_model + pos_dim,  # TODO Make this more elegant
+        #     num_heads=self.n_heads,
+        #     d_ff=64,
+        #     dropout_rate=0.1,
+        # )(
+        #     q=out,
+        #     k=numeric_col_embeddings,
+        #     v=out,
+        #     deterministic=deterministic,
+        #     mask=mask,
+        # )
+        # out = TransformerBlock(
+        #     d_model=self.d_model + pos_dim,  # TODO Make this more elegant
+        #     num_heads=self.n_heads,
+        #     d_ff=64,
+        #     dropout_rate=0.1,
+        # )(
+        #     q=out,
+        #     k=numeric_col_embeddings,
+        #     v=out,
+        #     deterministic=deterministic,
+        #     mask=mask,
+        # )
 
         # ic(f"Nan values in in out 2nd mha: {jnp.isnan(out).any()}")
 
