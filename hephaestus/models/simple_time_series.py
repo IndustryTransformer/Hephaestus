@@ -249,30 +249,30 @@ class TimeSeriesTransformer(nn.Module):
             deterministic=deterministic,
             mask=mask,
         )  # ic(f"Nan values in out 1st mha: {jnp.isnan(out).any()}")
-        # out = TransformerBlock(
-        #     d_model=self.d_model + pos_dim,  # TODO Make this more elegant
-        #     num_heads=self.n_heads,
-        #     d_ff=64,
-        #     dropout_rate=0.1,
-        # )(
-        #     q=out,
-        #     k=numeric_col_embeddings,
-        #     v=out,
-        #     deterministic=deterministic,
-        #     mask=mask,
-        # )
-        # out = TransformerBlock(
-        #     d_model=self.d_model + pos_dim,  # TODO Make this more elegant
-        #     num_heads=self.n_heads,
-        #     d_ff=64,
-        #     dropout_rate=0.1,
-        # )(
-        #     q=out,
-        #     k=numeric_col_embeddings,
-        #     v=out,
-        #     deterministic=deterministic,
-        #     mask=mask,
-        # )
+        out = TransformerBlock(
+            d_model=self.d_model + pos_dim,  # TODO Make this more elegant
+            num_heads=self.n_heads,
+            d_ff=64,
+            dropout_rate=0.1,
+        )(
+            q=out,
+            k=numeric_col_embeddings,
+            v=out,
+            deterministic=deterministic,
+            mask=mask,
+        )
+        out = TransformerBlock(
+            d_model=self.d_model + pos_dim,  # TODO Make this more elegant
+            num_heads=self.n_heads,
+            d_ff=64,
+            dropout_rate=0.1,
+        )(
+            q=out,
+            k=numeric_col_embeddings,
+            v=out,
+            deterministic=deterministic,
+            mask=mask,
+        )
 
         # ic(f"Nan values in in out 2nd mha: {jnp.isnan(out).any()}")
 
