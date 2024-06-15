@@ -171,3 +171,5 @@ pre_trained_models/
 Transformers/DiamondsTesting.ipynb
 pre_trained_models/
 .vscode/
+ckpts/
+images/

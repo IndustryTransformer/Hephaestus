@@ -2,9 +2,12 @@
 import jax.numpy as jnp
 from flax import linen as nn
 from icecream import ic
+from icecream import ic
 from jax.lax import stop_gradient
 
 from ..utils.data_utils import TabularDS
+
+ic.configureOutput(includeContext=True, contextAbsPath=False)
 
 # %%
 
@@ -25,10 +28,10 @@ class MultiheadAttention(nn.Module):
             q, k, v, mask
         )
 
-        atten_out = attention_output.transpose(0, 2, 1).reshape(
+        attention_output = attention_output.transpose(0, 2, 1).reshape(
             attention_output.shape[0], -1, self.d_model
         )
-        out = nn.Dense(features=self.d_model)(atten_out)
+        out = nn.Dense(features=self.d_model)(attention_output)
 
         return out
 
@@ -61,6 +64,7 @@ class TransformerBlock(nn.Module):
             q, k, v, mask=mask, input_feed_forward=input_feed_forward
         )
         ic(attn_output.shape, q.shape, k.shape, v.shape)
+        ic(attn_output.shape, q.shape, k.shape, v.shape)
         out = nn.LayerNorm()(q + attn_output)
         ff_out = nn.Sequential(
             [nn.Dense(self.d_model * 2), nn.relu, nn.Dense(self.d_model)]
@@ -70,11 +74,11 @@ class TransformerBlock(nn.Module):
         return out
 
 
-# class TimeSeriesTransformer(nn.Module):
-#     dataset: TabularDS
-#     d_model: int = 64
-#     n_heads: int = 4
-#     time_window: int = 100
+class TimeSeriesTransformerModel(nn.Module):
+    dataset: TabularDS
+    d_model: int = 64
+    n_heads: int = 4
+    time_window: int = 100
 
 #     @nn.compact
 #     def __call__(
@@ -107,35 +111,34 @@ class TransformerBlock(nn.Module):
 #             numeric_col_embeddings * numeric_inputs[:, :, None],
 #         )
 
-#         base_numeric = jnp.where(
-#             nan_mask[:, :, None], self.dataset.numeric_mask_token, base_numeric
-#         )
-#         # End Nan Masking
-#         kv_embeddings = jnp.concatenate([cat_embeddings, base_numeric], axis=1)
-#         kv_embeddings = jnp.expand_dims(
-#             kv_embeddings.reshape(-1, kv_embeddings.shape[2]), axis=0
-#         )
-#         # print(f"KV Embedding shape: {kv_embeddings.shape}")
-#         ic(col_embeddings.shape, kv_embeddings.shape)
-#         out = TransformerBlock(
-#             d_model=self.d_model,
-#             n_heads=self.n_heads,
-#             d_ff=self.d_model * 4,
-#             dropout_rate=0.1,
-#         )(q=col_embeddings, k=kv_embeddings, v=kv_embeddings)
-#         ic(out.shape)
-#         # print(f"First MHA out shape: {out.shape}")
-#         out = TransformerBlock(
-#             d_model=self.d_model,
-#             n_heads=self.n_heads,
-#             d_ff=self.d_model * 4,
-#             dropout_rate=0.1,
-#         )(
-#             q=col_embeddings, k=out, v=out
-#         )  # Check if we should reuse the col embeddings here
-#         # print(f"Second MHA out shape: {out.shape}")
-#         ic(out.shape)
-#         return out
+        base_numeric = jnp.where(
+            nan_mask[:, :, None], self.dataset.numeric_mask_token, base_numeric
+        )
+        # End Nan Masking
+        kv_embeddings = jnp.concatenate([cat_embeddings, base_numeric], axis=1)
+        kv_embeddings = jnp.expand_dims(
+            kv_embeddings.reshape(-1, kv_embeddings.shape[2]), axis=0
+        )
+        ic(kv_embeddings.shape)
+        # print(f"KV Embedding shape: {kv_embeddings.shape}")
+        out = TransformerBlock(
+            d_model=self.d_model,
+            n_heads=self.n_heads,
+            d_ff=self.d_model * 4,
+            dropout_rate=0.1,
+        )(q=col_embeddings, k=kv_embeddings, v=kv_embeddings)
+        # print(f"First MHA out shape: {out.shape}")
+        out = TransformerBlock(
+            d_model=self.d_model,
+            n_heads=self.n_heads,
+            d_ff=self.d_model * 4,
+            dropout_rate=0.1,
+        )(
+            q=out, k=out, v=out
+        )  # Check if we should reuse the col embeddings here
+        # print(f"Second MHA out shape: {out.shape}")
+        print(f"here1 {out.shape}")
+        return out
 
 
 # %%
@@ -225,11 +228,13 @@ class MTM(nn.Module):
         out = TabTransformer(self.dataset, self.d_model, self.n_heads)(
             numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
         )
+        ic(out.shape)
         categorical_out = nn.Dense(
             name="categorical_out", features=self.dataset.n_tokens
         )(out)
-
+        ic(categorical_out.shape)
         out = jnp.reshape(out, (out.shape[0], -1))
+        ic(out.shape)
         numeric_out = nn.Sequential(
             [
                 nn.Dense(name="numeric_dense_1", features=self.d_model * 6),
@@ -286,10 +291,10 @@ class TimeSeriesRegression(nn.Module):
         #     f"Cat inputs shape: {categorical_inputs.shape}",
         #     f"Numeric inputs shape: {numeric_inputs.shape}",
         # )
-        out = TimeSeriesTransformer(self.dataset, self.d_model, self.n_heads)(
+        out = TimeSeriesTransformerModel(self.dataset, self.d_model, self.n_heads)(
             numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
         )
-        # print(f"Out shape: {out.shape}")
+        ic(f"Out shape: {out.shape}")
         out = nn.Sequential(
             [
                 nn.Dense(name="RegressionDense1", features=self.d_model * 2),
