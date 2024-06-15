@@ -1,3 +1,4 @@
+import imp
 from datetime import datetime as dt
 from functools import partial
 
@@ -164,10 +165,8 @@ def train_mtm(
             if test_loss_dict["total_loss"].item() < best_test_loss:
                 best_test_loss = test_loss_dict["total_loss"].item()
             if early_stopping is not None:
-                improved, early_stopping = early_stopping.update(
-                    test_loss_dict["total_loss"]
-                )
-                if improved:
+                early_stopping.update(test_loss_dict["total_loss"])
+                if early_stopping.has_improved:
                     best_params = model_state.params
                 if early_stopping.should_stop:
                     print(

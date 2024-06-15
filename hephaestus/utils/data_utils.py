@@ -154,6 +154,7 @@ class TabularDS:
     numeric_indices: jnp.array = field(init=False)
     col_indices: jnp.array = field(init=False)
     shuffle: bool = True
+    shuffle: bool = True
 
     def __post_init__(self):
         if self.shuffle:

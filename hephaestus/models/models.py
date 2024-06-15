@@ -2,6 +2,7 @@
 import jax.numpy as jnp
 from flax import linen as nn
 from icecream import ic
+from icecream import ic
 from jax.lax import stop_gradient
 
 from ..utils.data_utils import TabularDS
@@ -63,6 +64,7 @@ class TransformerBlock(nn.Module):
             q, k, v, mask=mask, input_feed_forward=input_feed_forward
         )
         ic(attn_output.shape, q.shape, k.shape, v.shape)
+        ic(attn_output.shape, q.shape, k.shape, v.shape)
         out = nn.LayerNorm()(q + attn_output)
         ff_out = nn.Sequential(
             [nn.Dense(self.d_model * 2), nn.relu, nn.Dense(self.d_model)]
@@ -78,36 +80,36 @@ class TimeSeriesTransformerModel(nn.Module):
     n_heads: int = 4
     time_window: int = 100
 
-    @nn.compact
-    def __call__(
-        self,
-        categorical_inputs: jnp.array,
-        numeric_inputs: jnp.array,
-    ):
-        embedding = nn.Embed(
-            num_embeddings=self.dataset.n_tokens,
-            features=self.d_model,
-            name="embedding",
-        )
+#     @nn.compact
+#     def __call__(
+#         self,
+#         categorical_inputs: jnp.array,
+#         numeric_inputs: jnp.array,
+#     ):
+#         embedding = nn.Embed(
+#             num_embeddings=self.dataset.n_tokens,
+#             features=self.d_model,
+#             name="embedding",
+#         )
 
-        # Embed column indices
-        col_embeddings = embedding(jnp.array(self.dataset.col_indices))
-        cat_embeddings = embedding(categorical_inputs)
-        # TODO implement no grad here
-        repeated_numeric_indices = jnp.tile(
-            self.dataset.numeric_indices, (numeric_inputs.shape[0], 1)
-        )
+#         # Embed column indices
+#         col_embeddings = embedding(jnp.array(self.dataset.col_indices))
+#         cat_embeddings = embedding(categorical_inputs)
+#         # TODO implement no grad here
+#         repeated_numeric_indices = jnp.tile(
+#             self.dataset.numeric_indices, (numeric_inputs.shape[0], 1)
+#         )
 
-        # Nan Masking
-        numeric_col_embeddings = embedding(repeated_numeric_indices)
-        nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
-        base_numeric = jnp.zeros_like(numeric_col_embeddings)
-        numeric_inputs = stop_gradient(jnp.where(nan_mask, 0.0, numeric_inputs))
-        base_numeric = jnp.where(
-            nan_mask[:, :, None],
-            base_numeric,
-            numeric_col_embeddings * numeric_inputs[:, :, None],
-        )
+#         # Nan Masking
+#         numeric_col_embeddings = embedding(repeated_numeric_indices)
+#         nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
+#         base_numeric = jnp.zeros_like(numeric_col_embeddings)
+#         numeric_inputs = stop_gradient(jnp.where(nan_mask, 0.0, numeric_inputs))
+#         base_numeric = jnp.where(
+#             nan_mask[:, :, None],
+#             base_numeric,
+#             numeric_col_embeddings * numeric_inputs[:, :, None],
+#         )
 
         base_numeric = jnp.where(
             nan_mask[:, :, None], self.dataset.numeric_mask_token, base_numeric
@@ -188,21 +190,27 @@ class TabTransformer(nn.Module):
         #     f"KV Embedding shape: {kv_embeddings.shape}",
         #     f"Col Embedding shape: {col_embeddings.shape}",
         # )
-
+        ic(col_embeddings.shape, kv_embeddings.shape)
         out = TransformerBlock(
             d_model=self.d_model,
             n_heads=self.n_heads,
             d_ff=self.d_model * 4,
             dropout_rate=0.1,
         )(q=col_embeddings, k=kv_embeddings, v=kv_embeddings)
-
+        # out = nn.MultiHeadAttention(num_heads=self.n_heads, qkv_features=self.d_model)(
+        #     col_embeddings, kv_embeddings, kv_embeddings
+        # )
+        ic(out.shape)
         out = TransformerBlock(
             d_model=self.d_model,
             n_heads=self.n_heads,
             d_ff=self.d_model * 4,
             dropout_rate=0.1,
         )(q=out, k=out, v=out)
-
+        # out = nn.MultiHeadAttention(num_heads=self.n_heads, qkv_features=self.d_model)(
+        #     out
+        # )
+        ic(out.shape)
         return out
 
 

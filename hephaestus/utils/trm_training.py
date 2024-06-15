@@ -136,8 +136,8 @@ def train_trm(
         )
         # print(f"Test Loss: {test_loss.item():,.0f}, Best Test Loss: {best_test_loss}")
         if early_stopping is not None:
-            improved, early_stopping = early_stopping.update(test_loss)
-            if improved:
+            early_stopping = early_stopping.update(test_loss)
+            if early_stopping.has_improved:
                 best_params = model_state.params
             if early_stopping.should_stop:
                 print("Early stopping triggered")

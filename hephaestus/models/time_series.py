@@ -623,8 +623,8 @@ class StaticPositionalEmbedding:
 #     max_len: int = 5000  # Maximum length of a sequence to expect.
 
 #     def setup(self):
-#         # Create matrix of [SeqLen, HiddenDim] representing the positional
-# encoding for max_len inputs
+#         # Create matrix of [SeqLen, HiddenDim] representing the positional encoding
+#  for max_len inputs
 #         pe = jnp.zeros((self.max_len, self.d_model))
 #         position = jnp.arange(0, self.max_len, dtype=jnp.float32)[:, None]
 #         div_term = jnp.exp(
