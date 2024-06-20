@@ -159,12 +159,6 @@ class TimeSeriesTransformer(nn.Module):
             features=self.d_model,
             name="embedding",
         )
-        # numeric_indices = jnp.array([i for i in range(len(self.dataset.df.columns))])
-        # Embed column indices
-        # causal_mask = create_causal_mask(numeric_inputs)
-        # attention_mask = create_padding_mask(numeric_inputs)
-        # mask = combine_masks(attention_mask, causal_mask)
-        # numeric_inputs = jnp.swapaxes(numeric_inputs, 1, 2)
         if mask_data:
             causal_mask = nn.make_causal_mask(numeric_inputs)
             pad_mask = nn.make_attention_mask(numeric_inputs, numeric_inputs)
