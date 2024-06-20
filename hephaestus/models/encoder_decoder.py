@@ -10,7 +10,7 @@ from jax.lax import stop_gradient
 from torch.utils.data import Dataset
 
 
-class SimpleDS(Dataset):
+class DecoderDS(Dataset):
     def __init__(self, df, custom_attention: bool = True):
         # Add nan padding to make sure all sequences are the same length
         # use the idx column to group by
@@ -140,7 +140,7 @@ class TimeSeriesTransformer(nn.Module):
         >>> output = transformer(numeric_inputs)
     """
 
-    dataset: SimpleDS
+    dataset: DecoderDS
     d_model: int = 64
     n_heads: int = 4
     time_window: int = 10_000
@@ -280,7 +280,7 @@ class TimeSeriesTransformer(nn.Module):
 
 
 class SimplePred(nn.Module):
-    dataset: SimpleDS
+    dataset: DecoderDS
     d_model: int = 64 * 10
     n_heads: int = 4
 

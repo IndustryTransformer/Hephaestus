@@ -1,4 +1,4 @@
-from .models import simple_time_series  # noqa: F401, F403
+from .models import encoder_decoder  # noqa: F401, F403
 from .models import time_series as time_series  # noqa: F401, F403
 from .models.models import *  # noqa: F401, F403
 from .utils.data_utils import *  # noqa: F401, F403
