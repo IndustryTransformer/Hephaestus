@@ -67,11 +67,16 @@ class FeedForwardNetwork(nn.Module):
     @nn.compact
     def __call__(self, x, deterministic: bool):
         # Feed Forward Network
-        x = nn.Dense(self.d_ff)(x)
-        x = nn.relu(x)
-        x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)
-        x = nn.Dense(self.d_model)(x)
-        x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)
+        # using sequential container
+        x = nn.Sequential(
+            [
+                nn.Dense(self.d_ff),
+                nn.relu,
+                nn.Dropout(rate=self.dropout_rate),
+                nn.Dense(self.d_model),
+                nn.Dropout(rate=self.dropout_rate),
+            ]
+        )(x)
         return x
 
 
@@ -224,6 +229,7 @@ class TimeSeriesTransformer(nn.Module):
         # ic("Starting Attention")
         # ic(numeric_broadcast.shape)
         pos_dim = 0  # 2048
+        # First MHA
         out = TransformerBlock(
             d_model=self.d_model + pos_dim,  # TODO add pos_dim to call/init
             num_heads=self.n_heads,
@@ -236,43 +242,20 @@ class TimeSeriesTransformer(nn.Module):
             deterministic=deterministic,
             mask=mask,
         )
-
-        out = TransformerBlock(
-            d_model=self.d_model + pos_dim,  # TODO Make this more elegant
-            num_heads=self.n_heads,
-            d_ff=64,
-            dropout_rate=0.1,
-        )(
-            q=out,
-            k=numeric_col_embeddings,
-            v=out,
-            deterministic=deterministic,
-            mask=mask,
-        )  # ic(f"Nan values in out 1st mha: {jnp.isnan(out).any()}")
-        out = TransformerBlock(
-            d_model=self.d_model + pos_dim,  # TODO Make this more elegant
-            num_heads=self.n_heads,
-            d_ff=64,
-            dropout_rate=0.1,
-        )(
-            q=out,
-            k=numeric_col_embeddings,
-            v=out,
-            deterministic=deterministic,
-            mask=mask,
-        )
-        out = TransformerBlock(
-            d_model=self.d_model + pos_dim,  # TODO Make this more elegant
-            num_heads=self.n_heads,
-            d_ff=64,
-            dropout_rate=0.1,
-        )(
-            q=out,
-            k=numeric_col_embeddings,
-            v=out,
-            deterministic=deterministic,
-            mask=mask,
-        )
+        # MHA Loop
+        for _ in range(3):
+            out = TransformerBlock(
+                d_model=self.d_model + pos_dim,  # TODO Make this more elegant
+                num_heads=self.n_heads,
+                d_ff=64,
+                dropout_rate=0.1,
+            )(
+                q=out,
+                k=numeric_col_embeddings,
+                v=out,
+                deterministic=deterministic,
+                mask=mask,
+            )
 
         # ic(f"Nan values in in out 2nd mha: {jnp.isnan(out).any()}")
 
