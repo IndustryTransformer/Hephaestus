@@ -2,7 +2,6 @@
 import jax.numpy as jnp
 from flax import linen as nn
 from icecream import ic
-from icecream import ic
 from jax.lax import stop_gradient
 
 from ..utils.data_utils import TabularDS
@@ -80,36 +79,36 @@ class TimeSeriesTransformerModel(nn.Module):
     n_heads: int = 4
     time_window: int = 100
 
-#     @nn.compact
-#     def __call__(
-#         self,
-#         categorical_inputs: jnp.array,
-#         numeric_inputs: jnp.array,
-#     ):
-#         embedding = nn.Embed(
-#             num_embeddings=self.dataset.n_tokens,
-#             features=self.d_model,
-#             name="embedding",
-#         )
+    @nn.compact
+    def __call__(
+        self,
+        categorical_inputs: jnp.array,
+        numeric_inputs: jnp.array,
+    ):
+        embedding = nn.Embed(
+            num_embeddings=self.dataset.n_tokens,
+            features=self.d_model,
+            name="embedding",
+        )
 
-#         # Embed column indices
-#         col_embeddings = embedding(jnp.array(self.dataset.col_indices))
-#         cat_embeddings = embedding(categorical_inputs)
-#         # TODO implement no grad here
-#         repeated_numeric_indices = jnp.tile(
-#             self.dataset.numeric_indices, (numeric_inputs.shape[0], 1)
-#         )
+        # Embed column indices
+        col_embeddings = embedding(jnp.array(self.dataset.col_indices))
+        cat_embeddings = embedding(categorical_inputs)
+        # TODO implement no grad here
+        repeated_numeric_indices = jnp.tile(
+            self.dataset.numeric_indices, (numeric_inputs.shape[0], 1)
+        )
 
-#         # Nan Masking
-#         numeric_col_embeddings = embedding(repeated_numeric_indices)
-#         nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
-#         base_numeric = jnp.zeros_like(numeric_col_embeddings)
-#         numeric_inputs = stop_gradient(jnp.where(nan_mask, 0.0, numeric_inputs))
-#         base_numeric = jnp.where(
-#             nan_mask[:, :, None],
-#             base_numeric,
-#             numeric_col_embeddings * numeric_inputs[:, :, None],
-#         )
+        # Nan Masking
+        numeric_col_embeddings = embedding(repeated_numeric_indices)
+        nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
+        base_numeric = jnp.zeros_like(numeric_col_embeddings)
+        numeric_inputs = stop_gradient(jnp.where(nan_mask, 0.0, numeric_inputs))
+        base_numeric = jnp.where(
+            nan_mask[:, :, None],
+            base_numeric,
+            numeric_col_embeddings * numeric_inputs[:, :, None],
+        )
 
         base_numeric = jnp.where(
             nan_mask[:, :, None], self.dataset.numeric_mask_token, base_numeric
@@ -133,9 +132,7 @@ class TimeSeriesTransformerModel(nn.Module):
             n_heads=self.n_heads,
             d_ff=self.d_model * 4,
             dropout_rate=0.1,
-        )(
-            q=out, k=out, v=out
-        )  # Check if we should reuse the col embeddings here
+        )(q=out, k=out, v=out)  # Check if we should reuse the col embeddings here
         # print(f"Second MHA out shape: {out.shape}")
         print(f"here1 {out.shape}")
         return out
