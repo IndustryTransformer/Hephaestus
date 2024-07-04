@@ -9,12 +9,8 @@ from icecream import ic
 from jax.lax import stop_gradient
 from tokenizers import Tokenizer, decoders, models, pre_tokenizers
 from torch.utils.data import Dataset
-from transformers import PreTrainedTokenizerFast
+from transformers import AutoTokenizer, PreTrainedTokenizerFast
 
-#     # Step 1: Split by asterisk and underscore
-#     parts = re.split(r"[_]", word)
-
-#     # Step 2: Split camelCase
 #     def split_camel_case(s):
 #         return re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?=[A-Z][a-z]|\d|\W|$)|\d+", s)
 
@@ -85,32 +81,18 @@ class SimpleDS(Dataset):
             set([item for sublist in reservoir_vocab for item in sublist])
         )
         # Get reservoir embedding tokens
-        reservoir_tokenizer = Tokenizer(
-            models.WordPiece(
-                vocab=self.token_dict,
-                unk_token="[UNK]",
-            )
-        )
-        reservoir_tokenizer.pre_tokenizer = pre_tokenizers.BertPreTokenizer()
-        reservoir_tokenizer.decoder = decoders.WordPiece()
-        pre_reservoir_tokenizer = PreTrainedTokenizerFast(
-            tokenizer_object=reservoir_tokenizer,
-            unk_token="[UNK]",
-            pad_token="[PAD]",
-            mask_token="[MASK]",
-        )
-
         reservoir_tokens_list = [
             self.token_decoder_dict[i] for i in range(len(self.token_decoder_dict))
         ]  # ensures they are in the same order
-        self.reservoir_encoded = pre_reservoir_tokenizer(
+        self.tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+        self.reservoir_encoded = self.tokenizer(
             reservoir_tokens_list,
             padding="max_length",
-            max_length=6,  # TODO Make this dynamic
+            max_length=8,  # TODO Make this dynamic
             truncation=True,
             return_tensors="jax",
             add_special_tokens=False,
-        )["input_ids"]
+        )["input_ids"]  # TODO make this custom to reduce dictionary size
 
     def __len__(self):
         # return self.df.idx.max() + 1  # probably should be max idx + 1 thanks
@@ -184,23 +166,20 @@ class TransformerBlock(nn.Module):
 
 class ReservoirEmbedding(nn.Module):
     dataset: SimpleDS
-    num_embeddings: int
     features: int
     frozen_index: int = 0  # The index of the embedding to freeze
 
     @nn.compact
-    def __call__(self, x):
+    def __call__(self, base_indices: jnp.array):
         embedding = self.param(
             "embedding",
             nn.initializers.normal(stddev=0.02),
-            (len(self.dataset.reservoir_vocab), self.features),
+            (self.dataset.tokenizer.vocab_size, self.features),
         )
-        token_reservoir_lookup = self.dataset.reservoir_encoded
-        print(f"Token Reservoir Lookup: {token_reservoir_lookup=}, {x=}")
-        x = token_reservoir_lookup[x]
+
         # Create a mask for the frozen embedding
-        frozen_mask = jnp.arange(self.num_embeddings) == self.frozen_index
-        ic(frozen_mask.shape, embedding.shape, x.shape)
+        frozen_mask = jnp.arange(self.dataset.tokenizer.vocab_size) == self.frozen_index
+
         # Set the frozen embedding to zero
         frozen_embedding = jnp.where(frozen_mask[:, None], 0.0, embedding)
 
@@ -208,9 +187,15 @@ class ReservoirEmbedding(nn.Module):
         penultimate_embedding = stop_gradient(frozen_embedding) + jnp.where(
             frozen_mask[:, None], 0.0, embedding - frozen_embedding
         )
-        ultimate_embedding = penultimate_embedding[x]
-        ultimate_embedding = jnp.sum(ultimate_embedding, axis=1)
-        ic(ultimate_embedding.shape, x.shape)
+        token_reservoir_lookup = self.dataset.reservoir_encoded
+        reservoir_indices = token_reservoir_lookup[base_indices]
+        ic(reservoir_indices.shape, token_reservoir_lookup.shape)
+
+        ultimate_embedding = penultimate_embedding[reservoir_indices]
+        ic(f"Ultimate Embedding before sum: {ultimate_embedding.shape}")
+        ultimate_embedding = jnp.sum(ultimate_embedding, axis=-2)
+        ic(f"Ultimate Embedding after sum: {ultimate_embedding.shape}")
+        ic(ultimate_embedding.shape)
 
         return ultimate_embedding
 
@@ -261,7 +246,6 @@ class TimeSeriesTransformer(nn.Module):
         # )
         embedding = ReservoirEmbedding(
             self.dataset,
-            num_embeddings=len(self.dataset.reservoir_vocab),
             features=self.d_model,
         )
         # numeric_indices = jnp.array([i for i in range(len(self.dataset.df.columns))])

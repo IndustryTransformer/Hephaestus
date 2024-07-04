@@ -11,7 +11,7 @@ from jax import random
 from jaxlib.xla_extension import ArrayImpl
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset
 
 
 class TabularTimeSeriesData(Dataset):
