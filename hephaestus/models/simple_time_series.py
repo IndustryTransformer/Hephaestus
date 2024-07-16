@@ -7,9 +7,8 @@ import numpy as np
 from flax import linen as nn
 from icecream import ic
 from jax.lax import stop_gradient
-from tokenizers import Tokenizer, decoders, models, pre_tokenizers
 from torch.utils.data import Dataset
-from transformers import AutoTokenizer, PreTrainedTokenizerFast
+from transformers import AutoTokenizer
 
 #     def split_camel_case(s):
 #         return re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?=[A-Z][a-z]|\d|\W|$)|\d+", s)
