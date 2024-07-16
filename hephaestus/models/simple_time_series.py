@@ -1,6 +1,6 @@
 # %%
 # import jax
-
+import re
 
 import jax.numpy as jnp
 import numpy as np
@@ -8,6 +8,35 @@ from flax import linen as nn
 from icecream import ic
 from jax.lax import stop_gradient
 from torch.utils.data import Dataset
+from transformers import AutoTokenizer
+
+#     def split_camel_case(s):
+#         return re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?=[A-Z][a-z]|\d|\W|$)|\d+", s)
+
+#     # Step 3: Apply camelCase splitting to each part and flatten the result
+#     result = [item for part in parts for item in split_camel_case(part)]
+
+#     # Step 4: Convert to lowercase
+#     result = [item.lower() for item in result]
+
+#     return result
+
+
+def split_complex_word(word):
+    # Step 1: Split by underscore, preserving content within square brackets
+    parts = re.split(r"(_|\[.*?\])", word)
+    parts = [p for p in parts if p]  # Remove empty strings
+
+    # Step 2: Split camelCase for parts not in square brackets
+    def split_camel_case(s):
+        if s.startswith("[") and s.endswith("]"):
+            return [s]
+        return re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?=[A-Z][a-z]|\d|\W|$)|\d+", s)
+
+    # Step 3: Apply camelCase splitting to each part and flatten the result
+    result = [item for part in parts for item in split_camel_case(part)]
+
+    return result
 
 
 class SimpleDS(Dataset):
@@ -23,8 +52,13 @@ class SimpleDS(Dataset):
         self.df = df
         self.batch_size = self.max_seq_len
         self.numeric_token = "[NUMERIC_EMBEDDING]"
-        self.special_tokens = ["[PAD]", "[NUMERIC_MASK]", "[MASK]", self.numeric_token]
-        self.cat_mask = "[MASK]"
+        self.special_tokens = [
+            "[PAD]",
+            "[NUMERIC_MASK]",
+            "[MASK]",
+            "[UNK]",
+            self.numeric_token,
+        ]
         self.numeric_mask = "[NUMERIC_MASK]"
 
         self.col_tokens = [col_name for col_name in df.columns if col_name != "idx"]
@@ -39,6 +73,25 @@ class SimpleDS(Dataset):
         )
 
         self.numeric_mask_token = self.tokens.index(self.numeric_mask)
+        # Make custom vocab by splitting on snake case, camel case, spaces and numbers
+        reservoir_vocab = [split_complex_word(word) for word in self.token_dict.keys()]
+        # flatten the list, make a set and then list again
+        self.reservoir_vocab = list(
+            set([item for sublist in reservoir_vocab for item in sublist])
+        )
+        # Get reservoir embedding tokens
+        reservoir_tokens_list = [
+            self.token_decoder_dict[i] for i in range(len(self.token_decoder_dict))
+        ]  # ensures they are in the same order
+        self.tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+        self.reservoir_encoded = self.tokenizer(
+            reservoir_tokens_list,
+            padding="max_length",
+            max_length=8,  # TODO Make this dynamic
+            truncation=True,
+            return_tensors="jax",
+            add_special_tokens=False,
+        )["input_ids"]  # TODO make this custom to reduce dictionary size
 
     def __len__(self):
         # return self.df.idx.max() + 1  # probably should be max idx + 1 thanks
@@ -110,6 +163,42 @@ class TransformerBlock(nn.Module):
         return out
 
 
+class ReservoirEmbedding(nn.Module):
+    dataset: SimpleDS
+    features: int
+    frozen_index: int = 0  # The index of the embedding to freeze
+
+    @nn.compact
+    def __call__(self, base_indices: jnp.array):
+        embedding = self.param(
+            "embedding",
+            nn.initializers.normal(stddev=0.02),
+            (self.dataset.tokenizer.vocab_size, self.features),
+        )
+
+        # Create a mask for the frozen embedding
+        frozen_mask = jnp.arange(self.dataset.tokenizer.vocab_size) == self.frozen_index
+
+        # Set the frozen embedding to zero
+        frozen_embedding = jnp.where(frozen_mask[:, None], 0.0, embedding)
+
+        # Stop gradient for the frozen embedding
+        penultimate_embedding = stop_gradient(frozen_embedding) + jnp.where(
+            frozen_mask[:, None], 0.0, embedding - frozen_embedding
+        )
+        token_reservoir_lookup = self.dataset.reservoir_encoded
+        reservoir_indices = token_reservoir_lookup[base_indices]
+        ic(reservoir_indices.shape, token_reservoir_lookup.shape)
+
+        ultimate_embedding = penultimate_embedding[reservoir_indices]
+        ic(f"Ultimate Embedding before sum: {ultimate_embedding.shape}")
+        ultimate_embedding = jnp.sum(ultimate_embedding, axis=-2)
+        ic(f"Ultimate Embedding after sum: {ultimate_embedding.shape}")
+        ic(ultimate_embedding.shape)
+
+        return ultimate_embedding
+
+
 class TimeSeriesTransformer(nn.Module):
     """
     Transformer-based model for time series data.
@@ -149,10 +238,14 @@ class TimeSeriesTransformer(nn.Module):
     def __call__(
         self, numeric_inputs: jnp.array, deterministic: bool, mask_data: bool = True
     ):
-        embedding = nn.Embed(
-            num_embeddings=self.dataset.n_tokens,
+        # embedding = nn.Embed(
+        #     num_embeddings=self.dataset.n_tokens,
+        #     features=self.d_model,
+        #     name="embedding",
+        # )
+        embedding = ReservoirEmbedding(
+            self.dataset,
             features=self.d_model,
-            name="embedding",
         )
         # numeric_indices = jnp.array([i for i in range(len(self.dataset.df.columns))])
         # Embed column indices
@@ -173,6 +266,7 @@ class TimeSeriesTransformer(nn.Module):
         numeric_inputs = jnp.where(nan_mask, 0.0, numeric_inputs)
 
         col_wise_embeddings = False
+        ic(self.dataset.numeric_indices.shape)
         col_embeddings = embedding(self.dataset.numeric_indices)
         ic(col_embeddings.shape, numeric_inputs.shape)
         repeated_numeric_indices = jnp.tile(
