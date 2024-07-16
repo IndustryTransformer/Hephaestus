@@ -1,6 +1,7 @@
 # %%
 # import jax
 import re
+from typing import Optional
 
 import jax.numpy as jnp
 import numpy as np
@@ -164,12 +165,31 @@ class TransformerBlock(nn.Module):
 
 
 class ReservoirEmbedding(nn.Module):
+    """
+    A module for performing reservoir embedding on a given input.
+
+    Args:
+        dataset (SimpleDS): The dataset used for embedding.
+        features (int): The number of features in the embedding.
+        frozen_index (int, optional): The index of the embedding to freeze. Defaults to 0.
+    """
+
     dataset: SimpleDS
     features: int
     frozen_index: int = 0  # The index of the embedding to freeze
 
     @nn.compact
     def __call__(self, base_indices: jnp.array):
+        """
+        Perform reservoir embedding on the given input.
+
+        Args:
+            base_indices (jnp.array): The base indices for embedding.
+
+        Returns:
+            jnp.array: The ultimate embedding after reservoir embedding.
+        """
+
         embedding = self.param(
             "embedding",
             nn.initializers.normal(stddev=0.02),
@@ -188,13 +208,9 @@ class ReservoirEmbedding(nn.Module):
         )
         token_reservoir_lookup = self.dataset.reservoir_encoded
         reservoir_indices = token_reservoir_lookup[base_indices]
-        ic(reservoir_indices.shape, token_reservoir_lookup.shape)
 
         ultimate_embedding = penultimate_embedding[reservoir_indices]
-        ic(f"Ultimate Embedding before sum: {ultimate_embedding.shape}")
         ultimate_embedding = jnp.sum(ultimate_embedding, axis=-2)
-        ic(f"Ultimate Embedding after sum: {ultimate_embedding.shape}")
-        ic(ultimate_embedding.shape)
 
         return ultimate_embedding
 
@@ -204,29 +220,20 @@ class TimeSeriesTransformer(nn.Module):
     Transformer-based model for time series data.
 
     Args:
-        dataset (TabularDS): Tabular dataset object containing the column indices and
-        number of tokens.
-        d_model (int): Dimensionality of the model.
-        n_heads (int): Number of attention heads.
-        time_window (int): Length of the time window.
-
-    Attributes:
-        dataset (TabularDS): Tabular dataset object containing the column indices and
-        number of tokens.
-        d_model (int): Dimensionality of the model.
-        n_heads (int): Number of attention heads.
-        time_window (int): Length of the time window.
+        dataset (SimpleDS): The dataset object containing the time series data.
+        d_model (int, optional): The dimensionality of the model. Defaults to 64.
+        n_heads (int, optional): The number of attention heads. Defaults to 4.
+        time_window (int, optional): The maximum length of the time window. Defaults to 10000.
 
     Methods:
-        __call__(numeric_inputs): Applies the transformer to the
-        inputs.
+        __call__(self, numeric_inputs: jnp.array, deterministic: bool, mask_data: bool = True) -> jnp.array:
+            Applies the transformer model to the input time series data.
 
-    Example:
-        >>> transformer = TimeSeriesTransformer(dataset, d_model=64, n_heads=4,
-        time_window=100)
-        >>> numeric_inputs =
-            jnp.array([[[1, 2, 3], [4, 5, 6]], [[7, 8, 9], [10, 11, 12]]])
-        >>> output = transformer(numeric_inputs)
+    Attributes:
+        dataset (SimpleDS): The dataset object containing the time series data.
+        d_model (int): The dimensionality of the model.
+        n_heads (int): The number of attention heads.
+        time_window (int): The maximum length of the time window.
     """
 
     dataset: SimpleDS
@@ -236,7 +243,11 @@ class TimeSeriesTransformer(nn.Module):
 
     @nn.compact
     def __call__(
-        self, numeric_inputs: jnp.array, deterministic: bool, mask_data: bool = True
+        self,
+        numeric_inputs: Optional[jnp.array] = None,
+        categorical_inputs: Optional[jnp.array] = None,
+        deterministic: bool = False,
+        mask_data: bool = True,
     ):
         # embedding = nn.Embed(
         #     num_embeddings=self.dataset.n_tokens,
