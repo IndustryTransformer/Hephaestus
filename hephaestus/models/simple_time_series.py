@@ -249,21 +249,11 @@ class TimeSeriesTransformer(nn.Module):
         deterministic: bool = False,
         mask_data: bool = True,
     ):
-        # embedding = nn.Embed(
-        #     num_embeddings=self.dataset.n_tokens,
-        #     features=self.d_model,
-        #     name="embedding",
-        # )
         embedding = ReservoirEmbedding(
             self.dataset,
             features=self.d_model,
         )
-        # numeric_indices = jnp.array([i for i in range(len(self.dataset.df.columns))])
-        # Embed column indices
-        # causal_mask = create_causal_mask(numeric_inputs)
-        # attention_mask = create_padding_mask(numeric_inputs)
-        # mask = combine_masks(attention_mask, causal_mask)
-        # numeric_inputs = jnp.swapaxes(numeric_inputs, 1, 2)
+
         if mask_data:
             causal_mask = nn.make_causal_mask(numeric_inputs)
             pad_mask = nn.make_attention_mask(numeric_inputs, numeric_inputs)
@@ -277,24 +267,17 @@ class TimeSeriesTransformer(nn.Module):
         numeric_inputs = jnp.where(nan_mask, 0.0, numeric_inputs)
 
         col_wise_embeddings = False
-        ic(self.dataset.numeric_indices.shape)
-        col_embeddings = embedding(self.dataset.numeric_indices)
-        ic(col_embeddings.shape, numeric_inputs.shape)
         repeated_numeric_indices = jnp.tile(
             self.dataset.numeric_indices, (numeric_inputs.shape[2], 1)
         )
-        ic("before swap", repeated_numeric_indices.shape)
         # repeated_numeric_indices = jnp.swapaxes(repeated_numeric_indices, 0, 1)
         repeated_numeric_indices = repeated_numeric_indices.T
-        ic("after swap", repeated_numeric_indices.shape)
         numeric_col_embeddings = embedding(repeated_numeric_indices)
-        ic("Embedding!!", numeric_col_embeddings.shape)
         # Nan Masking
         numeric_col_embeddings = jnp.tile(
             numeric_col_embeddings[None, :, :, :],
             (numeric_inputs.shape[0], 1, 1, 1),
         )
-        ic("Re-tiling", numeric_col_embeddings.shape)
         if col_wise_embeddings:
             numeric_broadcast = (
                 numeric_inputs[:, :, :, None] * numeric_col_embeddings[:, :, :, :]
@@ -305,7 +288,6 @@ class TimeSeriesTransformer(nn.Module):
             )
             numeric_broadcast = numeric_inputs[:, :, :, None] * numeric_embedding
 
-        ic("Before where", numeric_broadcast.shape, nan_mask.shape)
         numeric_broadcast = jnp.where(
             # nan_mask,
             # jnp.expand_dims(nan_mask, axis=-1),
@@ -316,10 +298,8 @@ class TimeSeriesTransformer(nn.Module):
         # End Nan Masking
         # ic(f"Nan values in out: {jnp.isnan(numeric_broadcast).any()}")
 
-        # ic(kv_embeddings.shape, col_embeddings.shape)
         # TODO Add positional encoding
         # numeric_broadcast.shape: (4, 26, 59, 59, 256)
-        ic("Before Positional Encoding", numeric_broadcast.shape)
 
         numeric_broadcast = PositionalEncoding(
             max_len=self.time_window, d_pos_encoding=self.d_model
