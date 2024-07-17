@@ -8,19 +8,9 @@ import numpy as np
 from flax import linen as nn
 from icecream import ic
 from jax.lax import stop_gradient
+from sympy import det
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
-
-#     def split_camel_case(s):
-#         return re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?=[A-Z][a-z]|\d|\W|$)|\d+", s)
-
-#     # Step 3: Apply camelCase splitting to each part and flatten the result
-#     result = [item for part in parts for item in split_camel_case(part)]
-
-#     # Step 4: Convert to lowercase
-#     result = [item.lower() for item in result]
-
-#     return result
 
 
 def split_complex_word(word):
@@ -215,6 +205,14 @@ class ReservoirEmbedding(nn.Module):
         return ultimate_embedding
 
 
+class NumericProjection(nn.Module):
+    dataset: SimpleDS
+
+    @nn.compact
+    def __call__(self, numeric_inputs: jnp.array):
+        pass
+
+
 class TimeSeriesTransformer(nn.Module):
     """
     Transformer-based model for time series data.
@@ -253,15 +251,6 @@ class TimeSeriesTransformer(nn.Module):
             self.dataset,
             features=self.d_model,
         )
-
-        if mask_data:
-            causal_mask = nn.make_causal_mask(numeric_inputs)
-            pad_mask = nn.make_attention_mask(numeric_inputs, numeric_inputs)
-            mask = nn.combine_masks(causal_mask, pad_mask)
-            ic(mask.shape)
-        else:
-            mask = None
-        # causal_mask = nn.make_causal_mask(numeric_inputs[:, :, :, 0])
 
         nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
         numeric_inputs = jnp.where(nan_mask, 0.0, numeric_inputs)
@@ -308,6 +297,14 @@ class TimeSeriesTransformer(nn.Module):
         # ic(f"Nan values in out positional: {jnp.isnan(numeric_broadcast).any()}")
         # ic("Starting Attention")
         # ic(numeric_broadcast.shape)
+
+        if mask_data:
+            causal_mask = nn.make_causal_mask(numeric_inputs)
+            pad_mask = nn.make_attention_mask(numeric_inputs, numeric_inputs)
+            mask = nn.combine_masks(causal_mask, pad_mask)
+            ic(mask.shape)
+        else:
+            mask = None
         pos_dim = 0  # 2048
         out = TransformerBlock(
             d_model=self.d_model + pos_dim,  # TODO add pos_dim to call/init
