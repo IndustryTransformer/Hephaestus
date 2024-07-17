@@ -31,16 +31,15 @@ def split_complex_word(word):
 
 
 class SimpleDS(Dataset):
-    def __init__(self, df, custom_attention: bool = True):
+    def __init__(self, df):
         # Add nan padding to make sure all sequences are the same length
         # use the idx column to group by
         self.max_seq_len = df.groupby("idx").count().time_step.max()
-        self.custom_attention = custom_attention
         # Set df.idx to start from 0
-        if df.idx.max() - df.idx.min() != df.idx.nunique() - 1:
-            raise ValueError("idx column should start from 0 and be continuous")
         df.idx = df.idx - df.idx.min()
-        self.df = df
+
+        self.df_categorical = df.select_dtypes(include=["object"])
+        self.df_numeric = df.select_dtypes(include="number")
         self.batch_size = self.max_seq_len
         self.numeric_token = "[NUMERIC_EMBEDDING]"
         self.special_tokens = [
@@ -86,11 +85,22 @@ class SimpleDS(Dataset):
 
     def __len__(self):
         # return self.df.idx.max() + 1  # probably should be max idx + 1 thanks
-        return self.df.idx.nunique()
+        return self.df_numeric.idx.nunique()
+
+    def get_data(self, df_name, set_idx):
+        """Gets self.df_<df_name> for a given idx"""
+        df = getattr(self, df_name)
+
+        batch = df.loc[
+            df.idx == set_idx,
+            [col for col in df.columns if col != "idx"],
+        ]
+        batch = np.array(batch.values)
 
     def __getitem__(self, set_idx):
-        batch = self.df.loc[
-            self.df.idx == set_idx, [col for col in self.df.columns if col != "idx"]
+        batch = self.df_numeric.loc[
+            self.df_numeric.idx == set_idx,
+            [col for col in self.df_numeric.columns if col != "idx"],
         ]
         batch = np.array(batch.values)
         # Add padding
@@ -205,14 +215,6 @@ class ReservoirEmbedding(nn.Module):
         return ultimate_embedding
 
 
-class NumericProjection(nn.Module):
-    dataset: SimpleDS
-
-    @nn.compact
-    def __call__(self, numeric_inputs: jnp.array):
-        pass
-
-
 class TimeSeriesTransformer(nn.Module):
     """
     Transformer-based model for time series data.
@@ -252,6 +254,7 @@ class TimeSeriesTransformer(nn.Module):
             features=self.d_model,
         )
 
+        ########### NUMERIC INPUTS ###########
         nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
         numeric_inputs = jnp.where(nan_mask, 0.0, numeric_inputs)
 
