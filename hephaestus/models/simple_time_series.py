@@ -1,10 +1,12 @@
 # %%
 # import jax
 import re
+from nis import cat
 from typing import Optional
 
 import jax.numpy as jnp
 import numpy as np
+import pandas as pd
 from flax import linen as nn
 from icecream import ic
 from jax.lax import stop_gradient
@@ -30,6 +32,14 @@ def split_complex_word(word):
     return result
 
 
+def convert_object_to_int_tokens(df, token_dict):
+    """Converts object columns to integer tokens using a token dictionary."""
+    df = df.copy()
+    for col in df.select_dtypes(include="object").columns:
+        df[col] = df[col].map(token_dict)
+    return df
+
+
 class SimpleDS(Dataset):
     def __init__(self, df):
         # Add nan padding to make sure all sequences are the same length
@@ -37,8 +47,10 @@ class SimpleDS(Dataset):
         self.max_seq_len = df.groupby("idx").count().time_step.max()
         # Set df.idx to start from 0
         df.idx = df.idx - df.idx.min()
+        df = df.set_index("idx")
+        df.index.name = None
 
-        self.df_categorical = df.select_dtypes(include=["object"])
+        self.df_categorical = df.select_dtypes(include=["object"]).astype(str)
         self.df_numeric = df.select_dtypes(include="number")
         self.batch_size = self.max_seq_len
         self.numeric_token = "[NUMERIC_EMBEDDING]"
@@ -50,10 +62,13 @@ class SimpleDS(Dataset):
             self.numeric_token,
         ]
         self.numeric_mask = "[NUMERIC_MASK]"
-
-        self.col_tokens = [col_name for col_name in df.columns if col_name != "idx"]
-
-        self.tokens = self.special_tokens + self.col_tokens
+        # Remove check on idx
+        self.col_tokens = [col_name for col_name in df.columns]
+        # Get all the unique values in the categorical columns and add them to the tokens
+        self.object_tokens = (
+            self.df_categorical.apply(pd.Series.unique).values.flatten().tolist()
+        )
+        self.tokens = self.special_tokens + self.col_tokens + self.object_tokens
 
         self.token_dict = {token: i for i, token in enumerate(self.tokens)}
         self.token_decoder_dict = {i: token for i, token in enumerate(self.tokens)}
@@ -83,34 +98,37 @@ class SimpleDS(Dataset):
             add_special_tokens=False,
         )["input_ids"]  # TODO make this custom to reduce dictionary size
 
+        self.df_categorical = convert_object_to_int_tokens(
+            self.df_categorical, self.token_dict
+        )
+
     def __len__(self):
         # return self.df.idx.max() + 1  # probably should be max idx + 1 thanks
         return self.df_numeric.idx.nunique()
 
     def get_data(self, df_name, set_idx):
-        """Gets self.df_<df_name> for a given idx"""
+        """Gets self.df_<df_name> for a given index"""
         df = getattr(self, df_name)
 
-        batch = df.loc[
-            df.idx == set_idx,
-            [col for col in df.columns if col != "idx"],
-        ]
+        batch = df.loc[df.index == set_idx, :]
         batch = np.array(batch.values)
 
-    def __getitem__(self, set_idx):
-        batch = self.df_numeric.loc[
-            self.df_numeric.idx == set_idx,
-            [col for col in self.df_numeric.columns if col != "idx"],
-        ]
-        batch = np.array(batch.values)
         # Add padding
         batch_len, n_cols = batch.shape
         pad_len = self.max_seq_len - batch_len
-        padding = np.full((pad_len, n_cols), jnp.nan)
+        padding = np.full((pad_len, n_cols), np.nan)
         batch = np.concatenate([batch, padding], axis=0)
-        # batch = batch.T
-        batch = np.swapaxes(batch, 0, 1)
+
         return batch
+
+    def __getitem__(self, set_idx):
+        if self.df_categorical.empty:
+            categorical_inputs = None
+        else:
+            categorical_inputs = self.get_data("df_categorical", set_idx)
+        numeric_inputs = self.get_data("df_numeric", set_idx)
+
+        return numeric_inputs, categorical_inputs
 
 
 class FeedForwardNetwork(nn.Module):
@@ -314,6 +332,7 @@ class TimeSeriesTransformer(nn.Module):
             num_heads=self.n_heads,
             d_ff=64,
             dropout_rate=0.1,
+            name="TransformerBlock_Initial",
         )(
             q=numeric_broadcast,
             k=numeric_col_embeddings,
@@ -321,43 +340,20 @@ class TimeSeriesTransformer(nn.Module):
             deterministic=deterministic,
             mask=mask,
         )
-
-        out = TransformerBlock(
-            d_model=self.d_model + pos_dim,  # TODO Make this more elegant
-            num_heads=self.n_heads,
-            d_ff=64,
-            dropout_rate=0.1,
-        )(
-            q=out,
-            k=numeric_col_embeddings,
-            v=out,
-            deterministic=deterministic,
-            mask=mask,
-        )  # ic(f"Nan values in out 1st mha: {jnp.isnan(out).any()}")
-        out = TransformerBlock(
-            d_model=self.d_model + pos_dim,  # TODO Make this more elegant
-            num_heads=self.n_heads,
-            d_ff=64,
-            dropout_rate=0.1,
-        )(
-            q=out,
-            k=numeric_col_embeddings,
-            v=out,
-            deterministic=deterministic,
-            mask=mask,
-        )
-        out = TransformerBlock(
-            d_model=self.d_model + pos_dim,  # TODO Make this more elegant
-            num_heads=self.n_heads,
-            d_ff=64,
-            dropout_rate=0.1,
-        )(
-            q=out,
-            k=numeric_col_embeddings,
-            v=out,
-            deterministic=deterministic,
-            mask=mask,
-        )
+        for i in range(3):
+            out = TransformerBlock(
+                d_model=self.d_model + pos_dim,  # TODO Make this more elegant
+                num_heads=self.n_heads,
+                d_ff=64,
+                dropout_rate=0.1,
+                name=f"TransformerBlock_{i}",
+            )(
+                q=out,
+                k=numeric_col_embeddings,
+                v=out,
+                deterministic=deterministic,
+                mask=mask,
+            )
 
         # ic(f"Nan values in in out 2nd mha: {jnp.isnan(out).any()}")
 
