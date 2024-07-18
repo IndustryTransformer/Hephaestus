@@ -1,7 +1,6 @@
 # %%
 # import jax
 import re
-from nis import cat
 from typing import Optional
 
 import jax.numpy as jnp
@@ -10,7 +9,6 @@ import pandas as pd
 from flax import linen as nn
 from icecream import ic
 from jax.lax import stop_gradient
-from sympy import det
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
 
