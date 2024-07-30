@@ -102,7 +102,7 @@ class SimpleDS(Dataset):
 
     def __len__(self):
         # return self.df.idx.max() + 1  # probably should be max idx + 1 thanks
-        return self.df_numeric.idx.nunique()
+        return self.df_numeric.index.nunique()
 
     def get_data(self, df_name, set_idx):
         """Gets self.df_<df_name> for a given index"""
@@ -275,6 +275,9 @@ class TimeSeriesTransformer(nn.Module):
         numeric_inputs = jnp.where(nan_mask, 0.0, numeric_inputs)
 
         col_wise_embeddings = False
+        # Issue here. dataset.numeric_indicies is a tuple but should be a jnp.array
+        print(type(self.dataset))
+        print(self.dataset)
         repeated_numeric_indices = jnp.tile(
             self.dataset.numeric_indices, (numeric_inputs.shape[2], 1)
         )
