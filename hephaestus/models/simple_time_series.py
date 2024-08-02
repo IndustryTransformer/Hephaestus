@@ -277,9 +277,6 @@ class TimeSeriesTransformer(nn.Module):
         ic("Here Again???")
         numeric_inputs = jnp.where(nan_mask, 0.0, numeric_inputs)
 
-        # Issue here. dataset.numeric_indicies is a tuple but should be a jnp.array
-        print(type(self.dataset))
-        print(self.dataset)
         repeated_numeric_indices = jnp.tile(
             self.dataset.numeric_indices, (numeric_inputs.shape[2], 1)
         )
