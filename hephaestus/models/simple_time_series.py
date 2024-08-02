@@ -164,6 +164,7 @@ class TransformerBlock(nn.Module):
         # causal_mask = causal_mask = nn.make_causal_mask(q[:, :, :, 0])
 
         # Write out the jax array to a file for more debugging
+        ic("Query shapes", q.shape, k.shape, v.shape)
         attention = nn.MultiHeadDotProductAttention(
             num_heads=self.num_heads,
             qkv_features=self.d_model,
