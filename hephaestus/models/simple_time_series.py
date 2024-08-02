@@ -116,7 +116,7 @@ class SimpleDS(Dataset):
         pad_len = self.max_seq_len - batch_len
         padding = np.full((pad_len, n_cols), np.nan)
         batch = np.concatenate([batch, padding], axis=0)
-
+        batch = np.swapaxes(batch, 0, 1)
         return batch
 
     def __getitem__(self, set_idx):
@@ -272,10 +272,11 @@ class TimeSeriesTransformer(nn.Module):
         )
 
         ########### NUMERIC INPUTS ###########
+        ic(numeric_inputs.shape)
         nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
+        ic("Here Again???")
         numeric_inputs = jnp.where(nan_mask, 0.0, numeric_inputs)
 
-        col_wise_embeddings = False
         # Issue here. dataset.numeric_indicies is a tuple but should be a jnp.array
         print(type(self.dataset))
         print(self.dataset)
@@ -290,15 +291,11 @@ class TimeSeriesTransformer(nn.Module):
             numeric_col_embeddings[None, :, :, :],
             (numeric_inputs.shape[0], 1, 1, 1),
         )
-        if col_wise_embeddings:
-            numeric_broadcast = (
-                numeric_inputs[:, :, :, None] * numeric_col_embeddings[:, :, :, :]
-            )
-        else:
-            numeric_embedding = embedding(
-                jnp.array(self.dataset.token_dict[self.dataset.numeric_token])
-            )
-            numeric_broadcast = numeric_inputs[:, :, :, None] * numeric_embedding
+
+        numeric_embedding = embedding(
+            jnp.array(self.dataset.token_dict[self.dataset.numeric_token])
+        )
+        numeric_broadcast = numeric_inputs[:, :, :, None] * numeric_embedding
 
         numeric_broadcast = jnp.where(
             # nan_mask,
