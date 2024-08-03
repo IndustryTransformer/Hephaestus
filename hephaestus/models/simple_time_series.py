@@ -61,18 +61,31 @@ class SimpleDS(Dataset):
         ]
         self.numeric_mask = "[NUMERIC_MASK]"
         # Remove check on idx
-        self.col_tokens = [col_name for col_name in df.columns]
+        self.numeric_col_tokens = [
+            col_name for col_name in df.select_dtypes(include="number").columns
+        ]
+        self.categorical_col_tokens = [
+            col_name for col_name in df.select_dtypes(include="object").columns
+        ]
         # Get all the unique values in the categorical columns and add them to the tokens
         self.object_tokens = (
             self.df_categorical.apply(pd.Series.unique).values.flatten().tolist()
         )
-        self.tokens = self.special_tokens + self.col_tokens + self.object_tokens
+        self.tokens = (
+            self.special_tokens
+            + self.numeric_col_tokens
+            + self.object_tokens
+            + self.categorical_col_tokens
+        )
 
         self.token_dict = {token: i for i, token in enumerate(self.tokens)}
         self.token_decoder_dict = {i: token for i, token in enumerate(self.tokens)}
         self.n_tokens = len(self.tokens)
         self.numeric_indices = jnp.array(
-            [self.tokens.index(i) for i in self.col_tokens]
+            [self.tokens.index(i) for i in self.numeric_col_tokens]
+        )
+        self.categorical_indices = jnp.array(
+            [self.tokens.index(i) for i in self.categorical_col_tokens]
         )
 
         self.numeric_mask_token = self.tokens.index(self.numeric_mask)
@@ -303,9 +316,6 @@ class TimeSeriesTransformer(nn.Module):
         )
         # End Nan Masking
         # ic(f"Nan values in out: {jnp.isnan(numeric_broadcast).any()}")
-
-        # TODO Add positional encoding
-        # numeric_broadcast.shape: (4, 26, 59, 59, 256)
 
         numeric_broadcast = PositionalEncoding(
             max_len=self.time_window, d_pos_encoding=self.d_model
