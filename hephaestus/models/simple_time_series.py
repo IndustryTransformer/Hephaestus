@@ -1,6 +1,7 @@
 # %%
 # import jax
 import re
+from nis import cat
 from typing import Optional
 
 import jax.numpy as jnp
@@ -177,7 +178,7 @@ class TransformerBlock(nn.Module):
         # causal_mask = causal_mask = nn.make_causal_mask(q[:, :, :, 0])
 
         # Write out the jax array to a file for more debugging
-        ic("Query shapes", q.shape, k.shape, v.shape)
+        ic("Query shapes 222222", q.shape, k.shape, v.shape)
         attention = nn.MultiHeadDotProductAttention(
             num_heads=self.num_heads,
             qkv_features=self.d_model,
@@ -289,10 +290,24 @@ class TimeSeriesTransformer(nn.Module):
         nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
         ic("Here Again???")
         numeric_inputs = jnp.where(nan_mask, 0.0, numeric_inputs)
+        # Cat Embedding
+        if categorical_inputs is not None:
+            # Make sure nans are set to <NAN> token
+            categorical_inputs = jnp.where(
+                jnp.isnan(categorical_inputs),
+                jnp.array(self.dataset.token_dict["[NUMERIC_MASK]"]),
+                categorical_inputs,
+            )
+            categorical_embeddings = embedding(categorical_inputs)
 
+        else:
+            categorical_embeddings = None
+
+        # Numeric Embedding
         repeated_numeric_indices = jnp.tile(
             self.dataset.numeric_indices, (numeric_inputs.shape[2], 1)
         )
+
         # repeated_numeric_indices = jnp.swapaxes(repeated_numeric_indices, 0, 1)
         repeated_numeric_indices = repeated_numeric_indices.T
         numeric_col_embeddings = embedding(repeated_numeric_indices)
@@ -324,15 +339,23 @@ class TimeSeriesTransformer(nn.Module):
         # ic(f"Nan values in out positional: {jnp.isnan(numeric_broadcast).any()}")
         # ic("Starting Attention")
         # ic(numeric_broadcast.shape)
+        if categorical_embeddings is not None:
+            tabular_data = jnp.concatenate(
+                [numeric_broadcast, categorical_embeddings], axis=-1
+            )
+        else:
+            ic("No Categorical Embeddings")
+            tabular_data = numeric_broadcast
 
         if mask_data:
-            causal_mask = nn.make_causal_mask(numeric_inputs)
-            pad_mask = nn.make_attention_mask(numeric_inputs, numeric_inputs)
+            causal_mask = nn.make_causal_mask(tabular_data)
+            pad_mask = nn.make_attention_mask(tabular_data, tabular_data)
             mask = nn.combine_masks(causal_mask, pad_mask)
             ic(mask.shape)
         else:
             mask = None
         pos_dim = 0  # 2048
+        ic(tabular_data.shape, numeric_col_embeddings.shape)
         out = TransformerBlock(
             d_model=self.d_model + pos_dim,  # TODO add pos_dim to call/init
             num_heads=self.n_heads,
@@ -340,9 +363,9 @@ class TimeSeriesTransformer(nn.Module):
             dropout_rate=0.1,
             name="TransformerBlock_Initial",
         )(
-            q=numeric_broadcast,
+            q=tabular_data,
             k=numeric_col_embeddings,
-            v=numeric_broadcast,  # TODO differentiate this
+            v=tabular_data,  # TODO differentiate this
             deterministic=deterministic,
             mask=mask,
         )
