@@ -1,7 +1,6 @@
 # %%
 # import jax
 import re
-from nis import cat
 from typing import Optional
 
 import jax.numpy as jnp
@@ -347,9 +346,13 @@ class TimeSeriesTransformer(nn.Module):
             ic("No Categorical Embeddings")
             tabular_data = numeric_broadcast
 
+        mask_input = numeric_inputs
+        ic(mask_input.shape)
         if mask_data:
-            causal_mask = nn.make_causal_mask(tabular_data)
-            pad_mask = nn.make_attention_mask(tabular_data, tabular_data)
+            causal_mask = nn.make_causal_mask(mask_input)
+            pad_mask = nn.make_attention_mask(
+                mask_input, mask_input
+            )  # TODO Add in the mask for the categorical data
             mask = nn.combine_masks(causal_mask, pad_mask)
             ic(mask.shape)
         else:
