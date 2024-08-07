@@ -364,6 +364,13 @@ class TimeSeriesTransformer(nn.Module):
             mask = None
         pos_dim = 0  # 2048
         ic(tabular_data.shape, numeric_col_embeddings.shape)
+
+        if categorical_embeddings is not None:
+            col_embeddings = jnp.concatenate(
+                numeric_col_embeddings,  # TODO Add categorical_col_embeddings
+            )
+        else:
+            col_embeddings = numeric_col_embeddings
         out = TransformerBlock(
             d_model=self.d_model + pos_dim,  # TODO add pos_dim to call/init
             num_heads=self.n_heads,
@@ -372,7 +379,7 @@ class TimeSeriesTransformer(nn.Module):
             name="TransformerBlock_Initial",
         )(
             q=tabular_data,
-            k=numeric_col_embeddings,
+            k=col_embeddings,
             v=tabular_data,  # TODO differentiate this
             deterministic=deterministic,
             mask=mask,
@@ -386,7 +393,7 @@ class TimeSeriesTransformer(nn.Module):
                 name=f"TransformerBlock_{i}",
             )(
                 q=out,
-                k=numeric_col_embeddings,
+                k=col_embeddings,
                 v=out,
                 deterministic=deterministic,
                 mask=mask,
