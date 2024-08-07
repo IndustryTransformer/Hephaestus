@@ -340,13 +340,18 @@ class TimeSeriesTransformer(nn.Module):
         # ic(numeric_broadcast.shape)
         if categorical_embeddings is not None:
             tabular_data = jnp.concatenate(
-                [numeric_broadcast, categorical_embeddings], axis=-1
+                [numeric_broadcast, categorical_embeddings], axis=1
             )
         else:
             ic("No Categorical Embeddings")
             tabular_data = numeric_broadcast
+        if categorical_embeddings is not None:
+            ic("Masking for categorical data")
+            mask_input = jnp.concatenate([numeric_inputs, categorical_inputs], axis=1)
 
-        mask_input = numeric_inputs
+        else:
+            ic("No Masking for categorical data")
+            mask_input = numeric_inputs
         ic(mask_input.shape)
         if mask_data:
             causal_mask = nn.make_causal_mask(mask_input)
@@ -401,12 +406,14 @@ class SimplePred(nn.Module):
     def __call__(
         self,
         numeric_inputs: jnp.array,
+        categorical_inputs: Optional[jnp.array] = None,
         deterministic: bool = False,
         mask_data: bool = True,
     ) -> jnp.array:
         """ """
         out = TimeSeriesTransformer(self.dataset, self.d_model, self.n_heads)(
             numeric_inputs=numeric_inputs,
+            categorical_inputs=categorical_inputs,
             deterministic=deterministic,
             mask_data=mask_data,
         )
