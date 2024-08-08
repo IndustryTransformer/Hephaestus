@@ -120,7 +120,6 @@ class TransformerBlock(nn.Module):
         train=True,
         input_feed_forward=True,
     ):
-
         attn_output = MultiheadAttention(n_heads=self.n_heads, d_model=self.d_model)(
             q, k, v, qkv, mask=mask, input_feed_forward=input_feed_forward
         )
@@ -254,9 +253,7 @@ class TimeSeriesTransformer(nn.Module):
             n_heads=self.n_heads,
             d_ff=self.d_model * 4,
             dropout_rate=0.1,
-        )(
-            qkv=out
-        )  # Check if we should reuse the col embeddings here
+        )(qkv=out)  # Check if we should reuse the col embeddings here
         # out = nn.MultiHeadDotProductAttention(num_heads=self.n_heads, qkv_features=16)(
         #     out
         # )
@@ -329,68 +326,9 @@ class MaskedTimeSeries(nn.Module):
             numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
         )
         ic(f"Out shape: {out.shape}")
-        # out = nn.Sequential(
-        #     [
-        #         nn.Dense(name="RegressionDense1", features=self.d_model * 2),
-        #         nn.relu,
-        #         nn.Dense(name="RegressionDense2", features=1),
-        #     ],
-        #     name="RegressionOutputChain",
-        # )(out)
-        # ic(f"Out shape: {out.shape}")
-        ic(out.shape)  # %%
+
+        ic(out.shape)
         return out
-        # target_out = nn.Sequential(
-        #     [
-        #         nn.Dense(name="TargetDense1", features=self.d_model),
-        #         nn.relu,
-        #         nn.Dense(name="TargetDense2", features=1),
-        #     ]
-        # )(out)
-        # ic(target_out.shape)
-        # target_out = target_out.reshape(out.shape[0], -1)
-        # ic(target_out.shape)
-        # target_out = nn.Dense(name="TargetOut", features=out.shape[1])(target_out)
-        # ic(target_out.shape)
-        # categorical_out = nn.Dense(
-        #     name="CategoricalOut", features=len(self.dataset.tokens)
-        # )(out)
-        # ic(categorical_out.shape)
-        # out = out.reshape(out.shape[0], out.shape[1], -1)
-
-        # numeric_out = nn.Sequential(
-        #     [
-        #         nn.Dense(name="numeric_dense_1", features=self.d_model * 6),
-        #         nn.relu,
-        #         nn.Dense(
-        #             name="numeric_dense_2", features=len(self.dataset.numeric_columns)
-        #         ),
-        #     ],
-        #     name="NumericOutputChain",
-        # )(out)
-        # ic(numeric_out.shape)
-        # return categorical_out, numeric_out, target_out
-
-
-# class PositionalEncoding(nn.Module):
-#     d_model: int
-#     dropout: float = 0.1
-#     max_len = 10000
-
-#     @nn.compact
-#     def __call__(self, X):
-#         # dropout = nn.Dropout(self.dropout) train=True
-#         pe = jnp.zeros((1, self.max_len, self.d_model))
-#         x = jnp.arange(self.max_len, dtype=jnp.float32).reshape(-1, 1) / jnp.power(
-#             10000,
-#             jnp.arange(0, self.d_model, 2, dtype=jnp.float32) / self.d_model,
-#         )
-#         pe = pe.at[:, :, 0::2].set(jnp.sin(x))
-#         pe = pe.at[:, :, 1::2].set(jnp.cos(x))
-#         X = X + pe[:, : X.shape[2], :]
-#         # return dropout(X, deterministic=not train)
-
-#         return X
 
 
 class MaskedTimeSeriesRegression(nn.Module):

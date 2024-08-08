@@ -315,7 +315,18 @@ class TimeSeriesTransformer(nn.Module):
             numeric_col_embeddings[None, :, :, :],
             (numeric_inputs.shape[0], 1, 1, 1),
         )
-
+        if categorical_embeddings is not None:
+            repeated_categorical_indices = jnp.tile(
+                self.dataset.categorical_indices, (categorical_inputs.shape[2], 1)
+            )
+            repeated_categorical_indices = repeated_categorical_indices.T
+            categorical_col_embeddings = embedding(repeated_categorical_indices)
+            categorical_col_embeddings = jnp.tile(
+                categorical_col_embeddings[None, :, :, :],
+                (categorical_inputs.shape[0], 1, 1, 1),
+            )
+        else:
+            categorical_col_embeddings = None
         numeric_embedding = embedding(
             jnp.array(self.dataset.token_dict[self.dataset.numeric_token])
         )
@@ -366,8 +377,15 @@ class TimeSeriesTransformer(nn.Module):
         ic(tabular_data.shape, numeric_col_embeddings.shape)
 
         if categorical_embeddings is not None:
+            ic("Concatenating Embeddings")
+            ic(numeric_col_embeddings.shape, categorical_col_embeddings.shape)
+            ic(numeric_col_embeddings.dtype, categorical_col_embeddings.dtype)
             col_embeddings = jnp.concatenate(
-                numeric_col_embeddings,  # TODO Add categorical_col_embeddings
+                [
+                    numeric_col_embeddings,  # TODO Add categorical_col_embeddings
+                    categorical_col_embeddings,
+                ],
+                axis=1,
             )
         else:
             col_embeddings = numeric_col_embeddings
@@ -426,22 +444,39 @@ class SimplePred(nn.Module):
         )
         ic(out.shape)
         ic(f"Nan values in simplePred out 1: {jnp.isnan(out).any()}")
-        out = nn.Sequential(
+        numeric_out = nn.Sequential(
             [
                 nn.Dense(name="RegressionDense1", features=self.d_model * 2),
                 nn.relu,
-                nn.Dense(name="RegressionDense2", features=1),
+                nn.Dense(
+                    name="RegressionDense2", features=len(self.dataset.numeric_indices)
+                ),
             ],
             name="RegressionOutputChain",
         )(out)
+        if categorical_inputs is not None:
+            categorical_out = nn.Sequential(
+                [
+                    nn.Dense(name="CategoricalDense1", features=self.d_model * 2),
+                    nn.relu,
+                    nn.Dense(
+                        name="CategoricalDense2",
+                        features=len(self.dataset.categorical_indices),
+                    ),
+                ],
+                name="CategoricalOutputChain",
+            )(out)
+            return {"numeric_out": numeric_out, "categorical_out": categorical_out}
+        else:
+            return {"numeric_out": numeric_out, "categorical_out": None}
 
-        ic(f"Penultimate Simple OUT: {out.shape}")
-        out = jnp.squeeze(out, axis=-1)
+        # ic(f"Penultimate Simple OUT: {numeric_out.shape}, {categorical_out.shape}")
+        # numeric_out = jnp.squeeze(numeric_out, axis=-1)
+        # categorical_out = jnp.squeeze(categorical_out, axis=-1)
 
         # out = jnp.reshape(out, (out.shape[0], -1))
-        ic(f"FInal Simple OUT: {out.shape}")
+        # ic(f"Final Simple OUT: {numeric_out.shape}, {categorical_out.shape}")
         # out = nn.Dense(name="RegressionFlatten", features=16)(out)
-        return out
 
 
 class PositionalEncoding(nn.Module):
