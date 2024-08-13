@@ -130,6 +130,8 @@ class SimpleDS(Dataset):
         padding = np.full((pad_len, n_cols), np.nan)
         batch = np.concatenate([batch, padding], axis=0)
         batch = np.swapaxes(batch, 0, 1)
+        if df_name == "df_categorical":
+            batch = np.array(batch, dtype=np.int32)
         return batch
 
     def __getitem__(self, set_idx):
