@@ -125,13 +125,15 @@ class SimpleDS(Dataset):
         batch = np.array(batch.values)
 
         # Add padding
+
         batch_len, n_cols = batch.shape
         pad_len = self.max_seq_len - batch_len
         padding = np.full((pad_len, n_cols), np.nan)
         batch = np.concatenate([batch, padding], axis=0)
         batch = np.swapaxes(batch, 0, 1)
-        if df_name == "df_categorical":
-            batch = np.array(batch, dtype=np.int32)
+        # if df_name == "df_categorical":
+        #     # Cast to int
+        #     batch = batch.astype(int)
         return batch
 
     def __getitem__(self, set_idx):
@@ -440,7 +442,7 @@ class SimplePred(nn.Module):
         """ """
         out = TimeSeriesTransformer(self.dataset, self.d_model, self.n_heads)(
             numeric_inputs=numeric_inputs,
-            categorical_inputs=categorical_inputs,
+            categorical_inputs=jnp.astype(categorical_inputs, jnp.int32),
             deterministic=deterministic,
             mask_data=mask_data,
         )
