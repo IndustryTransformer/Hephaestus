@@ -448,6 +448,10 @@ class SimplePred(nn.Module):
         )
         ic(out.shape)
         ic(f"Nan values in simplePred out 1: {jnp.isnan(out).any()}")
+        out = out.reshape(
+            out.shape[0], out.shape[1], -1
+        )  # TODO This is wrong. Make this
+        #  TODO WORK HERE!!!!! be of shape (batch_size, )
         numeric_out = nn.Sequential(
             [
                 nn.Dense(name="RegressionDense1", features=self.d_model * 2),
@@ -458,7 +462,10 @@ class SimplePred(nn.Module):
             ],
             name="RegressionOutputChain",
         )(out)
+
         if categorical_inputs is not None:
+            ic("has categorical inputs")
+
             categorical_out = nn.Sequential(
                 [
                     nn.Dense(name="CategoricalDense1", features=self.d_model * 2),
@@ -470,8 +477,11 @@ class SimplePred(nn.Module):
                 ],
                 name="CategoricalOutputChain",
             )(out)
+            ic(numeric_out.shape, categorical_out.shape)
             return {"numeric_out": numeric_out, "categorical_out": categorical_out}
         else:
+            ic("No categorical inputs")
+            ic(numeric_out.shape)
             return {"numeric_out": numeric_out, "categorical_out": None}
 
         # ic(f"Penultimate Simple OUT: {numeric_out.shape}, {categorical_out.shape}")
