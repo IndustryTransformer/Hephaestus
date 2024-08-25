@@ -448,10 +448,12 @@ class SimplePred(nn.Module):
         )
         ic(out.shape)
         ic(f"Nan values in simplePred out 1: {jnp.isnan(out).any()}")
-        out = out.reshape(
-            out.shape[0], out.shape[1], -1
+        numeric_out = out.swapaxes(1, 2)
+        numeric_out = numeric_out.reshape(
+            numeric_out.shape[0], numeric_out.shape[1], -1
         )  # TODO This is wrong. Make this
         #  TODO WORK HERE!!!!! be of shape (batch_size, )
+        ic(numeric_out.shape ,out.shape)
         numeric_out = nn.Sequential(
             [
                 nn.Dense(name="RegressionDense1", features=self.d_model * 2),
@@ -461,10 +463,15 @@ class SimplePred(nn.Module):
                 ),
             ],
             name="RegressionOutputChain",
-        )(out)
+        )(numeric_out)
+        numeric_out = numeric_out.swapaxes(1, 2)
 
         if categorical_inputs is not None:
-            ic("has categorical inputs")
+            ic("has categorical inputs", out.shape)
+            categorical_out = out.swapaxes(1, 2)
+            ic("After swap", categorical_out.shape)
+            categorical_out = categorical_out.reshape(categorical_out.shape[0], categorical_out.shape[1], -1)
+            ic("After reshape", categorical_out.shape)
 
             categorical_out = nn.Sequential(
                 [
@@ -476,8 +483,10 @@ class SimplePred(nn.Module):
                     ),
                 ],
                 name="CategoricalOutputChain",
-            )(out)
+            )(categorical_out)
             ic(numeric_out.shape, categorical_out.shape)
+            categorical_out = categorical_out.swapaxes(1, 2)
+            ic("after swap", numeric_out.shape, categorical_out.shape)
             return {"numeric_out": numeric_out, "categorical_out": categorical_out}
         else:
             ic("No categorical inputs")
