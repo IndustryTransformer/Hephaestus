@@ -3,12 +3,12 @@
 import re
 from typing import Optional
 
-import jax.numpy as jnp
 import numpy as np
 import pandas as pd
-from flax import linen as nn
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from icecream import ic
-from jax.lax import stop_gradient
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
 
@@ -272,7 +272,7 @@ class TimeSeriesTransformer(nn.Module):
         time_window (int): The maximum length of the time window.
     """
 
-    dataset: SimpleDS  # TODO Make this a flax data class with limited
+    dataset: SimpleDS  # TODO Make this a flax data class with limited data
     d_model: int = 64
     n_heads: int = 4
     time_window: int = 10_000
