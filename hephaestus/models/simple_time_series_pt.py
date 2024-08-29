@@ -81,10 +81,10 @@ class SimpleDS(Dataset):
         self.token_dict = {token: i for i, token in enumerate(self.tokens)}
         self.token_decoder_dict = {i: token for i, token in enumerate(self.tokens)}
         self.n_tokens = len(self.tokens)
-        self.numeric_indices = jnp.array(
+        self.numeric_indices = torch.tensor(
             [self.tokens.index(i) for i in self.numeric_col_tokens]
         )
-        self.categorical_indices = jnp.array(
+        self.categorical_indices = torch.tensor(
             [self.tokens.index(i) for i in self.categorical_col_tokens]
         )
 
@@ -149,55 +149,57 @@ class SimpleDS(Dataset):
 
 
 class FeedForwardNetwork(nn.Module):
-    d_model: int
-    d_ff: int
-    dropout_rate: float
+    def __init__(self, d_model: int, d_ff: int, dropout_rate: float):
+        super().__init__()
+        self.linear1 = nn.Linear(d_model, d_ff)
+        self.dropout1 = nn.Dropout(dropout_rate)
+        self.linear2 = nn.Linear(d_ff, d_model)
+        self.dropout2 = nn.Dropout(dropout_rate)
 
-    @nn.compact
-    def __call__(self, x, deterministic: bool):
-        # Feed Forward Network
-        x = nn.Dense(self.d_ff)(x)
-        x = nn.relu(x)
-        x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)
-        x = nn.Dense(self.d_model)(x)
-        x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)
+    def forward(self, x, deterministic: bool = False):
+        x = self.linear1(x)
+        x = torch.relu(x)
+        x = self.dropout1(x) if not deterministic else x
+        x = self.linear2(x)
+        x = self.dropout2(x) if not deterministic else x
         return x
 
 
 class TransformerBlock(nn.Module):
-    num_heads: int
-    d_model: int
-    d_ff: int
-    dropout_rate: float
-
-    @nn.compact
-    def __call__(
+    def __init__(
         self,
-        q: jnp.array,
-        k: jnp.array,
-        v: jnp.array,
-        deterministic: bool,
-        mask: jnp.array = None,
+        d_model: int,
+        num_heads: int,
+        d_ff: int,
+        dropout_rate: float,
     ):
-        # Multi-head self-attention
-        # causal_mask = causal_mask = nn.make_causal_mask(q[:, :, :, 0])
+        super().__init__()
+        self.layernorm1 = nn.LayerNorm(d_model)
+        self.layernorm2 = nn.LayerNorm(d_model)
+        self.self_attention = nn.MultiheadAttention(
+            d_model, num_heads, dropout=dropout_rate
+        )
+        self.ffn = FeedForwardNetwork(d_model, d_ff, dropout_rate)
 
-        # Write out the jax array to a file for more debugging
-        ic("Query shapes 222222", q.shape, k.shape, v.shape)
-        attention = nn.MultiHeadDotProductAttention(
-            num_heads=self.num_heads,
-            qkv_features=self.d_model,
-            dropout_rate=self.dropout_rate,
-        )(q, k, v, deterministic=deterministic, mask=mask)
-        out = q + attention
-        out = nn.LayerNorm()(out)
-        # Feed Forward Network
-        ffn = FeedForwardNetwork(
-            d_model=self.d_model, d_ff=self.d_ff, dropout_rate=self.dropout_rate
-        )(out, deterministic=deterministic)
-        out = out + ffn
-        out = nn.LayerNorm()(out)
-        return out
+    def forward(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+        deterministic: bool = False,
+    ):
+        residual = q
+        q = self.layernorm1(q)
+        q, _ = self.self_attention(q, k, v, attn_mask=mask)
+        q += residual
+
+        residual = q
+        q = self.layernorm2(q)
+        q = self.ffn(q, deterministic=deterministic)
+        q += residual
+
+        return q
 
 
 class ReservoirEmbedding(nn.Module):
@@ -210,161 +212,115 @@ class ReservoirEmbedding(nn.Module):
         frozen_index (int, optional): The index of the embedding to freeze. Defaults to 0.
     """
 
-    dataset: SimpleDS
-    features: int
-    frozen_index: int = 0  # The index of the embedding to freeze
+    def __init__(self, dataset: SimpleDS, features: int):
+        super().__init__()
+        self.embedding = nn.Embedding(
+            dataset.n_tokens, features, freeze=True
+        )  # TODO is this needed?
 
-    @nn.compact
-    def __call__(self, base_indices: jnp.array):
-        """
-        Perform reservoir embedding on the given input.
-
-        Args:
-            base_indices (jnp.array): The base indices for embedding.
-
-        Returns:
-            jnp.array: The ultimate embedding after reservoir embedding.
-        """
-
-        embedding = self.param(
-            "embedding",
-            nn.initializers.normal(stddev=0.02),
-            (self.dataset.tokenizer.vocab_size, self.features),
-        )
-
-        # Create a mask for the frozen embedding
-        frozen_mask = jnp.arange(self.dataset.tokenizer.vocab_size) == self.frozen_index
-
-        # Set the frozen embedding to zero
-        frozen_embedding = jnp.where(frozen_mask[:, None], 0.0, embedding)
-
-        # Stop gradient for the frozen embedding
-        penultimate_embedding = stop_gradient(frozen_embedding) + jnp.where(
-            frozen_mask[:, None], 0.0, embedding - frozen_embedding
-        )
-        token_reservoir_lookup = self.dataset.reservoir_encoded
-        reservoir_indices = token_reservoir_lookup[base_indices]
-
-        ultimate_embedding = penultimate_embedding[reservoir_indices]
-        ultimate_embedding = jnp.sum(ultimate_embedding, axis=-2)
-
-        return ultimate_embedding
+    def forward(self, base_indices: torch.Tensor):
+        reservoir_encoded = self.embedding(base_indices)
+        return reservoir_encoded.sum(axis=2)
 
 
 class TimeSeriesTransformer(nn.Module):
-    """
-    Transformer-based model for time series data.
-
-    Args:
-        dataset (SimpleDS): The dataset object containing the time series data.
-        d_model (int, optional): The dimensionality of the model. Defaults to 64.
-        n_heads (int, optional): The number of attention heads. Defaults to 4.
-        time_window (int, optional): The maximum length of the time window. Defaults to 10000.
-
-    Methods:
-        __call__(self, numeric_inputs: jnp.array, deterministic: bool, mask_data: bool = True) -> jnp.array:
-            Applies the transformer model to the input time series data.
-
-    Attributes:
-        dataset (SimpleDS): The dataset object containing the time series data.
-        d_model (int): The dimensionality of the model.
-        n_heads (int): The number of attention heads.
-        time_window (int): The maximum length of the time window.
-    """
-
-    dataset: SimpleDS  # TODO Make this a flax data class with limited data
-    d_model: int = 64
-    n_heads: int = 4
-    time_window: int = 10_000
-
-    @nn.compact
-    def __call__(
+    def __init__(
         self,
-        numeric_inputs: Optional[jnp.array] = None,
-        categorical_inputs: Optional[jnp.array] = None,
-        deterministic: bool = False,
-        mask_data: bool = True,
+        dataset: SimpleDS,
+        d_model: int = 64,
+        n_heads: int = 4,
+        time_window: int = 10_000,
     ):
-        embedding = ReservoirEmbedding(
+        super().__init__()
+        self.dataset = dataset
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.time_window = time_window
+        self.embedding = ReservoirEmbedding(
             self.dataset,
             features=self.d_model,
         )
+        self.positional_encoding = PositionalEncoding(
+            max_len=self.time_window, d_pos_encoding=self.d_model
+        )
 
-        ########### NUMERIC INPUTS ###########
-        ic(numeric_inputs.shape)
-        nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
-        ic("Here Again???")
-        numeric_inputs = jnp.where(nan_mask, 0.0, numeric_inputs)
+    def forward(
+        self,
+        numeric_inputs,
+        categorical_inputs,
+        deterministic=False,
+        mask_data: bool = True,
+    ):
+        nan_mask = torch.isnan(numeric_inputs)
+        # replace nan with 0
+        numeric_inputs = torch.where(nan_mask, 0.0, numeric_inputs)
         # Cat Embedding
         if categorical_inputs is not None:
-            # Make sure nans are set to <NAN> token
-            categorical_inputs = jnp.where(
-                jnp.isnan(categorical_inputs),
-                jnp.array(self.dataset.token_dict["[NUMERIC_MASK]"]),
-                categorical_inputs,
+            categorical_inputs = torch.where(
+                torch.isnan(categorical_inputs),
+                torch.tensor(self.dataset.token_dict["[NUMERIC_MASK]"]),
             )
-            categorical_embeddings = embedding(categorical_inputs)
+            # Make sure nans are set to <NAN> token
+
+            categorical_embeddings = self.embedding(categorical_inputs)
 
         else:
             categorical_embeddings = None
 
         # Numeric Embedding
-        repeated_numeric_indices = jnp.tile(
-            self.dataset.numeric_indices, (numeric_inputs.shape[2], 1)
+        repeated_numeric_indices = self.dataset.numeric_indices.repeat(
+            numeric_inputs.shape[2], 1
         )
 
         # repeated_numeric_indices = jnp.swapaxes(repeated_numeric_indices, 0, 1)
         repeated_numeric_indices = repeated_numeric_indices.T
-        numeric_col_embeddings = embedding(repeated_numeric_indices)
+        numeric_col_embeddings = self.embedding(repeated_numeric_indices)
         # Nan Masking
-        numeric_col_embeddings = jnp.tile(
-            numeric_col_embeddings[None, :, :, :],
-            (numeric_inputs.shape[0], 1, 1, 1),
+        numeric_col_embeddings = numeric_col_embeddings.unsqueeze(0).expand(
+            numeric_inputs.shape[0], -1, -1, -1
         )
         if categorical_embeddings is not None:
-            repeated_categorical_indices = jnp.tile(
-                self.dataset.categorical_indices, (categorical_inputs.shape[2], 1)
-            )
+            repeated_categorical_indices = categorical_col_embeddings.unsqueeze(
+                0
+            ).expand(categorical_inputs.shape[0], -1, -1, -1)
+            # jnp.tile(
+            #     self.dataset.categorical_indices, (categorical_inputs.shape[2], 1)
+            # )
             repeated_categorical_indices = repeated_categorical_indices.T
-            categorical_col_embeddings = embedding(repeated_categorical_indices)
-            categorical_col_embeddings = jnp.tile(
-                categorical_col_embeddings[None, :, :, :],
-                (categorical_inputs.shape[0], 1, 1, 1),
+            categorical_col_embeddings = self.embedding(repeated_categorical_indices)
+            categorical_col_embeddings = categorical_col_embeddings.unsqueeze(0).expand(
+                categorical_inputs.shape[0], -1, -1, -1
             )
         else:
             categorical_col_embeddings = None
-        numeric_embedding = embedding(
-            jnp.array(self.dataset.token_dict[self.dataset.numeric_token])
+        numeric_embedding = self.embedding(
+            torch.tensor(self.dataset.token_dict[self.dataset.numeric_token])
         )
         numeric_broadcast = numeric_inputs[:, :, :, None] * numeric_embedding
 
-        numeric_broadcast = jnp.where(
+        numeric_broadcast = torch.where(
             # nan_mask,
             # jnp.expand_dims(nan_mask, axis=-1),
             nan_mask[:, :, :, None],
-            embedding(jnp.array(self.dataset.numeric_mask_token)),
+            self.embedding(torch.tensor(self.dataset.numeric_mask_token)),
             numeric_broadcast,
         )
         # End Nan Masking
         # ic(f"Nan values in out: {jnp.isnan(numeric_broadcast).any()}")
 
-        numeric_broadcast = PositionalEncoding(
-            max_len=self.time_window, d_pos_encoding=self.d_model
-        )(numeric_broadcast)
-        ic(numeric_broadcast.shape, numeric_col_embeddings.shape)
         # ic(f"Nan values in out positional: {jnp.isnan(numeric_broadcast).any()}")
         # ic("Starting Attention")
         # ic(numeric_broadcast.shape)
         if categorical_embeddings is not None:
-            tabular_data = jnp.concatenate(
-                [numeric_broadcast, categorical_embeddings], axis=1
+            tabular_data = torch.concatenate(
+                [numeric_broadcast, categorical_embeddings], dim=1
             )
         else:
             ic("No Categorical Embeddings")
             tabular_data = numeric_broadcast
         if categorical_embeddings is not None:
             ic("Masking for categorical data")
-            mask_input = jnp.concatenate([numeric_inputs, categorical_inputs], axis=1)
+            mask_input = torch.concatenate([numeric_inputs, categorical_inputs], dim=1)
 
         else:
             ic("No Masking for categorical data")
@@ -386,7 +342,7 @@ class TimeSeriesTransformer(nn.Module):
             ic("Concatenating Embeddings")
             ic(numeric_col_embeddings.shape, categorical_col_embeddings.shape)
             ic(numeric_col_embeddings.dtype, categorical_col_embeddings.dtype)
-            col_embeddings = jnp.concatenate(
+            col_embeddings = torch.concatenate(
                 [
                     numeric_col_embeddings,  # TODO Add categorical_col_embeddings
                     categorical_col_embeddings,
@@ -436,11 +392,11 @@ class SimplePred(nn.Module):
     @nn.compact
     def __call__(
         self,
-        numeric_inputs: jnp.array,
-        categorical_inputs: Optional[jnp.array] = None,
+        numeric_inputs: torch.tensor,
+        categorical_inputs: Optional[torch.tensor] = None,
         deterministic: bool = False,
         mask_data: bool = True,
-    ) -> jnp.array:
+    ) -> torch.tensor:
         """ """
         out = TimeSeriesTransformer(self.dataset, self.d_model, self.n_heads)(
             numeric_inputs=numeric_inputs,
@@ -555,7 +511,7 @@ class PositionalEncoding(nn.Module):
         ic("pe after transpose", pe.shape)
         # concatenate the positional encoding with the input
         result = x + pe
-        # result = jnp.concatenate([x, pe], axis=3)
+        # result = torch.concatenate([x, pe], axis=3)
         ic("PE Result shape", result.shape)
 
         # Add positional encoding to the input embedding
