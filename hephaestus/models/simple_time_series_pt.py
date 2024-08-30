@@ -1,5 +1,6 @@
 # %%
 # import jax
+import math
 import re
 from typing import Optional
 
@@ -36,6 +37,15 @@ def convert_object_to_int_tokens(df, token_dict):
     for col in df.select_dtypes(include="object").columns:
         df[col] = df[col].map(token_dict)
     return df
+
+
+def create_causal_mask(size):
+    mask = torch.triu(torch.ones(size, size), diagonal=1).bool()
+    return mask
+
+
+# def create_padding_mask(self, tensor, pad_idx=0):
+#     return (tensor == pad_idx).transpose(0, 1)
 
 
 class SimpleDS(Dataset):
@@ -177,7 +187,7 @@ class TransformerBlock(nn.Module):
         self.layernorm1 = nn.LayerNorm(d_model)
         self.layernorm2 = nn.LayerNorm(d_model)
         self.self_attention = nn.MultiheadAttention(
-            d_model, num_heads, dropout=dropout_rate
+            d_model, num_heads, dropout=dropout_rate, batch_first=True
         )
         self.ffn = FeedForwardNetwork(d_model, d_ff, dropout_rate)
 
@@ -214,13 +224,13 @@ class ReservoirEmbedding(nn.Module):
 
     def __init__(self, dataset: SimpleDS, features: int):
         super().__init__()
-        self.embedding = nn.Embedding(
-            dataset.n_tokens, features, freeze=True
-        )  # TODO is this needed?
+        self.embedding = nn.Embedding(dataset.n_tokens, features)
 
     def forward(self, base_indices: torch.Tensor):
+        ic(base_indices.shape)
         reservoir_encoded = self.embedding(base_indices)
-        return reservoir_encoded.sum(axis=2)
+        ic(reservoir_encoded.shape)
+        return reservoir_encoded  # .sum(axis=-1) # TODO Make this sum over sub dims
 
 
 class TimeSeriesTransformer(nn.Module):
@@ -241,7 +251,10 @@ class TimeSeriesTransformer(nn.Module):
             features=self.d_model,
         )
         self.positional_encoding = PositionalEncoding(
-            max_len=self.time_window, d_pos_encoding=self.d_model
+            max_len=self.time_window, d_model=self.d_model
+        )
+        self.transformer_block_1 = TransformerBlock(
+            d_model=self.d_model, num_heads=self.n_heads, d_ff=256, dropout_rate=0.1
         )
 
     def forward(
@@ -256,8 +269,8 @@ class TimeSeriesTransformer(nn.Module):
         numeric_inputs = torch.where(nan_mask, 0.0, numeric_inputs)
         # Cat Embedding
         if categorical_inputs is not None:
-            categorical_inputs = torch.where(
-                torch.isnan(categorical_inputs),
+            categorical_inputs = torch.nan_to_num(
+                categorical_inputs,
                 torch.tensor(self.dataset.token_dict["[NUMERIC_MASK]"]),
             )
             # Make sure nans are set to <NAN> token
@@ -268,34 +281,44 @@ class TimeSeriesTransformer(nn.Module):
             categorical_embeddings = None
 
         # Numeric Embedding
+        # repeated_numeric_indices
         repeated_numeric_indices = self.dataset.numeric_indices.repeat(
             numeric_inputs.shape[2], 1
         )
 
         # repeated_numeric_indices = jnp.swapaxes(repeated_numeric_indices, 0, 1)
         repeated_numeric_indices = repeated_numeric_indices.T
+        ic("Numeric Pre embedding", repeated_numeric_indices.shape)
         numeric_col_embeddings = self.embedding(repeated_numeric_indices)
+        ic("Numeric Post embedding", numeric_col_embeddings.shape)
         # Nan Masking
         numeric_col_embeddings = numeric_col_embeddings.unsqueeze(0).expand(
             numeric_inputs.shape[0], -1, -1, -1
         )
         if categorical_embeddings is not None:
+            categorical_col_embeddings = self.dataset.categorical_indices.repeat(
+                categorical_inputs.shape[2], 1
+            )
+            # Delete second dimension as it's empty
+
             repeated_categorical_indices = categorical_col_embeddings.unsqueeze(
                 0
             ).expand(categorical_inputs.shape[0], -1, -1, -1)
-            # jnp.tile(
-            #     self.dataset.categorical_indices, (categorical_inputs.shape[2], 1)
-            # )
-            repeated_categorical_indices = repeated_categorical_indices.T
+            repeated_categorical_indices = repeated_categorical_indices.mT
+            ic("Categorical Pre embedding", repeated_categorical_indices.shape)
             categorical_col_embeddings = self.embedding(repeated_categorical_indices)
-            categorical_col_embeddings = categorical_col_embeddings.unsqueeze(0).expand(
-                categorical_inputs.shape[0], -1, -1, -1
-            )
+            ic("Categorical Post embedding", categorical_col_embeddings.shape)
+            # categorical_col_embeddings = categorical_col_embeddings.unsqueeze(0).expand(
+            #     categorical_inputs.shape[0], -1, -1, -1
+            # )
         else:
             categorical_col_embeddings = None
-        numeric_embedding = self.embedding(
-            torch.tensor(self.dataset.token_dict[self.dataset.numeric_token])
+        numeric_col_tokens = torch.tensor(
+            self.dataset.token_dict[self.dataset.numeric_token]
         )
+        ic("Col tokens", numeric_col_tokens.shape)
+        numeric_embedding = self.embedding(numeric_col_tokens)
+
         numeric_broadcast = numeric_inputs[:, :, :, None] * numeric_embedding
 
         numeric_broadcast = torch.where(
@@ -312,6 +335,10 @@ class TimeSeriesTransformer(nn.Module):
         # ic("Starting Attention")
         # ic(numeric_broadcast.shape)
         if categorical_embeddings is not None:
+            ic(numeric_broadcast.shape, categorical_embeddings.shape)
+            ic("Categorical Pre Squueze", categorical_col_embeddings.shape)
+            categorical_col_embeddings = torch.squeeze(categorical_col_embeddings, 1)
+            ic("Categorical Post Squeeze", categorical_col_embeddings.shape)
             tabular_data = torch.concatenate(
                 [numeric_broadcast, categorical_embeddings], dim=1
             )
@@ -327,11 +354,12 @@ class TimeSeriesTransformer(nn.Module):
             mask_input = numeric_inputs
         ic(mask_input.shape)
         if mask_data:
-            causal_mask = nn.make_causal_mask(mask_input)
-            pad_mask = nn.make_attention_mask(
-                mask_input, mask_input
-            )  # TODO Add in the mask for the categorical data
-            mask = nn.combine_masks(causal_mask, pad_mask)
+            mask = create_causal_mask(mask_input.shape[1])
+            # causal_mask = nn.make_causal_mask(mask_input)
+            # pad_mask = nn.make_attention_mask(
+            #     mask_input, mask_input
+            # )  # TODO Add in the mask for the categorical data
+            # mask = nn.combine_masks(causal_mask, pad_mask)
             ic(mask.shape)
         else:
             mask = None
@@ -351,171 +379,53 @@ class TimeSeriesTransformer(nn.Module):
             )
         else:
             col_embeddings = numeric_col_embeddings
-        out = TransformerBlock(
-            d_model=self.d_model + pos_dim,  # TODO add pos_dim to call/init
-            num_heads=self.n_heads,
-            d_ff=64,
-            dropout_rate=0.1,
-            name="TransformerBlock_Initial",
-        )(
-            q=tabular_data,
-            k=col_embeddings,
-            v=tabular_data,  # TODO differentiate this
-            deterministic=deterministic,
-            mask=mask,
-        )
-        for i in range(3):
-            out = TransformerBlock(
-                d_model=self.d_model + pos_dim,  # TODO Make this more elegant
-                num_heads=self.n_heads,
-                d_ff=64,
-                dropout_rate=0.1,
-                name=f"TransformerBlock_{i}",
-            )(
-                q=out,
-                k=col_embeddings,
-                v=out,
-                deterministic=deterministic,
-                mask=mask,
-            )
 
-        # ic(f"Nan values in in out 2nd mha: {jnp.isnan(out).any()}")
-
+        out = self.transformer_block_1(q=tabular_data, k=col_embeddings, v=tabular_data)
         return out
 
 
 class SimplePred(nn.Module):
-    dataset: SimpleDS
-    d_model: int = 64 * 10
-    n_heads: int = 4
+    def __init__(self, dataset: SimpleDS, d_model: int, n_heads: int):
+        super().__init__()
+        self.dataset = dataset
+        self.d_model = d_model
+        self.n_heads = n_heads
 
-    @nn.compact
-    def __call__(
-        self,
-        numeric_inputs: torch.tensor,
-        categorical_inputs: Optional[torch.tensor] = None,
-        deterministic: bool = False,
-        mask_data: bool = True,
-    ) -> torch.tensor:
-        """ """
+    def forward(
+        self, numeric_inputs, categorical_inputs, deterministic=False, mask_data=True
+    ):
         out = TimeSeriesTransformer(self.dataset, self.d_model, self.n_heads)(
             numeric_inputs=numeric_inputs,
-            categorical_inputs=jnp.astype(categorical_inputs, jnp.int32),
+            categorical_inputs=categorical_inputs,
             deterministic=deterministic,
-            mask_data=mask_data,
         )
         ic(out.shape)
-        ic(f"Nan values in simplePred out 1: {jnp.isnan(out).any()}")
+        ic(f"Nan values in simplePred out 1: {torch.isnan(out).any()}")
         numeric_out = out.swapaxes(1, 2)
         numeric_out = numeric_out.reshape(
             numeric_out.shape[0], numeric_out.shape[1], -1
-        )  # TODO This is wrong. Make this
-        #  TODO WORK HERE!!!!! be of shape (batch_size, )
-        ic(numeric_out.shape, out.shape)
-        numeric_out = nn.Sequential(
-            [
-                nn.Dense(name="RegressionDense1", features=self.d_model * 2),
-                nn.relu,
-                nn.Dense(
-                    name="RegressionDense2", features=len(self.dataset.numeric_indices)
-                ),
-            ],
-            name="RegressionOutputChain",
-        )(numeric_out)
-        numeric_out = numeric_out.swapaxes(1, 2)
-
-        if categorical_inputs is not None:
-            ic("has categorical inputs", out.shape)
-            categorical_out = out.swapaxes(1, 2)
-            ic("After swap", categorical_out.shape)
-            categorical_out = categorical_out.reshape(
-                categorical_out.shape[0], categorical_out.shape[1], -1
-            )
-            ic("After reshape", categorical_out.shape)
-
-            categorical_out = nn.Sequential(
-                [
-                    nn.Dense(name="CategoricalDense1", features=self.d_model * 2),
-                    nn.relu,
-                    nn.Dense(
-                        name="CategoricalDense2",
-                        features=len(self.dataset.categorical_indices),
-                    ),
-                ],
-                name="CategoricalOutputChain",
-            )(categorical_out)
-            ic(numeric_out.shape, categorical_out.shape)
-            categorical_out = categorical_out.swapaxes(1, 2)
-            ic("after swap", numeric_out.shape, categorical_out.shape)
-            return {"numeric_out": numeric_out, "categorical_out": categorical_out}
-        else:
-            ic("No categorical inputs")
-            ic(numeric_out.shape)
-            return {"numeric_out": numeric_out, "categorical_out": None}
-
-        # ic(f"Penultimate Simple OUT: {numeric_out.shape}, {categorical_out.shape}")
-        # numeric_out = jnp.squeeze(numeric_out, axis=-1)
-        # categorical_out = jnp.squeeze(categorical_out, axis=-1)
-
-        # out = jnp.reshape(out, (out.shape[0], -1))
-        # ic(f"Final Simple OUT: {numeric_out.shape}, {categorical_out.shape}")
-        # out = nn.Dense(name="RegressionFlatten", features=16)(out)
+        )
 
 
 class PositionalEncoding(nn.Module):
-    """
-    PositionalEncoding module using @nn.compact. This module injects information
-    about the relative or absolute position of the tokens in the sequence.
-    The positional encodings have the same dimension as the embeddings, so that
-    the two can be summed. This allows the model to learn the relative positions
-    of tokens within the sequence.
-    """
 
-    max_len: int  # Maximum length of the input sequences
-    d_pos_encoding: int  # Dimensionality of the embeddings/inputs
+    def __init__(self, d_model, dropout=0.1, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
 
-    @nn.compact
-    def __call__(self, x):
-        """
-        Forward pass of the positional encoding. Concatenates positional encoding to
-        the input.
-
-        Args:
-            x: Input data. Shape: (batch_size, seq_len, d_model)
-
-        Returns:
-            Output with positional encoding added. Shape: (batch_size, seq_len, d_model)
-        """
-        n_epochs, n_columns, seq_len, _ = x.shape
-        if seq_len > self.max_len:
-            raise ValueError(
-                f"Sequence length {seq_len} is larger than the",
-                f"maximum length {self.max_len}",
-            )
-
-        # Calculate positional encoding
-        position = jnp.arange(self.max_len)[:, jnp.newaxis]
-        div_term = jnp.exp(
-            jnp.arange(0, self.d_pos_encoding, 2)
-            * -(jnp.log(10000.0) / self.d_pos_encoding)
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)
         )
-        pe = jnp.zeros((self.max_len, self.d_pos_encoding))
-        pe = pe.at[:, 0::2].set(jnp.sin(position * div_term))
-        pe = pe.at[:, 1::2].set(jnp.cos(position * div_term))
-        pe = pe[:seq_len, :]
-        pe = pe[None, :, :, None]
-        ic("pe before tiling", pe.shape)
-        pe = jnp.tile(pe, (n_epochs, 1, 1, n_columns))
-        ic("pe after tiling", pe.shape)
-        pe = pe.transpose((0, 3, 1, 2))  #
-        ic("pe after transpose", pe.shape)
-        # concatenate the positional encoding with the input
-        result = x + pe
-        # result = torch.concatenate([x, pe], axis=3)
-        ic("PE Result shape", result.shape)
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).transpose(0, 1)
+        self.register_buffer("pe", pe)
 
-        # Add positional encoding to the input embedding
-        return result
+    def forward(self, x):
+        x = x + self.pe[: x.size(0), :]
+        return self.dropout(x)
 
 
 # %%
