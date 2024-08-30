@@ -297,7 +297,12 @@ class PositionalEncoding(nn.Module):
 
     def forward(self, x):
         ic(x.shape, self.encoding.shape)
-        return x + self.encoding[:, : x.size(1)].to(x.device)
+        # Reshape x to combine batch and feature dimensions
+        x_reshaped = x.view(-1, x.size(2), x.size(3))
+        # Add positional encoding
+        x_encoded = x_reshaped + self.encoding[:, : x_reshaped.size(1)].to(x.device)
+        # Reshape back to original dimensions
+        return x_encoded.view(x.size())
 
 
 class TransformerBlock(nn.Module):
