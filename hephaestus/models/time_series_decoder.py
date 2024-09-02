@@ -290,9 +290,9 @@ class TimeSeriesTransformer(nn.Module):
         )
 
         ########### NUMERIC INPUTS ###########
-        ic(numeric_inputs.shape)
+
         nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
-        ic("Here Again???")
+
         numeric_inputs = jnp.where(nan_mask, 0.0, numeric_inputs)
         # Cat Embedding
         if categorical_inputs is not None:
@@ -345,46 +345,43 @@ class TimeSeriesTransformer(nn.Module):
             numeric_broadcast,
         )
         # End Nan Masking
-        # ic(f"Nan values in out: {jnp.isnan(numeric_broadcast).any()}")
+        #
 
         numeric_broadcast = PositionalEncoding(
             max_len=self.time_window, d_pos_encoding=self.d_model
         )(numeric_broadcast)
-        ic(numeric_broadcast.shape, numeric_col_embeddings.shape)
-        # ic(f"Nan values in out positional: {jnp.isnan(numeric_broadcast).any()}")
-        # ic("Starting Attention")
-        # ic(numeric_broadcast.shape)
+
+        #
+        #
+        #
         if categorical_embeddings is not None:
             tabular_data = jnp.concatenate(
                 [numeric_broadcast, categorical_embeddings], axis=1
             )
         else:
-            ic("No Categorical Embeddings")
+
             tabular_data = numeric_broadcast
         if categorical_embeddings is not None:
-            ic("Masking for categorical data")
+
             mask_input = jnp.concatenate([numeric_inputs, categorical_inputs], axis=1)
 
         else:
-            ic("No Masking for categorical data")
+
             mask_input = numeric_inputs
-        ic(mask_input.shape)
+
         if mask_data:
             causal_mask = nn.make_causal_mask(mask_input)
             pad_mask = nn.make_attention_mask(
                 mask_input, mask_input
             )  # TODO Add in the mask for the categorical data
             mask = nn.combine_masks(causal_mask, pad_mask)
-            ic(mask.shape)
+
         else:
             mask = None
         pos_dim = 0  # 2048
-        ic(tabular_data.shape, numeric_col_embeddings.shape)
 
         if categorical_embeddings is not None:
-            ic("Concatenating Embeddings")
-            ic(numeric_col_embeddings.shape, categorical_col_embeddings.shape)
-            ic(numeric_col_embeddings.dtype, categorical_col_embeddings.dtype)
+
             col_embeddings = jnp.concatenate(
                 [
                     numeric_col_embeddings,  # TODO Add categorical_col_embeddings
@@ -422,7 +419,7 @@ class TimeSeriesTransformer(nn.Module):
                 mask=mask,
             )
 
-        # ic(f"Nan values in in out 2nd mha: {jnp.isnan(out).any()}")
+        #
 
         return out
 
@@ -447,13 +444,13 @@ class SimplePred(nn.Module):
             deterministic=deterministic,
             mask_data=mask_data,
         )
-        ic(out.shape)
+
         numeric_out = out.swapaxes(1, 2)
         numeric_out = numeric_out.reshape(
             numeric_out.shape[0], numeric_out.shape[1], -1
         )  # TODO This is wrong. Make this
         #  TODO WORK HERE!!!!! be of shape (batch_size, )
-        ic(numeric_out.shape, out.shape)
+
         numeric_out = nn.Sequential(
             [
                 nn.Dense(name="RegressionDense1", features=self.d_model * 2),
@@ -467,34 +464,33 @@ class SimplePred(nn.Module):
         numeric_out = numeric_out.swapaxes(1, 2)
 
         if categorical_inputs is not None:
-            ic("has categorical inputs", out.shape)
+
             # categorical_out = out.swapaxes(1, 2)
             categorical_out = out.copy()
             # categorical_out = categorical_out.reshape(
             #     categorical_out.shape[0], categorical_out.shape[1], -1
             # )
-            ic("Categorical out shape", categorical_out.shape)
+
             categorical_out = nn.Dense(
                 name="CategoricalDense1",
                 features=len(self.dataset.token_decoder_dict.items()),
             )(categorical_out)
-            ic(categorical_out.shape)
+
             categorical_out = nn.relu(categorical_out)
-            ic(categorical_out.shape)
+
             categorical_out = categorical_out.swapaxes(1, 3)
-            ic(categorical_out.shape)
+
             categorical_out = nn.Dense(
                 name="CategoricalDense2",
                 features=len(self.dataset.categorical_col_tokens),
             )(categorical_out)
-            ic(categorical_out.shape)
+
             categorical_out = categorical_out.swapaxes(1, 3)
-            ic(categorical_out.shape)
+
         else:
-            ic("No categorical inputs")
+
             categorical_out = None
 
-        ic(numeric_out.shape)
         return {"numeric_out": numeric_out, "categorical_out": categorical_out}
 
 
@@ -540,15 +536,14 @@ class PositionalEncoding(nn.Module):
         pe = pe.at[:, 1::2].set(jnp.cos(position * div_term))
         pe = pe[:seq_len, :]
         pe = pe[None, :, :, None]
-        ic("pe before tiling", pe.shape)
+
         pe = jnp.tile(pe, (n_epochs, 1, 1, n_columns))
-        ic("pe after tiling", pe.shape)
+
         pe = pe.transpose((0, 3, 1, 2))  #
-        ic("pe after transpose", pe.shape)
+
         # concatenate the positional encoding with the input
         result = x + pe
         # result = jnp.concatenate([x, pe], axis=3)
-        ic("PE Result shape", result.shape)
 
         # Add positional encoding to the input embedding
         return result
