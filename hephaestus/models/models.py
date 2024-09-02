@@ -132,7 +132,9 @@ class TimeSeriesTransformerModel(nn.Module):
             n_heads=self.n_heads,
             d_ff=self.d_model * 4,
             dropout_rate=0.1,
-        )(q=out, k=out, v=out)  # Check if we should reuse the col embeddings here
+        )(
+            q=out, k=out, v=out
+        )  # Check if we should reuse the col embeddings here
         # print(f"Second MHA out shape: {out.shape}")
         print(f"here1 {out.shape}")
         return out

@@ -449,7 +449,6 @@ class SimplePred(nn.Module):
             mask_data=mask_data,
         )
         ic(out.shape)
-        ic(f"Nan values in simplePred out 1: {jnp.isnan(out).any()}")
         numeric_out = out.swapaxes(1, 2)
         numeric_out = numeric_out.reshape(
             numeric_out.shape[0], numeric_out.shape[1], -1
@@ -471,39 +470,38 @@ class SimplePred(nn.Module):
         if categorical_inputs is not None:
             ic("has categorical inputs", out.shape)
             categorical_out = out.swapaxes(1, 2)
-            ic("After swap", categorical_out.shape)
             categorical_out = categorical_out.reshape(
                 categorical_out.shape[0], categorical_out.shape[1], -1
             )
-            ic("After reshape", categorical_out.shape)
-
+            ic("Categorical out shape", categorical_out.shape)
             categorical_out = nn.Sequential(
                 [
-                    nn.Dense(name="CategoricalDense1", features=self.d_model * 2),
+                    nn.Dense(
+                        name="CategoricalDense1",
+                        features=len(self.dataset.numeric_col_tokens),
+                    ),
                     nn.relu,
                     nn.Dense(
                         name="CategoricalDense2",
                         features=len(self.dataset.categorical_indices),
                     ),
-                ],
-                name="CategoricalOutputChain",
+                ]
             )(categorical_out)
-            ic(numeric_out.shape, categorical_out.shape)
+            ic("Virgin shape", categorical_out.shape)
             categorical_out = categorical_out.swapaxes(1, 2)
-            ic("after swap", numeric_out.shape, categorical_out.shape)
-            return {"numeric_out": numeric_out, "categorical_out": categorical_out}
+            ic("Swapped shape", categorical_out.shape)
+            # categorical_out = categorical_out.astype(jnp.int32)
+            # categorical_out = jnp.transpose(categorical_out, (0, 3, 2, 1))
+            # ic("Transposed shape", categorical_out.shape)
+            # categorical_out = categorical_out[:, :, :, :, 0]
+            # ic("Final shape", categorical_out.shape)
+            ic("HERE MOTHER FUCKER")
         else:
             ic("No categorical inputs")
-            ic(numeric_out.shape)
-            return {"numeric_out": numeric_out, "categorical_out": None}
+            categorical_out = None
 
-        # ic(f"Penultimate Simple OUT: {numeric_out.shape}, {categorical_out.shape}")
-        # numeric_out = jnp.squeeze(numeric_out, axis=-1)
-        # categorical_out = jnp.squeeze(categorical_out, axis=-1)
-
-        # out = jnp.reshape(out, (out.shape[0], -1))
-        # ic(f"Final Simple OUT: {numeric_out.shape}, {categorical_out.shape}")
-        # out = nn.Dense(name="RegressionFlatten", features=16)(out)
+        ic(numeric_out.shape)
+        return {"numeric_out": numeric_out, "categorical_out": categorical_out}
 
 
 class PositionalEncoding(nn.Module):
