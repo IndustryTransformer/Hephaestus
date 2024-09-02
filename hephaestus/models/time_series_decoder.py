@@ -469,33 +469,28 @@ class SimplePred(nn.Module):
 
         if categorical_inputs is not None:
             ic("has categorical inputs", out.shape)
-            categorical_out = out.swapaxes(1, 2)
-            categorical_out = categorical_out.reshape(
-                categorical_out.shape[0], categorical_out.shape[1], -1
-            )
+            # categorical_out = out.swapaxes(1, 2)
+            categorical_out = out.copy()
+            # categorical_out = categorical_out.reshape(
+            #     categorical_out.shape[0], categorical_out.shape[1], -1
+            # )
             ic("Categorical out shape", categorical_out.shape)
-            categorical_out = nn.Sequential(
-                [
-                    nn.Dense(
-                        name="CategoricalDense1",
-                        features=len(self.dataset.numeric_col_tokens),
-                    ),
-                    nn.relu,
-                    nn.Dense(
-                        name="CategoricalDense2",
-                        features=len(self.dataset.categorical_indices),
-                    ),
-                ]
+            categorical_out = nn.Dense(
+                name="CategoricalDense1",
+                features=len(self.dataset.token_decoder_dict.items()),
             )(categorical_out)
-            ic("Virgin shape", categorical_out.shape)
-            categorical_out = categorical_out.swapaxes(1, 2)
-            ic("Swapped shape", categorical_out.shape)
-            # categorical_out = categorical_out.astype(jnp.int32)
-            # categorical_out = jnp.transpose(categorical_out, (0, 3, 2, 1))
-            # ic("Transposed shape", categorical_out.shape)
-            # categorical_out = categorical_out[:, :, :, :, 0]
-            # ic("Final shape", categorical_out.shape)
-            ic("HERE MOTHER FUCKER")
+            ic(categorical_out.shape)
+            categorical_out = nn.relu(categorical_out)
+            ic(categorical_out.shape)
+            categorical_out = categorical_out.swapaxes(1, 3)
+            ic(categorical_out.shape)
+            categorical_out = nn.Dense(
+                name="CategoricalDense2",
+                features=len(self.dataset.categorical_col_tokens),
+            )(categorical_out)
+            ic(categorical_out.shape)
+            categorical_out = categorical_out.swapaxes(1, 3)
+            ic(categorical_out.shape)
         else:
             ic("No categorical inputs")
             categorical_out = None
