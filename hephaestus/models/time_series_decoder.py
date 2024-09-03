@@ -391,22 +391,16 @@ class TimeSeriesTransformer(nn.Module):
         numeric_broadcast = numeric_inputs[:, :, :, None] * numeric_embedding
 
         numeric_broadcast = jnp.where(
-            # nan_mask,
-            # jnp.expand_dims(nan_mask, axis=-1),
             nan_mask[:, :, :, None],
             embedding(jnp.array(self.config.numeric_mask_token)),
             numeric_broadcast,
         )
         # End Nan Masking
-        #
 
         numeric_broadcast = PositionalEncoding(
             max_len=self.time_window, d_pos_encoding=self.d_model
         )(numeric_broadcast)
 
-        #
-        #
-        #
         if categorical_embeddings is not None:
             tabular_data = jnp.concatenate(
                 [numeric_broadcast, categorical_embeddings], axis=1
@@ -431,7 +425,7 @@ class TimeSeriesTransformer(nn.Module):
 
         else:
             mask = None
-        pos_dim = 0  # 2048
+        pos_dim = 0
 
         if categorical_embeddings is not None:
 
@@ -471,8 +465,6 @@ class TimeSeriesTransformer(nn.Module):
                 deterministic=deterministic,
                 mask=mask,
             )
-
-        #
 
         return out
 
@@ -518,12 +510,7 @@ class SimplePred(nn.Module):
 
         if categorical_inputs is not None:
 
-            # categorical_out = out.swapaxes(1, 2)
             categorical_out = out.copy()
-            # categorical_out = categorical_out.reshape(
-            #     categorical_out.shape[0], categorical_out.shape[1], -1
-            # )
-
             categorical_out = nn.Dense(
                 name="CategoricalDense1",
                 features=len(self.config.token_decoder_dict.items()),
@@ -594,11 +581,8 @@ class PositionalEncoding(nn.Module):
 
         pe = pe.transpose((0, 3, 1, 2))  #
 
-        # concatenate the positional encoding with the input
         result = x + pe
-        # result = jnp.concatenate([x, pe], axis=3)
 
-        # Add positional encoding to the input embedding
         return result
 
 
