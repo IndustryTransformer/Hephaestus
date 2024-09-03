@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 import pandas as pd
 from flax import linen as nn
+from flax.struct import dataclass
 from icecream import ic
 from jax.lax import stop_gradient
 from torch.utils.data import Dataset
@@ -38,69 +39,94 @@ def convert_object_to_int_tokens(df, token_dict):
     return df
 
 
-class SimpleDS(Dataset):
-    def __init__(self, df):
-        # Add nan padding to make sure all sequences are the same length
-        # use the idx column to group by
-        self.max_seq_len = df.groupby("idx").count().time_step.max()
+@dataclass
+class TimeSeriesConfig:
+    numeric_token: str = None
+    numeric_mask: str = None
+    numeric_col_tokens: list = None
+    categorical_col_tokens: list = None
+    tokens: list = None
+    token_dict: dict = None
+    token_decoder_dict: dict = None
+    n_tokens: int = None
+    numeric_indices: jnp.array = None
+    categorical_indices: jnp.array = None
+    object_tokens: list = None
+    numeric_mask_token: int = None
+    reservoir_vocab: list = None
+    reservoir_encoded: jnp.array = None
+    tokenizer: AutoTokenizer = None
+
+    @classmethod
+    def generate(cls, df: pd.DataFrame) -> "TimeSeriesConfig":
+        max_seq_len = df.groupby("idx").count().time_step.max()
         # Set df.idx to start from 0
         df.idx = df.idx - df.idx.min()
         df = df.set_index("idx")
         df.index.name = None
 
-        self.df_categorical = df.select_dtypes(include=["object"]).astype(str)
-        self.df_numeric = df.select_dtypes(include="number")
-        self.batch_size = self.max_seq_len
-        self.numeric_token = "[NUMERIC_EMBEDDING]"
-        self.special_tokens = [
+        df_categorical = df.select_dtypes(include=["object"]).astype(str)
+        numeric_token = "[NUMERIC_EMBEDDING]"
+        cls_dict = {}
+        cls_dict["numeric_token"] = numeric_token
+        special_tokens = [
             "[PAD]",
             "[NUMERIC_MASK]",
             "[MASK]",
             "[UNK]",
-            self.numeric_token,
+            numeric_token,
         ]
-        self.numeric_mask = "[NUMERIC_MASK]"
+        cls_dict["numeric_mask"] = "[NUMERIC_MASK]"
+        numeric_mask = cls_dict["numeric_mask"]
         # Remove check on idx
-        self.numeric_col_tokens = [
+        cls_dict["numeric_col_tokens"] = [
             col_name for col_name in df.select_dtypes(include="number").columns
         ]
-        self.categorical_col_tokens = [
+        cls_dict["categorical_col_tokens"] = [
             col_name for col_name in df.select_dtypes(include="object").columns
         ]
         # Get all the unique values in the categorical columns and add them to the tokens
-        self.object_tokens = (
-            self.df_categorical.apply(pd.Series.unique).values.flatten().tolist()
+        cls_dict["object_tokens"] = (
+            df_categorical.apply(pd.Series.unique).values.flatten().tolist()
         )
-        self.tokens = (
-            self.special_tokens
-            + self.numeric_col_tokens
-            + self.object_tokens
-            + self.categorical_col_tokens
+        cls_dict["tokens"] = (
+            special_tokens
+            + cls_dict["numeric_col_tokens"]
+            + cls_dict["object_tokens"]
+            + cls_dict["categorical_col_tokens"]
         )
+        tokens = cls_dict["tokens"]
+        numeric_col_tokens = cls_dict["numeric_col_tokens"]
+        categorical_col_tokens = cls_dict["categorical_col_tokens"]
 
-        self.token_dict = {token: i for i, token in enumerate(self.tokens)}
-        self.token_decoder_dict = {i: token for i, token in enumerate(self.tokens)}
-        self.n_tokens = len(self.tokens)
-        self.numeric_indices = jnp.array(
-            [self.tokens.index(i) for i in self.numeric_col_tokens]
+        token_dict = {token: i for i, token in enumerate(tokens)}
+        cls_dict["token_dict"] = token_dict
+        token_decoder_dict = {i: token for i, token in enumerate(tokens)}
+        cls_dict["token_decoder_dict"] = token_decoder_dict
+        n_tokens = len(cls_dict["tokens"])
+        cls_dict["n_tokens"] = n_tokens
+        numeric_indices = jnp.array([tokens.index(i) for i in numeric_col_tokens])
+        cls_dict["numeric_indices"] = numeric_indices
+        categorical_indices = jnp.array(
+            [tokens.index(i) for i in categorical_col_tokens]
         )
-        self.categorical_indices = jnp.array(
-            [self.tokens.index(i) for i in self.categorical_col_tokens]
-        )
+        cls_dict["categorical_indices"] = categorical_indices
 
-        self.numeric_mask_token = self.tokens.index(self.numeric_mask)
+        numeric_mask_token = tokens.index(numeric_mask)
+        cls_dict["numeric_mask_token"] = numeric_mask_token
         # Make custom vocab by splitting on snake case, camel case, spaces and numbers
-        reservoir_vocab = [split_complex_word(word) for word in self.token_dict.keys()]
+        reservoir_vocab = [split_complex_word(word) for word in token_dict.keys()]
         # flatten the list, make a set and then list again
-        self.reservoir_vocab = list(
+        reservoir_vocab = list(
             set([item for sublist in reservoir_vocab for item in sublist])
         )
         # Get reservoir embedding tokens
         reservoir_tokens_list = [
-            self.token_decoder_dict[i] for i in range(len(self.token_decoder_dict))
+            token_decoder_dict[i] for i in range(len(token_decoder_dict))
         ]  # ensures they are in the same order
-        self.tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
-        self.reservoir_encoded = self.tokenizer(
+        tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+        cls_dict["tokenizer"] = tokenizer
+        reservoir_encoded = tokenizer(
             reservoir_tokens_list,
             padding="max_length",
             max_length=8,  # TODO Make this dynamic
@@ -110,10 +136,37 @@ class SimpleDS(Dataset):
         )[
             "input_ids"
         ]  # TODO make this custom to reduce dictionary size
+        cls_dict["reservoir_encoded"] = reservoir_encoded
+        cls_dict["reservoir_vocab"] = reservoir_vocab
 
+        df_categorical = convert_object_to_int_tokens(df_categorical, token_dict)
+
+        return cls(**cls_dict)
+
+
+class TimeSeriesDS(Dataset):
+    def __init__(self, df: pd.DataFrame, config: TimeSeriesConfig):
+        # Add nan padding to make sure all sequences are the same length
+        # use the idx column to group by
+        self.max_seq_len = df.groupby("idx").count().time_step.max()
+        # Set df.idx to start from 0
+        df.idx = df.idx - df.idx.min()
+        df = df.set_index("idx")
+        df.index.name = None
+
+        def convert_object_to_int_tokens(df, token_dict):
+            """Converts object columns to integer tokens using a token dictionary."""
+            df = df.copy()
+            for col in df.select_dtypes(include="object").columns:
+                df[col] = df[col].map(token_dict)
+            return df
+
+        self.df_categorical = df.select_dtypes(include=["object"]).astype(str)
         self.df_categorical = convert_object_to_int_tokens(
-            self.df_categorical, self.token_dict
+            self.df_categorical, config.token_dict
         )
+        self.df_numeric = df.select_dtypes(include="number")
+        self.batch_size = self.max_seq_len
 
     def __len__(self):
         # return self.df.idx.max() + 1  # probably should be max idx + 1 thanks
@@ -209,7 +262,7 @@ class ReservoirEmbedding(nn.Module):
         frozen_index (int, optional): The index of the embedding to freeze. Defaults to 0.
     """
 
-    dataset: SimpleDS
+    config: TimeSeriesConfig
     features: int
     frozen_index: int = 0  # The index of the embedding to freeze
 
@@ -228,11 +281,11 @@ class ReservoirEmbedding(nn.Module):
         embedding = self.param(
             "embedding",
             nn.initializers.normal(stddev=0.02),
-            (self.dataset.tokenizer.vocab_size, self.features),
+            (self.config.tokenizer.vocab_size, self.features),
         )
 
         # Create a mask for the frozen embedding
-        frozen_mask = jnp.arange(self.dataset.tokenizer.vocab_size) == self.frozen_index
+        frozen_mask = jnp.arange(self.config.tokenizer.vocab_size) == self.frozen_index
 
         # Set the frozen embedding to zero
         frozen_embedding = jnp.where(frozen_mask[:, None], 0.0, embedding)
@@ -241,7 +294,7 @@ class ReservoirEmbedding(nn.Module):
         penultimate_embedding = stop_gradient(frozen_embedding) + jnp.where(
             frozen_mask[:, None], 0.0, embedding - frozen_embedding
         )
-        token_reservoir_lookup = self.dataset.reservoir_encoded
+        token_reservoir_lookup = self.config.reservoir_encoded
         reservoir_indices = token_reservoir_lookup[base_indices]
 
         ultimate_embedding = penultimate_embedding[reservoir_indices]
@@ -271,7 +324,7 @@ class TimeSeriesTransformer(nn.Module):
         time_window (int): The maximum length of the time window.
     """
 
-    dataset: SimpleDS  # TODO Make this a flax data class with limited
+    config: TimeSeriesConfig  # TODO Make this a flax data class with limited
     d_model: int = 64
     n_heads: int = 4
     time_window: int = 10_000
@@ -285,7 +338,7 @@ class TimeSeriesTransformer(nn.Module):
         mask_data: bool = True,
     ):
         embedding = ReservoirEmbedding(
-            self.dataset,
+            self.config,
             features=self.d_model,
         )
 
@@ -299,7 +352,7 @@ class TimeSeriesTransformer(nn.Module):
             # Make sure nans are set to <NAN> token
             categorical_inputs = jnp.where(
                 jnp.isnan(categorical_inputs),
-                jnp.array(self.dataset.token_dict["[NUMERIC_MASK]"]),
+                jnp.array(self.config.token_dict["[NUMERIC_MASK]"]),
                 categorical_inputs,
             )
             categorical_embeddings = embedding(categorical_inputs)
@@ -309,7 +362,7 @@ class TimeSeriesTransformer(nn.Module):
 
         # Numeric Embedding
         repeated_numeric_indices = jnp.tile(
-            self.dataset.numeric_indices, (numeric_inputs.shape[2], 1)
+            self.config.numeric_indices, (numeric_inputs.shape[2], 1)
         )
 
         # repeated_numeric_indices = jnp.swapaxes(repeated_numeric_indices, 0, 1)
@@ -322,7 +375,7 @@ class TimeSeriesTransformer(nn.Module):
         )
         if categorical_embeddings is not None:
             repeated_categorical_indices = jnp.tile(
-                self.dataset.categorical_indices, (categorical_inputs.shape[2], 1)
+                self.config.categorical_indices, (categorical_inputs.shape[2], 1)
             )
             repeated_categorical_indices = repeated_categorical_indices.T
             categorical_col_embeddings = embedding(repeated_categorical_indices)
@@ -333,7 +386,7 @@ class TimeSeriesTransformer(nn.Module):
         else:
             categorical_col_embeddings = None
         numeric_embedding = embedding(
-            jnp.array(self.dataset.token_dict[self.dataset.numeric_token])
+            jnp.array(self.config.token_dict[self.config.numeric_token])
         )
         numeric_broadcast = numeric_inputs[:, :, :, None] * numeric_embedding
 
@@ -341,7 +394,7 @@ class TimeSeriesTransformer(nn.Module):
             # nan_mask,
             # jnp.expand_dims(nan_mask, axis=-1),
             nan_mask[:, :, :, None],
-            embedding(jnp.array(self.dataset.numeric_mask_token)),
+            embedding(jnp.array(self.config.numeric_mask_token)),
             numeric_broadcast,
         )
         # End Nan Masking
@@ -425,7 +478,7 @@ class TimeSeriesTransformer(nn.Module):
 
 
 class SimplePred(nn.Module):
-    dataset: SimpleDS
+    config: TimeSeriesConfig
     d_model: int = 64 * 10
     n_heads: int = 4
 
@@ -438,7 +491,7 @@ class SimplePred(nn.Module):
         mask_data: bool = True,
     ) -> jnp.array:
         """ """
-        out = TimeSeriesTransformer(self.dataset, self.d_model, self.n_heads)(
+        out = TimeSeriesTransformer(self.config, self.d_model, self.n_heads)(
             numeric_inputs=numeric_inputs,
             categorical_inputs=jnp.astype(categorical_inputs, jnp.int32),
             deterministic=deterministic,
@@ -456,7 +509,7 @@ class SimplePred(nn.Module):
                 nn.Dense(name="RegressionDense1", features=self.d_model * 2),
                 nn.relu,
                 nn.Dense(
-                    name="RegressionDense2", features=len(self.dataset.numeric_indices)
+                    name="RegressionDense2", features=len(self.config.numeric_indices)
                 ),
             ],
             name="RegressionOutputChain",
@@ -473,7 +526,7 @@ class SimplePred(nn.Module):
 
             categorical_out = nn.Dense(
                 name="CategoricalDense1",
-                features=len(self.dataset.token_decoder_dict.items()),
+                features=len(self.config.token_decoder_dict.items()),
             )(categorical_out)
 
             categorical_out = nn.relu(categorical_out)
@@ -482,7 +535,7 @@ class SimplePred(nn.Module):
 
             categorical_out = nn.Dense(
                 name="CategoricalDense2",
-                features=len(self.dataset.categorical_col_tokens),
+                features=len(self.config.categorical_col_tokens),
             )(categorical_out)
 
             categorical_out = categorical_out.swapaxes(1, 3)
