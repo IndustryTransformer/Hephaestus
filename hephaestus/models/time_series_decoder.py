@@ -15,12 +15,36 @@ from transformers import AutoTokenizer
 
 
 def split_complex_word(word):
+    """
+    Splits a complex word into its individual parts.
+    Args:
+        word (str): The complex word to be split.
+    Returns:
+        list: A list of individual parts of the complex word.
+    Example:
+        >>> split_complex_word("myComplexWord")
+        ['my', 'Complex', 'Word']
+    """
+
     # Step 1: Split by underscore, preserving content within square brackets
     parts = re.split(r"(_|\[.*?\])", word)
     parts = [p for p in parts if p]  # Remove empty strings
 
     # Step 2: Split camelCase for parts not in square brackets
     def split_camel_case(s):
+        """
+        Splits a camel case string into a list of words.
+        Args:
+            s (str): The camel case string to be split.
+        Returns:
+            list: A list of words obtained from the camel case string.
+        Examples:
+            >>> split_camel_case("helloWorld")
+            ['hello', 'World']
+            >>> split_camel_case("thisIsATest")
+            ['this', 'Is', 'A', 'Test']
+        """
+
         if s.startswith("[") and s.endswith("]"):
             return [s]
         return re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?=[A-Z][a-z]|\d|\W|$)|\d+", s)
@@ -32,7 +56,15 @@ def split_complex_word(word):
 
 
 def convert_object_to_int_tokens(df, token_dict):
-    """Converts object columns to integer tokens using a token dictionary."""
+    """
+    Converts object columns to integer tokens using a token dictionary.
+    Parameters:
+    df (pandas.DataFrame): The DataFrame containing the object columns to be converted.
+    token_dict (dict): A dictionary mapping object values to integer tokens.
+    Returns:
+    pandas.DataFrame: The DataFrame with object columns converted to integer tokens.
+    """
+
     df = df.copy()
     for col in df.select_dtypes(include="object").columns:
         df[col] = df[col].map(token_dict)
@@ -41,6 +73,36 @@ def convert_object_to_int_tokens(df, token_dict):
 
 @dataclass
 class TimeSeriesConfig:
+    """
+    Configuration class for time series decoder.
+    Attributes:
+        numeric_token (str): Token for numeric embedding.
+        numeric_mask (str): Token for numeric mask.
+        numeric_col_tokens (list): List of tokens for numeric columns.
+        categorical_col_tokens (list): List of tokens for categorical columns.
+        tokens (list): List of all tokens.
+        token_dict (dict): Dictionary mapping tokens to indices.
+        token_decoder_dict (dict): Dictionary mapping indices to tokens.
+        n_tokens (int): Number of tokens.
+        numeric_indices (jnp.array): Array of indices for numeric columns.
+        categorical_indices (jnp.array): Array of indices for categorical columns.
+        object_tokens (list): List of unique values in categorical columns.
+        numeric_mask_token (int): Index of numeric mask token.
+        reservoir_vocab (list): List of words in custom vocabulary.
+        reservoir_encoded (jnp.array): Encoded reservoir tokens.
+        tokenizer (AutoTokenizer): Tokenizer for encoding tokens.
+    Methods:
+        generate(df: pd.DataFrame) -> TimeSeriesConfig:
+            Generates a TimeSeriesConfig object based on the given DataFrame.
+
+
+        Generates a TimeSeriesConfig object based on the given DataFrame.
+        Args:
+            df (pd.DataFrame): The DataFrame containing the time series data.
+        Returns:
+            TimeSeriesConfig: The generated TimeSeriesConfig object.
+    """
+
     numeric_token: str = None
     numeric_mask: str = None
     numeric_col_tokens: list = None
@@ -59,6 +121,15 @@ class TimeSeriesConfig:
 
     @classmethod
     def generate(cls, df: pd.DataFrame) -> "TimeSeriesConfig":
+        """
+        Generate a TimeSeriesConfig object based on the given DataFrame.
+        Args:
+            cls (class): The class to instantiate.
+            df (pd.DataFrame): The DataFrame containing the data.
+        Returns:
+            TimeSeriesConfig: The generated TimeSeriesConfig object.
+        """
+
         max_seq_len = df.groupby("idx").count().time_step.max()
         # Set df.idx to start from 0
         df.idx = df.idx - df.idx.min()
@@ -232,10 +303,6 @@ class TransformerBlock(nn.Module):
         deterministic: bool,
         mask: jnp.array = None,
     ):
-        # Multi-head self-attention
-        # causal_mask = causal_mask = nn.make_causal_mask(q[:, :, :, 0])
-
-        # Write out the jax array to a file for more debugging
         attention = nn.MultiHeadDotProductAttention(
             num_heads=self.num_heads,
             qkv_features=self.d_model,
@@ -324,7 +391,7 @@ class TimeSeriesTransformer(nn.Module):
         time_window (int): The maximum length of the time window.
     """
 
-    config: TimeSeriesConfig  # TODO Make this a flax data class with limited
+    config: TimeSeriesConfig
     d_model: int = 64
     n_heads: int = 4
     time_window: int = 10_000
@@ -469,7 +536,7 @@ class TimeSeriesTransformer(nn.Module):
         return out
 
 
-class SimplePred(nn.Module):
+class TimeSeriesDecoder(nn.Module):
     config: TimeSeriesConfig
     d_model: int = 64 * 10
     n_heads: int = 4
