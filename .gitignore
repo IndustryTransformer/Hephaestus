@@ -173,3 +173,4 @@ pre_trained_models/
 .vscode/
 ckpts/
 images/
+checkpoints/
