@@ -574,10 +574,18 @@ class TimeSeriesTransformer(nn.Module):
         combined_inputs = self.combine_inputs(processed_numeric, processed_categorical)
 
         if mask_data:
-            causal_mask = nn.make_causal_mask(combined_inputs.value_embeddings)
-            pad_mask = nn.make_attention_mask(
-                combined_inputs.value_embeddings, combined_inputs.value_embeddings
-            )  # TODO Add in the mask for the categorical data
+            if numeric_inputs is not None and categorical_inputs is not None:
+                mask_input = jnp.concatenate(
+                    [numeric_inputs, categorical_inputs], axis=1
+                )
+            elif numeric_inputs is not None:
+                mask_input = numeric_inputs
+            elif categorical_inputs is not None:
+                mask_input = categorical_inputs
+            else:
+                raise ValueError("No numeric or categorical inputs provided.")
+            causal_mask = nn.make_causal_mask(mask_input)
+            pad_mask = nn.make_attention_mask(mask_input, mask_input)
             mask = nn.combine_masks(causal_mask, pad_mask)
 
         else:
