@@ -370,6 +370,12 @@ class ReservoirEmbedding(nn.Module):
         return ultimate_embedding
 
 
+@dataclass
+class ProcessedEmbeddings:
+    col_embeddings: Optional[jnp.array] = None
+    value_embedding: Optional[jnp.array] = None
+
+
 class TimeSeriesTransformer(nn.Module):
     """
     Transformer-based model for time series data.
@@ -396,7 +402,158 @@ class TimeSeriesTransformer(nn.Module):
     n_heads: int = 4
     time_window: int = 10_000
 
-    @nn.compact
+    def process_numeric(self, numeric_inputs: jnp.array) -> ProcessedEmbeddings:
+        """
+        Processes the numeric inputs for the transformer model.
+
+        Args:
+            numeric_inputs (jnp.array): The numeric inputs to be processed.
+
+        Returns:
+            jnp.array: The processed numeric inputs.
+        """
+        # Create a nan mask for the numeric inputs
+        nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
+
+        # Replace NaN values with zeros
+        numeric_inputs = jnp.where(nan_mask, 0.0, numeric_inputs)
+        repeated_numeric_indices = jnp.tile(
+            self.config.numeric_indices, (numeric_inputs.shape[2], 1)
+        )
+
+        # repeated_numeric_indices = jnp.swapaxes(repeated_numeric_indices, 0, 1)
+        repeated_numeric_indices = repeated_numeric_indices.T
+        numeric_col_embeddings = self.embedding(repeated_numeric_indices)
+        # Nan Masking
+        numeric_col_embeddings = jnp.tile(
+            numeric_col_embeddings[None, :, :, :],
+            (numeric_inputs.shape[0], 1, 1, 1),
+        )
+        numeric_embedding = self.embedding(
+            jnp.array(self.config.token_dict[self.config.numeric_token])
+        )
+        numeric_embedding = numeric_inputs[:, :, :, None] * numeric_embedding
+
+        numeric_embedding = jnp.where(
+            nan_mask[:, :, :, None],
+            self.embedding(jnp.array(self.config.numeric_mask_token)),
+            numeric_embedding,
+        )
+        # End Nan Masking
+
+        numeric_embedding = PositionalEncoding(
+            max_len=self.time_window, d_pos_encoding=self.d_model
+        )(numeric_embedding)
+        return ProcessedEmbeddings(
+            col_embeddings=numeric_col_embeddings,
+            value_embedding=numeric_embedding,
+        )
+
+    def process_categorical(
+        self, categorical_inputs: Optional[jnp.array]
+    ) -> ProcessedEmbeddings:
+        """
+        Processes the categorical inputs for the transformer model.
+
+        Args:
+            categorical_inputs (Optional[jnp.array]): The categorical inputs to be processed.
+
+        Returns:
+            jnp.array: The processed categorical inputs.
+        """
+        if categorical_inputs is None:
+            return None, None
+        # Make sure nans are set to <NAN> token
+        categorical_inputs = jnp.where(
+            jnp.isnan(categorical_inputs),
+            jnp.array(self.config.token_dict["[NUMERIC_MASK]"]),
+            categorical_inputs,
+        )
+        categorical_embeddings = self.embedding(categorical_inputs)
+
+        repeated_categorical_indices = jnp.tile(
+            self.config.categorical_indices, (categorical_inputs.shape[2], 1)
+        )
+        repeated_categorical_indices = repeated_categorical_indices.T
+        categorical_col_embeddings = self.embedding(repeated_categorical_indices)
+        categorical_col_embeddings = jnp.tile(
+            categorical_col_embeddings[None, :, :, :],
+            (categorical_inputs.shape[0], 1, 1, 1),
+        )
+        return ProcessedEmbeddings(
+            categorical_col_embeddings=categorical_col_embeddings,
+            categorical_value_embedding=categorical_embeddings,
+        )
+
+    def combine_inputs(
+        self, numeric: ProcessedEmbeddings, categorical: ProcessedEmbeddings
+    ) -> ProcessedEmbeddings:
+        """
+        Combines numeric and categorical embeddings into a single ProcessedEmbeddings object.
+
+        Args:
+            numeric (ProcessedEmbeddings): The numeric embeddings to combine.
+            categorical (ProcessedEmbeddings): The categorical embeddings to combine.
+
+        Returns:
+            ProcessedEmbeddings: A new ProcessedEmbeddings object containing the combined embeddings.
+
+        Raises:
+            ValueError: If neither numeric nor categorical embeddings are provided.
+
+        """
+        if (
+            numeric.value_embedding is not None
+            and categorical.value_embedding is not None
+        ):
+            value_embeddings = jnp.concatenate(
+                [numeric.value_embedding, categorical.value_embedding],
+                axis=2,
+            )
+            column_embeddings = jnp.concatenate(
+                [
+                    numeric.col_embeddings,
+                    categorical.col_embeddings,
+                ],
+                axis=2,
+            )
+        elif numeric.value_embedding is not None:
+            value_embeddings = numeric.value_embedding
+            column_embeddings = numeric.col_embeddings
+        elif categorical.value_embedding is not None:
+            value_embeddings = categorical.value_embedding
+            column_embeddings = categorical.col_embeddings
+        else:
+            raise ValueError("No numeric or categorical inputs provided.")
+
+        return ProcessedEmbeddings(
+            value_embeddings=value_embeddings, column_embeddings=column_embeddings
+        )
+
+    def setup(self):
+        """Setup necessary to access self values in the model in the helper functions."""
+        self.embedding = nn.Embed(
+            num_embeddings=self.config.n_tokens, features=self.d_model
+        )
+        self.transformer_block_0 = TransformerBlock(
+            num_heads=self.n_heads,
+            d_model=self.d_model,
+            d_ff=64,
+            dropout_rate=0.1,
+            name="TransformerBlock_0",
+        )
+        self.transformer_block_chain = [
+            TransformerBlock(
+                num_heads=self.n_heads,
+                d_model=self.d_model,
+                d_ff=64,
+                dropout_rate=0.1,
+                name=f"TransformerBlock_{i}",
+            )
+            for i in range(1, 4)
+        ]
+
+    # @nn.compact
     def __call__(
         self,
         numeric_inputs: Optional[jnp.array] = None,
@@ -404,89 +561,16 @@ class TimeSeriesTransformer(nn.Module):
         deterministic: bool = False,
         mask_data: bool = True,
     ):
-        embedding = ReservoirEmbedding(
-            self.config,
-            features=self.d_model,
-        )
 
-        ########### NUMERIC INPUTS ###########
+        processed_numeric = self.process_numeric(numeric_inputs)
+        processed_categorical = self.process_categorical(categorical_inputs)
 
-        nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
-
-        numeric_inputs = jnp.where(nan_mask, 0.0, numeric_inputs)
-        # Cat Embedding
-        if categorical_inputs is not None:
-            # Make sure nans are set to <NAN> token
-            categorical_inputs = jnp.where(
-                jnp.isnan(categorical_inputs),
-                jnp.array(self.config.token_dict["[NUMERIC_MASK]"]),
-                categorical_inputs,
-            )
-            categorical_embeddings = embedding(categorical_inputs)
-
-        else:
-            categorical_embeddings = None
-
-        # Numeric Embedding
-        repeated_numeric_indices = jnp.tile(
-            self.config.numeric_indices, (numeric_inputs.shape[2], 1)
-        )
-
-        # repeated_numeric_indices = jnp.swapaxes(repeated_numeric_indices, 0, 1)
-        repeated_numeric_indices = repeated_numeric_indices.T
-        numeric_col_embeddings = embedding(repeated_numeric_indices)
-        # Nan Masking
-        numeric_col_embeddings = jnp.tile(
-            numeric_col_embeddings[None, :, :, :],
-            (numeric_inputs.shape[0], 1, 1, 1),
-        )
-        if categorical_embeddings is not None:
-            repeated_categorical_indices = jnp.tile(
-                self.config.categorical_indices, (categorical_inputs.shape[2], 1)
-            )
-            repeated_categorical_indices = repeated_categorical_indices.T
-            categorical_col_embeddings = embedding(repeated_categorical_indices)
-            categorical_col_embeddings = jnp.tile(
-                categorical_col_embeddings[None, :, :, :],
-                (categorical_inputs.shape[0], 1, 1, 1),
-            )
-        else:
-            categorical_col_embeddings = None
-        numeric_embedding = embedding(
-            jnp.array(self.config.token_dict[self.config.numeric_token])
-        )
-        numeric_broadcast = numeric_inputs[:, :, :, None] * numeric_embedding
-
-        numeric_broadcast = jnp.where(
-            nan_mask[:, :, :, None],
-            embedding(jnp.array(self.config.numeric_mask_token)),
-            numeric_broadcast,
-        )
-        # End Nan Masking
-
-        numeric_broadcast = PositionalEncoding(
-            max_len=self.time_window, d_pos_encoding=self.d_model
-        )(numeric_broadcast)
-
-        if categorical_embeddings is not None:
-            tabular_data = jnp.concatenate(
-                [numeric_broadcast, categorical_embeddings], axis=1
-            )
-        else:
-
-            tabular_data = numeric_broadcast
-        if categorical_embeddings is not None:
-
-            mask_input = jnp.concatenate([numeric_inputs, categorical_inputs], axis=1)
-
-        else:
-
-            mask_input = numeric_inputs
+        combined_inputs = self.combine_inputs(processed_numeric, processed_categorical)
 
         if mask_data:
-            causal_mask = nn.make_causal_mask(mask_input)
+            causal_mask = nn.make_causal_mask(combined_inputs.value_embedding)
             pad_mask = nn.make_attention_mask(
-                mask_input, mask_input
+                combined_inputs.value_embedding, combined_inputs.value_embedding
             )  # TODO Add in the mask for the categorical data
             mask = nn.combine_masks(causal_mask, pad_mask)
 
@@ -494,40 +578,17 @@ class TimeSeriesTransformer(nn.Module):
             mask = None
         pos_dim = 0
 
-        if categorical_embeddings is not None:
-
-            col_embeddings = jnp.concatenate(
-                [
-                    numeric_col_embeddings,  # TODO Add categorical_col_embeddings
-                    categorical_col_embeddings,
-                ],
-                axis=1,
-            )
-        else:
-            col_embeddings = numeric_col_embeddings
-        out = TransformerBlock(
-            d_model=self.d_model + pos_dim,  # TODO add pos_dim to call/init
-            num_heads=self.n_heads,
-            d_ff=64,
-            dropout_rate=0.1,
-            name="TransformerBlock_Initial",
-        )(
-            q=tabular_data,
-            k=col_embeddings,
-            v=tabular_data,  # TODO differentiate this
+        out = self.transformer_block_0(
+            q=combined_inputs.value_embedding,
+            k=combined_inputs.column_embeddings,
+            v=combined_inputs.value_embedding,
             deterministic=deterministic,
             mask=mask,
         )
-        for i in range(3):
-            out = TransformerBlock(
-                d_model=self.d_model + pos_dim,  # TODO Make this more elegant
-                num_heads=self.n_heads,
-                d_ff=64,
-                dropout_rate=0.1,
-                name=f"TransformerBlock_{i}",
-            )(
+        for transformer_block_iter in self.transformer_block_chain:
+            out = transformer_block_iter(
                 q=out,
-                k=col_embeddings,
+                k=combined_inputs.column_embeddings,
                 v=out,
                 deterministic=deterministic,
                 mask=mask,
