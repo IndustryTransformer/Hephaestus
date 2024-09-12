@@ -157,9 +157,16 @@ class TimeSeriesConfig:
             col_name for col_name in df.select_dtypes(include="object").columns
         ]
         # Get all the unique values in the categorical columns and add them to the tokens
-        cls_dict["object_tokens"] = (
-            df_categorical.apply(pd.Series.unique).values.flatten().tolist()
-        )
+        unique_values_per_column = df_categorical.apply(
+            pd.Series.unique
+        ).values  # .flatten().tolist()
+        flattened_unique_values = np.concatenate(unique_values_per_column).tolist()
+        object_tokens = list(set(flattened_unique_values))
+        cls_dict["object_tokens"] = object_tokens
+        # cls_dict["object_tokens"] = cls_dict["object_tokens"]
+
+        # print(f'Type: {cls_dict["numeric_col_tokens"]=}')
+        # print(f'Type: {cls_dict["categorical_col_tokens"]=}')
         cls_dict["tokens"] = (
             special_tokens
             + cls_dict["numeric_col_tokens"]
@@ -169,7 +176,6 @@ class TimeSeriesConfig:
         tokens = cls_dict["tokens"]
         numeric_col_tokens = cls_dict["numeric_col_tokens"]
         categorical_col_tokens = cls_dict["categorical_col_tokens"]
-
         token_dict = {token: i for i, token in enumerate(tokens)}
         cls_dict["token_dict"] = token_dict
         token_decoder_dict = {i: token for i, token in enumerate(tokens)}
@@ -204,9 +210,7 @@ class TimeSeriesConfig:
             truncation=True,
             return_tensors="jax",
             add_special_tokens=False,
-        )[
-            "input_ids"
-        ]  # TODO make this custom to reduce dictionary size
+        )["input_ids"]  # TODO make this custom to reduce dictionary size
         cls_dict["reservoir_encoded"] = reservoir_encoded
         cls_dict["reservoir_vocab"] = reservoir_vocab
 
@@ -303,6 +307,7 @@ class TransformerBlock(nn.Module):
         deterministic: bool,
         mask: jnp.array = None,
     ):
+        ic("Transformer Block", q.shape, k.shape, v.shape, mask.shape)
         attention = nn.MultiHeadDotProductAttention(
             num_heads=self.num_heads,
             qkv_features=self.d_model,
@@ -372,8 +377,8 @@ class ReservoirEmbedding(nn.Module):
 
 @dataclass
 class ProcessedEmbeddings:
-    col_embeddings: Optional[jnp.array] = None
-    value_embedding: Optional[jnp.array] = None
+    column_embeddings: Optional[jnp.array] = None
+    value_embeddings: Optional[jnp.array] = None
 
 
 class TimeSeriesTransformer(nn.Module):
@@ -432,7 +437,10 @@ class TimeSeriesTransformer(nn.Module):
         numeric_embedding = self.embedding(
             jnp.array(self.config.token_dict[self.config.numeric_token])
         )
+        ic(numeric_embedding.shape)
+
         numeric_embedding = numeric_inputs[:, :, :, None] * numeric_embedding
+        ic(numeric_embedding.shape)
 
         numeric_embedding = jnp.where(
             nan_mask[:, :, :, None],
@@ -440,13 +448,11 @@ class TimeSeriesTransformer(nn.Module):
             numeric_embedding,
         )
         # End Nan Masking
-
-        numeric_embedding = PositionalEncoding(
-            max_len=self.time_window, d_pos_encoding=self.d_model
-        )(numeric_embedding)
+        ic(numeric_embedding.shape)
+        # numeric_embedding = self.embedding(numeric_embedding.astype(jnp.int32))
         return ProcessedEmbeddings(
-            col_embeddings=numeric_col_embeddings,
-            value_embedding=numeric_embedding,
+            column_embeddings=numeric_col_embeddings,
+            value_embeddings=numeric_embedding,
         )
 
     def process_categorical(
@@ -481,8 +487,8 @@ class TimeSeriesTransformer(nn.Module):
             (categorical_inputs.shape[0], 1, 1, 1),
         )
         return ProcessedEmbeddings(
-            categorical_col_embeddings=categorical_col_embeddings,
-            categorical_value_embedding=categorical_embeddings,
+            column_embeddings=categorical_col_embeddings,
+            value_embeddings=categorical_embeddings,
         )
 
     def combine_inputs(
@@ -503,26 +509,27 @@ class TimeSeriesTransformer(nn.Module):
 
         """
         if (
-            numeric.value_embedding is not None
-            and categorical.value_embedding is not None
+            numeric.value_embeddings is not None
+            and categorical.value_embeddings is not None
         ):
+            ic(numeric.value_embeddings.shape, categorical.value_embeddings.shape)
             value_embeddings = jnp.concatenate(
-                [numeric.value_embedding, categorical.value_embedding],
-                axis=2,
+                [numeric.value_embeddings, categorical.value_embeddings],
+                axis=1,
             )
             column_embeddings = jnp.concatenate(
                 [
-                    numeric.col_embeddings,
-                    categorical.col_embeddings,
+                    numeric.column_embeddings,
+                    categorical.column_embeddings,
                 ],
-                axis=2,
+                axis=1,
             )
-        elif numeric.value_embedding is not None:
-            value_embeddings = numeric.value_embedding
-            column_embeddings = numeric.col_embeddings
-        elif categorical.value_embedding is not None:
-            value_embeddings = categorical.value_embedding
-            column_embeddings = categorical.col_embeddings
+        elif numeric.value_embeddings is not None:
+            value_embeddings = numeric.value_embeddings
+            column_embeddings = numeric.column_embeddings
+        elif categorical.value_embeddings is not None:
+            value_embeddings = categorical.value_embeddings
+            column_embeddings = categorical.column_embeddings
         else:
             raise ValueError("No numeric or categorical inputs provided.")
 
@@ -561,27 +568,29 @@ class TimeSeriesTransformer(nn.Module):
         deterministic: bool = False,
         mask_data: bool = True,
     ):
-
         processed_numeric = self.process_numeric(numeric_inputs)
         processed_categorical = self.process_categorical(categorical_inputs)
 
         combined_inputs = self.combine_inputs(processed_numeric, processed_categorical)
 
         if mask_data:
-            causal_mask = nn.make_causal_mask(combined_inputs.value_embedding)
+            causal_mask = nn.make_causal_mask(combined_inputs.value_embeddings)
             pad_mask = nn.make_attention_mask(
-                combined_inputs.value_embedding, combined_inputs.value_embedding
+                combined_inputs.value_embeddings, combined_inputs.value_embeddings
             )  # TODO Add in the mask for the categorical data
             mask = nn.combine_masks(causal_mask, pad_mask)
 
         else:
             mask = None
-        pos_dim = 0
-
+        # pos_dim = 0 # TODO Add this back in
+        ic(
+            combined_inputs.value_embeddings.shape,
+            combined_inputs.column_embeddings.shape,
+        )
         out = self.transformer_block_0(
-            q=combined_inputs.value_embedding,
+            q=combined_inputs.value_embeddings,
             k=combined_inputs.column_embeddings,
-            v=combined_inputs.value_embedding,
+            v=combined_inputs.value_embeddings,
             deterministic=deterministic,
             mask=mask,
         )
@@ -637,7 +646,6 @@ class TimeSeriesDecoder(nn.Module):
         numeric_out = numeric_out.swapaxes(1, 2)
 
         if categorical_inputs is not None:
-
             categorical_out = out.copy()
             categorical_out = nn.Dense(
                 name="CategoricalDense1",
@@ -656,7 +664,6 @@ class TimeSeriesDecoder(nn.Module):
             categorical_out = categorical_out.swapaxes(1, 3)
 
         else:
-
             categorical_out = None
 
         return {"numeric_out": numeric_out, "categorical_out": categorical_out}
@@ -714,4 +721,5 @@ class PositionalEncoding(nn.Module):
         return result
 
 
+# %%
 # %%
