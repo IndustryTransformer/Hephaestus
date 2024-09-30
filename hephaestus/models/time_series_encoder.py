@@ -131,7 +131,7 @@ class TimeSeriesConfig:
             TimeSeriesConfig: The generated TimeSeriesConfig object.
         """
 
-        max_seq_len = df.groupby("idx").count().time_step.max()
+        # max_seq_len = df.groupby("idx").count().time_step.max()
         # Set df.idx to start from 0
         df.idx = df.idx - df.idx.min()
         df = df.set_index("idx")
@@ -218,7 +218,7 @@ class TimeSeriesDS(Dataset):
     def __init__(self, df: pd.DataFrame, config: TimeSeriesConfig):
         # Add nan padding to make sure all sequences are the same length
         # use the idx column to group by
-        self.max_seq_len = df.groupby("idx").count().time_step.max()
+        self.max_seq_len = df.groupby("idx").size().max()
         # Set df.idx to start from 0
         df.idx = df.idx - df.idx.min()
         df = df.set_index("idx")
@@ -380,7 +380,7 @@ class TimeSeriesTransformer(nn.Module):
         time_window (int, optional): The maximum length of the time window. Defaults to 10000.
 
     Methods:
-        __call__(self, numeric_inputs: jnp.array, deterministic: bool, mask_data: bool = True) -> jnp.array:
+        __call__(self, numeric_inputs: jnp.array, deterministic: bool, causal_mask: bool = True) -> jnp.array:
             Applies the transformer model to the input time series data.
 
     Attributes:
@@ -402,7 +402,7 @@ class TimeSeriesTransformer(nn.Module):
         numeric_inputs: Optional[jnp.array] = None,
         categorical_inputs: Optional[jnp.array] = None,
         deterministic: bool = False,
-        mask_data: bool = True,
+        causal_mask: bool = True,
         rng_key: Optional[jnp.array] = None,
     ):
         embedding = ReservoirEmbedding(
@@ -474,17 +474,14 @@ class TimeSeriesTransformer(nn.Module):
                 [numeric_broadcast, categorical_embeddings], axis=1
             )
         else:
-
             tabular_data = numeric_broadcast
         if categorical_embeddings is not None:
-
             mask_input = jnp.concatenate([numeric_inputs, categorical_inputs], axis=1)
 
         else:
-
             mask_input = numeric_inputs
 
-        if mask_data:
+        if causal_mask:
             causal_mask = nn.make_causal_mask(mask_input)
             pad_mask = nn.make_attention_mask(
                 mask_input, mask_input
@@ -496,7 +493,6 @@ class TimeSeriesTransformer(nn.Module):
         pos_dim = 0
 
         if categorical_embeddings is not None:
-
             col_embeddings = jnp.concatenate(
                 [
                     numeric_col_embeddings,  # TODO Add categorical_col_embeddings
@@ -508,7 +504,6 @@ class TimeSeriesTransformer(nn.Module):
             col_embeddings = numeric_col_embeddings
         # Here start new nan mask.
         if self.decoder_mask is not None:
-
             if self.decoder_mask:
                 decoder_mask = (
                     jnp.random.uniform(rng_key, shape=tabular_data.shape) < 0.15
@@ -557,14 +552,14 @@ class TimeSeriesDecoder(nn.Module):
         numeric_inputs: jnp.array,
         categorical_inputs: Optional[jnp.array] = None,
         deterministic: bool = False,
-        mask_data: bool = True,
+        causal_mask: bool = True,
     ) -> jnp.array:
         """ """
         out = TimeSeriesTransformer(self.config, self.d_model, self.n_heads)(
             numeric_inputs=numeric_inputs,
             categorical_inputs=jnp.astype(categorical_inputs, jnp.int32),
             deterministic=deterministic,
-            mask_data=mask_data,
+            causal_mask=causal_mask,
         )
 
         numeric_out = out.swapaxes(1, 2)
@@ -586,7 +581,6 @@ class TimeSeriesDecoder(nn.Module):
         numeric_out = numeric_out.swapaxes(1, 2)
 
         if categorical_inputs is not None:
-
             categorical_out = out.copy()
             categorical_out = nn.Dense(
                 name="CategoricalDense1",
@@ -605,7 +599,6 @@ class TimeSeriesDecoder(nn.Module):
             categorical_out = categorical_out.swapaxes(1, 3)
 
         else:
-
             categorical_out = None
 
         return {"numeric_out": numeric_out, "categorical_out": categorical_out}

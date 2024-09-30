@@ -47,7 +47,6 @@ def numeric_loss(inputs, outputs):
 
 
 def categorical_loss(inputs, outputs):
-
     inputs, outputs, nan_mask = add_time_shifts(inputs, outputs)
     inputs = inputs.astype(jnp.int32)
     raw_loss = optax.softmax_cross_entropy_with_integer_labels(outputs, inputs)
@@ -73,7 +72,7 @@ def calculate_loss_inner(
     numeric_inputs,
     categorical_inputs,
     dropout_key,
-    mask_data: bool = True,
+    causal_mask: bool = True,
 ):
     outputs = state.apply_fn(
         {"params": params},
@@ -82,7 +81,7 @@ def calculate_loss_inner(
         categorical_inputs=categorical_inputs.astype(jnp.int32),
         rngs={"dropout": dropout_key},
         deterministic=False,
-        mask_data=mask_data,
+        causal_mask=causal_mask,
     )
     loss = base_loss(
         numeric_inputs=numeric_inputs,
@@ -110,7 +109,7 @@ def train_step(
             numeric_inputs=numeric_inputs,
             categorical_inputs=categorical_inputs,
             dropout_key=dropout_key,
-            mask_data=True,
+            causal_mask=True,
         )
 
     def loss_fn(params):
@@ -127,13 +126,13 @@ def train_step(
     return state, loss, new_key
 
 
-def evaluate(params, state, inputs, mask_data: bool = True):
+def evaluate(params, state, inputs, causal_mask: bool = True):
     outputs = state.apply_fn(
         {"params": params},
         # hp.mask_tensor(inputs, dataset, prng_key=mask_key),
         inputs,
         deterministic=True,
-        mask_data=mask_data,
+        causal_mask=causal_mask,
     )
     loss = base_loss(inputs, outputs)
     return loss
@@ -143,7 +142,7 @@ def evaluate(params, state, inputs, mask_data: bool = True):
 def eval_step(
     state: train_state.TrainState, numeric_inputs, categorical_inputs, base_key
 ):
-    # mask_data=True
+    # causal_mask=True
     mask_key, dropout_key, new_key = jax.random.split(base_key, 3)
 
     def calculate_loss(params):
@@ -153,7 +152,7 @@ def eval_step(
             numeric_inputs=numeric_inputs,
             categorical_inputs=categorical_inputs,
             dropout_key=dropout_key,
-            mask_data=True,
+            causal_mask=True,
         )
 
     def loss_fn(params):

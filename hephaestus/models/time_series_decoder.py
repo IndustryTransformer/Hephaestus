@@ -130,7 +130,7 @@ class TimeSeriesConfig:
             TimeSeriesConfig: The generated TimeSeriesConfig object.
         """
 
-        max_seq_len = df.groupby("idx").count().time_step.max()
+        # max_seq_len = df.groupby("idx").count().time_step.max()
         # Set df.idx to start from 0
         df.idx = df.idx - df.idx.min()
         df = df.set_index("idx")
@@ -223,7 +223,7 @@ class TimeSeriesDS(Dataset):
     def __init__(self, df: pd.DataFrame, config: TimeSeriesConfig):
         # Add nan padding to make sure all sequences are the same length
         # use the idx column to group by
-        self.max_seq_len = df.groupby("idx").count().time_step.max()
+        self.max_seq_len = df.groupby("idx").size().max()
         # Set df.idx to start from 0
         df.idx = df.idx - df.idx.min()
         df = df.set_index("idx")
@@ -307,7 +307,11 @@ class TransformerBlock(nn.Module):
         deterministic: bool,
         mask: jnp.array = None,
     ):
-        ic("Transformer Block", q.shape, k.shape, v.shape, mask.shape)
+        if mask is not None:
+            mask_shape = mask.shape
+        else:
+            mask_shape = None
+        ic("Transformer Block", q.shape, k.shape, v.shape, mask_shape)
         attention = nn.MultiHeadDotProductAttention(
             num_heads=self.num_heads,
             qkv_features=self.d_model,
@@ -392,7 +396,7 @@ class TimeSeriesTransformer(nn.Module):
         time_window (int, optional): The maximum length of the time window. Defaults to 10000.
 
     Methods:
-        __call__(self, numeric_inputs: jnp.array, deterministic: bool, mask_data: bool = True) -> jnp.array:
+        __call__(self, numeric_inputs: jnp.array, deterministic: bool, causal_mask: bool = True) -> jnp.array:
             Applies the transformer model to the input time series data.
 
     Attributes:
@@ -560,20 +564,22 @@ class TimeSeriesTransformer(nn.Module):
             for i in range(1, 4)
         ]
 
-    # @nn.compact
-    def __call__(
-        self,
-        numeric_inputs: Optional[jnp.array] = None,
-        categorical_inputs: Optional[jnp.array] = None,
-        deterministic: bool = False,
-        mask_data: bool = True,
-    ):
-        processed_numeric = self.process_numeric(numeric_inputs)
-        processed_categorical = self.process_categorical(categorical_inputs)
+        def causal_mask(
+            self,
+            numeric_inputs: Optional[jnp.array],
+            categorical_inputs: Optional[jnp.array],
+        ):
+            """
+            Generates a causal mask for the given numeric and categorical inputs.
+            Args:
+                numeric_inputs (Optional[jnp.array]): Numeric inputs.
+                categorical_inputs (Optional[jnp.array]): Categorical inputs.
+            Returns:
+                jnp.array: The generated causal mask.
+            Raises:
+                ValueError: If no numeric or categorical inputs are provided.
+            """
 
-        combined_inputs = self.combine_inputs(processed_numeric, processed_categorical)
-
-        if mask_data:
             if numeric_inputs is not None and categorical_inputs is not None:
                 mask_input = jnp.concatenate(
                     [numeric_inputs, categorical_inputs], axis=1
@@ -587,7 +593,26 @@ class TimeSeriesTransformer(nn.Module):
             causal_mask = nn.make_causal_mask(mask_input)
             pad_mask = nn.make_attention_mask(mask_input, mask_input)
             mask = nn.combine_masks(causal_mask, pad_mask)
+            return mask
 
+    # @nn.compact
+    def __call__(
+        self,
+        numeric_inputs: Optional[jnp.array] = None,
+        categorical_inputs: Optional[jnp.array] = None,
+        deterministic: bool = False,
+        causal_mask: bool = True,
+        encoder_mask: bool = False,
+    ):
+        processed_numeric = self.process_numeric(numeric_inputs)
+        processed_categorical = self.process_categorical(categorical_inputs)
+
+        combined_inputs = self.combine_inputs(processed_numeric, processed_categorical)
+
+        if causal_mask:
+            mask = self.causal_mask(
+                numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
+            )
         else:
             mask = None
         # pos_dim = 0 # TODO Add this back in
@@ -625,14 +650,14 @@ class TimeSeriesDecoder(nn.Module):
         numeric_inputs: jnp.array,
         categorical_inputs: Optional[jnp.array] = None,
         deterministic: bool = False,
-        mask_data: bool = True,
+        causal_mask: bool = True,
     ) -> jnp.array:
         """ """
         out = TimeSeriesTransformer(self.config, self.d_model, self.n_heads)(
             numeric_inputs=numeric_inputs,
             categorical_inputs=jnp.astype(categorical_inputs, jnp.int32),
             deterministic=deterministic,
-            mask_data=mask_data,
+            causal_mask=causal_mask,
         )
 
         numeric_out = out.swapaxes(1, 2)
