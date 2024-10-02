@@ -564,36 +564,34 @@ class TimeSeriesTransformer(nn.Module):
             for i in range(1, 4)
         ]
 
-        def causal_mask(
-            self,
-            numeric_inputs: Optional[jnp.array],
-            categorical_inputs: Optional[jnp.array],
-        ):
-            """
-            Generates a causal mask for the given numeric and categorical inputs.
-            Args:
-                numeric_inputs (Optional[jnp.array]): Numeric inputs.
-                categorical_inputs (Optional[jnp.array]): Categorical inputs.
-            Returns:
-                jnp.array: The generated causal mask.
-            Raises:
-                ValueError: If no numeric or categorical inputs are provided.
-            """
+    def causal_mask(
+        self,
+        numeric_inputs: Optional[jnp.array],
+        categorical_inputs: Optional[jnp.array],
+    ):
+        """
+        Generates a causal mask for the given numeric and categorical inputs.
+        Args:
+            numeric_inputs (Optional[jnp.array]): Numeric inputs.
+            categorical_inputs (Optional[jnp.array]): Categorical inputs.
+        Returns:
+            jnp.array: The generated causal mask.
+        Raises:
+            ValueError: If no numeric or categorical inputs are provided.
+        """
 
-            if numeric_inputs is not None and categorical_inputs is not None:
-                mask_input = jnp.concatenate(
-                    [numeric_inputs, categorical_inputs], axis=1
-                )
-            elif numeric_inputs is not None:
-                mask_input = numeric_inputs
-            elif categorical_inputs is not None:
-                mask_input = categorical_inputs
-            else:
-                raise ValueError("No numeric or categorical inputs provided.")
-            causal_mask = nn.make_causal_mask(mask_input)
-            pad_mask = nn.make_attention_mask(mask_input, mask_input)
-            mask = nn.combine_masks(causal_mask, pad_mask)
-            return mask
+        if numeric_inputs is not None and categorical_inputs is not None:
+            mask_input = jnp.concatenate([numeric_inputs, categorical_inputs], axis=1)
+        elif numeric_inputs is not None:
+            mask_input = numeric_inputs
+        elif categorical_inputs is not None:
+            mask_input = categorical_inputs
+        else:
+            raise ValueError("No numeric or categorical inputs provided.")
+        causal_mask = nn.make_causal_mask(mask_input)
+        pad_mask = nn.make_attention_mask(mask_input, mask_input)
+        mask = nn.combine_masks(causal_mask, pad_mask)
+        return mask
 
     # @nn.compact
     def __call__(

@@ -14,8 +14,10 @@ def clip_gradients(gradients, max_norm):
     return clipped_gradients
 
 
-def add_time_shifts(inputs: jnp.array, outputs: jnp.array) -> jnp.array:
-    inputs_offset = 1
+def add_input_offsets(
+    inputs: jnp.array, outputs: jnp.array, inputs_offset: int = 1
+) -> jnp.array:
+    print("InputOffset:", inputs_offset, type(inputs_offset))
     inputs = inputs[:, :, inputs_offset:]
     tmp_null = jnp.full((inputs.shape[0], inputs.shape[1], inputs_offset), jnp.nan)
     inputs = jnp.concatenate([inputs, tmp_null], axis=2)
@@ -37,8 +39,8 @@ def add_time_shifts(inputs: jnp.array, outputs: jnp.array) -> jnp.array:
     return inputs, outputs, nan_mask
 
 
-def numeric_loss(inputs, outputs):
-    inputs, outputs, nan_mask = add_time_shifts(inputs, outputs)
+def numeric_loss(inputs, outputs, input_offset: int = 1):
+    inputs, outputs, nan_mask = add_input_offsets(inputs, outputs, input_offset)
     # TODO make loss SSL for values greater than 0.5 and MSE for values less than 0.5
     raw_loss = jnp.abs(outputs - inputs)
     masked_loss = jnp.where(nan_mask, 0.0, raw_loss)
@@ -46,10 +48,12 @@ def numeric_loss(inputs, outputs):
     return loss
 
 
-def categorical_loss(inputs, outputs):
-    inputs, outputs, nan_mask = add_time_shifts(inputs, outputs)
+def categorical_loss(inputs, outputs, input_offset: int = 1):
+    inputs, outputs, nan_mask = add_input_offsets(inputs, outputs, input_offset)
     inputs = inputs.astype(jnp.int32)
-    raw_loss = optax.softmax_cross_entropy_with_integer_labels(outputs, inputs)
+    raw_loss = optax.softmax_cross_entropy_with_integer_labels(
+        outputs, inputs, input_offset
+    )
     masked_loss = jnp.where(nan_mask, 0.0, raw_loss).mean()
     return masked_loss
 
@@ -58,11 +62,12 @@ def base_loss(
     numeric_inputs,
     categorical_inputs,
     outputs,
+    input_offset: int = 1,
 ):
     numeric_out = outputs["numeric_out"]
     categorical_out = outputs["categorical_out"]
-    numeric = numeric_loss(numeric_inputs, numeric_out)
-    categorical = categorical_loss(categorical_inputs, categorical_out)
+    numeric = numeric_loss(numeric_inputs, numeric_out, input_offset)
+    categorical = categorical_loss(categorical_inputs, categorical_out, input_offset)
     return numeric + categorical
 
 
@@ -73,6 +78,7 @@ def calculate_loss_inner(
     categorical_inputs,
     dropout_key,
     causal_mask: bool = True,
+    input_offset: int = 1,
 ):
     outputs = state.apply_fn(
         {"params": params},
@@ -87,6 +93,7 @@ def calculate_loss_inner(
         numeric_inputs=numeric_inputs,
         categorical_inputs=categorical_inputs,
         outputs=outputs,
+        input_offset=input_offset,
     )
     # Create mask for nan inputs
 
@@ -99,6 +106,7 @@ def train_step(
     numeric_inputs,
     categorical_inputs,
     base_key,
+    input_offset: int = 1,
 ):
     dropout_key, mask_key, new_key = jax.random.split(base_key, 3)
 
@@ -110,6 +118,7 @@ def train_step(
             categorical_inputs=categorical_inputs,
             dropout_key=dropout_key,
             causal_mask=True,
+            input_offset=input_offset,
         )
 
     def loss_fn(params):
@@ -162,7 +171,7 @@ def eval_step(
     return loss, new_key
 
 
-def create_train_state(model, prng, batch, lr):
+def create_train_state(model, prng, batch, lr: float):
     init_key, dropout_key = random.split(prng)
     params = model.init(
         {"params": init_key, "dropout": dropout_key},
