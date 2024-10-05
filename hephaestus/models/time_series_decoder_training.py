@@ -51,9 +51,7 @@ def numeric_loss(inputs, outputs, input_offset: int = 1):
 def categorical_loss(inputs, outputs, input_offset: int = 1):
     inputs, outputs, nan_mask = add_input_offsets(inputs, outputs, input_offset)
     inputs = inputs.astype(jnp.int32)
-    raw_loss = optax.softmax_cross_entropy_with_integer_labels(
-        outputs, inputs, input_offset
-    )
+    raw_loss = optax.softmax_cross_entropy_with_integer_labels(outputs, inputs)
     masked_loss = jnp.where(nan_mask, 0.0, raw_loss).mean()
     return masked_loss
 
@@ -100,7 +98,7 @@ def calculate_loss_inner(
     return loss
 
 
-@jax.jit
+# @jax.jit
 def train_step(
     state: train_state.TrainState,
     numeric_inputs,
@@ -109,6 +107,7 @@ def train_step(
     input_offset: int = 1,
 ):
     dropout_key, mask_key, new_key = jax.random.split(base_key, 3)
+    print("InputOffset:", input_offset, type(input_offset))
 
     def calculate_loss(params):
         return calculate_loss_inner(
