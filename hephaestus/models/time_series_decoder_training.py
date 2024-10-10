@@ -17,7 +17,6 @@ def clip_gradients(gradients, max_norm):
 def add_input_offsets(
     inputs: jnp.array, outputs: jnp.array, inputs_offset: int = 1
 ) -> jnp.array:
-    print("InputOffset:", inputs_offset, type(inputs_offset))
     inputs = inputs[:, :, inputs_offset:]
     tmp_null = jnp.full((inputs.shape[0], inputs.shape[1], inputs_offset), jnp.nan)
     inputs = jnp.concatenate([inputs, tmp_null], axis=2)
@@ -107,7 +106,6 @@ def train_step(
     input_offset: int = 1,
 ):
     dropout_key, mask_key, new_key = jax.random.split(base_key, 3)
-    print("InputOffset:", input_offset, type(input_offset))
 
     def calculate_loss(params):
         return calculate_loss_inner(
