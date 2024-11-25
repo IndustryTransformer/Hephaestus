@@ -281,9 +281,9 @@ class FeedForwardNetwork(nnx.Module):
         self.d_model = d_model
         self.d_ff = d_ff
         self.dropout_rate = dropout_rate
-        self.dense1 = nnx.Linear(in_features=d_model, out_features=d_ff, rngs=rngs)
+        self.dense1 = nnx.Linear(in_features=512, out_features=512, rngs=rngs)
         self.dropout1 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
-        self.dense2 = nnx.Linear(in_features=d_ff, out_features=d_ff, rngs=rngs)
+        self.dense2 = nnx.Linear(in_features=d_model, out_features=512, rngs=rngs)
         self.dropout2 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
 
     def __call__(self, x, deterministic: bool):
@@ -680,22 +680,27 @@ class TimeSeriesDecoder(nnx.Module):
         self.time_series_transformer = TimeSeriesTransformer(
             config=self.config, d_model=self.d_model, n_heads=self.n_heads, rngs=rngs
         )
-        self.sequential = nnx.Sequential(
-            [
-                nnx.Linear(
-                    in_features=self.d_model, out_features=self.d_model * 2, rngs=rngs
-                ),
-                nnx.relu,
-                nnx.Linear(
-                    in_features=len(self.config.numeric_indices),
-                    out_features=len(self.config.numeric_indices),
-                    rngs=rngs,
-                ),
-            ],
+        # self.sequential = nnx.Sequential(
+        #     nnx.Linear(
+        #         in_features=self.d_model, out_features=self.d_model * 2, rngs=rngs
+        #     ),
+        #     nnx.relu,
+        #     nnx.Linear(
+        #         in_features=d_model * 2,
+        #         out_features=len(self.config.numeric_indices),
+        #         rngs=rngs,
+        #     ),
+        # )
+        self.numeric_linear1 = nnx.Linear(
+            in_features=2560, out_features=self.d_model * 2, rngs=rngs
         )
-
+        self.numeric_linear2 = nnx.Linear(
+            in_features=d_model * 2,
+            out_features=len(self.config.numeric_col_tokens),
+            rngs=rngs,
+        )
         self.categorical_dense1 = nnx.Linear(
-            in_features=len(self.config.token_decoder_dict.items()),
+            in_features=512,  # len(self.config.token_decoder_dict.items()),
             out_features=self.d_model,
             rngs=rngs,
         )
@@ -730,17 +735,26 @@ class TimeSeriesDecoder(nnx.Module):
         )  # TODO This is wrong. Make this
         #  TODO WORK HERE!!!!! be of shape (batch_size, )
 
-        numeric_out = self.sequential(numeric_out)
+        # numeric_out = self.sequential(numeric_out)
+        ic("Starting shit")
+        ic(numeric_out.shape)
+        numeric_out = self.numeric_linear1(numeric_out)
+        ic(numeric_out.shape)
+        numeric_out = nnx.relu(numeric_out)
+        ic(numeric_out.shape)
+        numeric_out = self.numeric_linear2(numeric_out)
+        ic(numeric_out.shape)
         numeric_out = numeric_out.swapaxes(1, 2)
 
         if categorical_inputs is not None:
             categorical_out = out.copy()
+            ic(categorical_out.shape)
             categorical_out = self.categorical_dense1(categorical_out)
 
             categorical_out = nnx.relu(categorical_out)
 
-            categorical_out = categorical_out.swapaxes(1, 3)
-
+            # categorical_out = categorical_out.swapaxes(1, 3)
+            ic(categorical_out.shape, "latest problem")
             categorical_out = self.categorical_dense2(categorical_out)
 
             categorical_out = categorical_out.swapaxes(1, 3)
