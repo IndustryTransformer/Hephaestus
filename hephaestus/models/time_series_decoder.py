@@ -281,17 +281,18 @@ class FeedForwardNetwork(nnx.Module):
         self.d_model = d_model
         self.d_ff = d_ff
         self.dropout_rate = dropout_rate
-        self.dense1 = nnx.Dense(d_ff)
-        self.dropout = nnx.Dropout(rate=dropout_rate)
-        self.dense2 = nnx.Dense(d_model)
+        self.dense1 = nnx.Linear(in_features=d_model, out_features=d_ff, rngs=rngs)
+        self.dropout1 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
+        self.dense2 = nnx.Linear(in_features=d_ff, out_features=d_ff, rngs=rngs)
+        self.dropout2 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
 
     def __call__(self, x, deterministic: bool):
         # Feed Forward Network
         x = self.dense1(x)
         x = nnx.relu(x)
-        x = self.dropout(x, deterministic=deterministic)
+        x = self.dropout1(x, deterministic=deterministic)
         x = self.dense2(x)
-        x = self.dropout(x, deterministic=deterministic)
+        x = self.dropout2(x, deterministic=deterministic)
         return x
 
 
@@ -310,16 +311,21 @@ class TransformerBlock(nnx.Module):
         self.dropout_rate = dropout_rate
 
         self.multi_head_attention = nnx.MultiHeadAttention(
-            num_heads=num_heads, d_model=d_model, dropout_rate=dropout_rate, rngs=rngs
+            num_heads=num_heads,
+            in_features=d_model,
+            # qkv_features=d_model,
+            dropout_rate=dropout_rate,
+            decode=False,
+            rngs=rngs,
         )
-        self.layer_norm1 = nnx.LayerNorm(rngs=rngs)
+        self.layer_norm1 = nnx.LayerNorm(num_features=d_model, rngs=rngs)
         self.feed_forward_network = FeedForwardNetwork(
             d_model=self.d_model,
             d_ff=self.d_ff,
             dropout_rate=self.dropout_rate,
             rngs=rngs,
         )
-        self.layer_norm2 = nnx.LayerNorm(rngs=rngs)
+        self.layer_norm2 = nnx.LayerNorm(num_features=d_model, rngs=rngs)
 
     def __call__(
         self,
@@ -644,6 +650,7 @@ class TimeSeriesTransformer(nnx.Module):
             k=combined_inputs.column_embeddings,
             v=combined_inputs.value_embeddings,
             deterministic=deterministic,
+            # decode=False,
             mask=mask,
         )
         for transformer_block_iter in self.transformer_block_chain:
@@ -652,6 +659,7 @@ class TimeSeriesTransformer(nnx.Module):
                 k=combined_inputs.column_embeddings,
                 v=out,
                 deterministic=deterministic,
+                # decode=False,
                 mask=mask,
             )
 
@@ -674,19 +682,28 @@ class TimeSeriesDecoder(nnx.Module):
         )
         self.sequential = nnx.Sequential(
             [
-                nnx.Dense(features=self.d_model * 2, rngs=rngs),
+                nnx.Linear(
+                    in_features=self.d_model, out_features=self.d_model * 2, rngs=rngs
+                ),
                 nnx.relu,
-                nnx.Dense(
-                    features=len(self.config.numeric_indices),
+                nnx.Linear(
+                    in_features=len(self.config.numeric_indices),
+                    out_features=len(self.config.numeric_indices),
                     rngs=rngs,
                 ),
             ],
         )
 
-        self.categorical_dense1 = nnx.Dense(
-            features=len(self.config.token_decoder_dict.items()),
+        self.categorical_dense1 = nnx.Linear(
+            in_features=len(self.config.token_decoder_dict.items()),
+            out_features=self.d_model,
+            rngs=rngs,
         )
-        self.categorical_dense2 = nnx.Dense(features=self.config.categorical_col_tokens)
+        self.categorical_dense2 = nnx.Linear(
+            in_features=d_model,
+            out_features=len(self.config.categorical_col_tokens),
+            rngs=rngs,
+        )
 
     # config: TimeSeriesConfig
     # d_model: int = 64 * 10
