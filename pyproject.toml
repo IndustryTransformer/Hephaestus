@@ -10,6 +10,7 @@ dependencies = [
     "jax>=0.4.35",
     "matplotlib>=3.9.2",
     "pandas>=2.2.3",
+    "ruff>=0.8.0",
     "torch>=2.5.1",
 ]
 

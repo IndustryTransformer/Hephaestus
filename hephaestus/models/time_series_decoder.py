@@ -6,7 +6,7 @@ from typing import Optional
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
-from flax import linen as nn
+from flax import nnx
 from flax.struct import dataclass
 from icecream import ic
 from jax.lax import stop_gradient
@@ -276,29 +276,51 @@ class TimeSeriesDS(Dataset):
         return numeric_inputs, categorical_inputs
 
 
-class FeedForwardNetwork(nn.Module):
-    d_model: int
-    d_ff: int
-    dropout_rate: float
+class FeedForwardNetwork(nnx.Module):
+    def __init__(self, d_model: int, d_ff: int, dropout_rate: float, rngs: nnx.Rngs):
+        self.d_model = d_model
+        self.d_ff = d_ff
+        self.dropout_rate = dropout_rate
+        self.dense1 = nnx.Dense(d_ff)
+        self.dropout = nnx.Dropout(rate=dropout_rate)
+        self.dense2 = nnx.Dense(d_model)
 
-    @nn.compact
     def __call__(self, x, deterministic: bool):
         # Feed Forward Network
-        x = nn.Dense(self.d_ff)(x)
-        x = nn.relu(x)
-        x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)
-        x = nn.Dense(self.d_model)(x)
-        x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)
+        x = self.dense1(x)
+        x = nnx.relu(x)
+        x = self.dropout(x, deterministic=deterministic)
+        x = self.dense2(x)
+        x = self.dropout(x, deterministic=deterministic)
         return x
 
 
-class TransformerBlock(nn.Module):
-    num_heads: int
-    d_model: int
-    d_ff: int
-    dropout_rate: float
+class TransformerBlock(nnx.Module):
+    def __init__(
+        self,
+        num_heads: int,
+        d_model: int,
+        d_ff: int,
+        dropout_rate: float,
+        rngs: nnx.Rngs,
+    ):
+        self.num_heads = num_heads
+        self.d_model = d_model
+        self.d_ff = d_ff
+        self.dropout_rate = dropout_rate
 
-    @nn.compact
+        self.multi_head_attention = nnx.MultiHeadAttention(
+            num_heads=num_heads, d_model=d_model, dropout_rate=dropout_rate, rngs=rngs
+        )
+        self.layer_norm1 = nnx.LayerNorm(rngs=rngs)
+        self.feed_forward_network = FeedForwardNetwork(
+            d_model=self.d_model,
+            d_ff=self.d_ff,
+            dropout_rate=self.dropout_rate,
+            rngs=rngs,
+        )
+        self.layer_norm2 = nnx.LayerNorm(rngs=rngs)
+
     def __call__(
         self,
         q: jnp.array,
@@ -312,23 +334,19 @@ class TransformerBlock(nn.Module):
         else:
             mask_shape = None
         ic("Transformer Block", q.shape, k.shape, v.shape, mask_shape)
-        attention = nn.MultiHeadDotProductAttention(
-            num_heads=self.num_heads,
-            qkv_features=self.d_model,
-            dropout_rate=self.dropout_rate,
-        )(q, k, v, deterministic=deterministic, mask=mask)
+        attention = self.multi_head_attention(
+            q, k, v, deterministic=deterministic, mask=mask
+        )
         out = q + attention
-        out = nn.LayerNorm()(out)
+        out = self.layer_norm1(out)
         # Feed Forward Network
-        ffn = FeedForwardNetwork(
-            d_model=self.d_model, d_ff=self.d_ff, dropout_rate=self.dropout_rate
-        )(out, deterministic=deterministic)
+        ffn = self.feed_forward_network(out, deterministic=deterministic)
         out = out + ffn
-        out = nn.LayerNorm()(out)
+        out = self.layer_norm2(out)
         return out
 
 
-class ReservoirEmbedding(nn.Module):
+class ReservoirEmbedding(nnx.Module):
     """
     A module for performing reservoir embedding on a given input.
 
@@ -338,11 +356,17 @@ class ReservoirEmbedding(nn.Module):
         frozen_index (int, optional): The index of the embedding to freeze. Defaults to 0.
     """
 
-    config: TimeSeriesConfig
-    features: int
-    frozen_index: int = 0  # The index of the embedding to freeze
+    def __init__(self, config: TimeSeriesConfig, features: int, frozen_index: int = 0):
+        self.config = config
+        self.features = features
+        self.frozen_index = frozen_index
 
-    @nn.compact
+        self.embedding = nnx.Param(
+            "embedding",
+            nnx.initializers.normal(stddev=0.02),
+            (self.config.tokenizer.vocab_size, self.features),
+        )
+
     def __call__(self, base_indices: jnp.array):
         """
         Perform reservoir embedding on the given input.
@@ -354,21 +378,15 @@ class ReservoirEmbedding(nn.Module):
             jnp.array: The ultimate embedding after reservoir embedding.
         """
 
-        embedding = self.param(
-            "embedding",
-            nn.initializers.normal(stddev=0.02),
-            (self.config.tokenizer.vocab_size, self.features),
-        )
-
         # Create a mask for the frozen embedding
         frozen_mask = jnp.arange(self.config.tokenizer.vocab_size) == self.frozen_index
 
         # Set the frozen embedding to zero
-        frozen_embedding = jnp.where(frozen_mask[:, None], 0.0, embedding)
+        frozen_embedding = jnp.where(frozen_mask[:, None], 0.0, self.embedding)
 
         # Stop gradient for the frozen embedding
         penultimate_embedding = stop_gradient(frozen_embedding) + jnp.where(
-            frozen_mask[:, None], 0.0, embedding - frozen_embedding
+            frozen_mask[:, None], 0.0, self.embedding - frozen_embedding
         )
         token_reservoir_lookup = self.config.reservoir_encoded
         reservoir_indices = token_reservoir_lookup[base_indices]
@@ -385,7 +403,7 @@ class ProcessedEmbeddings:
     value_embeddings: Optional[jnp.array] = None
 
 
-class TimeSeriesTransformer(nn.Module):
+class TimeSeriesTransformer(nnx.Module):
     """
     Transformer-based model for time series data.
 
@@ -406,10 +424,37 @@ class TimeSeriesTransformer(nn.Module):
         time_window (int): The maximum length of the time window.
     """
 
-    config: TimeSeriesConfig
-    d_model: int = 64
-    n_heads: int = 4
-    time_window: int = 10_000
+    def __init__(
+        self,
+        config: TimeSeriesConfig,
+        rngs=nnx.Rngs,
+        d_model: int = 64,
+        n_heads: int = 4,
+    ):
+        self.config = config
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.time_window = 10000
+        self.embedding = nnx.Embed(
+            num_embeddings=self.config.n_tokens, features=self.d_model, rngs=rngs
+        )
+        self.transformer_block_0 = TransformerBlock(
+            num_heads=self.n_heads,
+            d_model=self.d_model,
+            d_ff=64,
+            dropout_rate=0.1,
+            rngs=rngs,
+        )
+        self.transformer_block_chain = [
+            TransformerBlock(
+                num_heads=self.n_heads,
+                d_model=self.d_model,
+                d_ff=64,
+                dropout_rate=0.1,
+                rngs=rngs,
+            )
+            for i in range(1, 4)
+        ]
 
     def process_numeric(self, numeric_inputs: jnp.array) -> ProcessedEmbeddings:
         """
@@ -541,29 +586,6 @@ class TimeSeriesTransformer(nn.Module):
             value_embeddings=value_embeddings, column_embeddings=column_embeddings
         )
 
-    def setup(self):
-        """Setup necessary to access self values in the model in the helper functions."""
-        self.embedding = nn.Embed(
-            num_embeddings=self.config.n_tokens, features=self.d_model
-        )
-        self.transformer_block_0 = TransformerBlock(
-            num_heads=self.n_heads,
-            d_model=self.d_model,
-            d_ff=64,
-            dropout_rate=0.1,
-            name="TransformerBlock_0",
-        )
-        self.transformer_block_chain = [
-            TransformerBlock(
-                num_heads=self.n_heads,
-                d_model=self.d_model,
-                d_ff=64,
-                dropout_rate=0.1,
-                name=f"TransformerBlock_{i}",
-            )
-            for i in range(1, 4)
-        ]
-
     def causal_mask(
         self,
         numeric_inputs: Optional[jnp.array],
@@ -588,12 +610,11 @@ class TimeSeriesTransformer(nn.Module):
             mask_input = categorical_inputs
         else:
             raise ValueError("No numeric or categorical inputs provided.")
-        causal_mask = nn.make_causal_mask(mask_input)
-        pad_mask = nn.make_attention_mask(mask_input, mask_input)
-        mask = nn.combine_masks(causal_mask, pad_mask)
+        causal_mask = nnx.make_causal_mask(mask_input)
+        pad_mask = nnx.make_attention_mask(mask_input, mask_input)
+        mask = nnx.combine_masks(causal_mask, pad_mask)
         return mask
 
-    # @nn.compact
     def __call__(
         self,
         numeric_inputs: Optional[jnp.array] = None,
@@ -637,12 +658,40 @@ class TimeSeriesTransformer(nn.Module):
         return out
 
 
-class TimeSeriesDecoder(nn.Module):
-    config: TimeSeriesConfig
-    d_model: int = 64 * 10
-    n_heads: int = 4
+class TimeSeriesDecoder(nnx.Module):
+    def __init__(
+        self,
+        config: TimeSeriesConfig,
+        rngs: nnx.Rngs,
+        d_model: int = 64,
+        n_heads: int = 4,
+    ):
+        self.config = config
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.time_series_transformer = TimeSeriesTransformer(
+            config=self.config, d_model=self.d_model, n_heads=self.n_heads, rngs=rngs
+        )
+        self.sequential = nnx.Sequential(
+            [
+                nnx.Dense(features=self.d_model * 2, rngs=rngs),
+                nnx.relu,
+                nnx.Dense(
+                    features=len(self.config.numeric_indices),
+                    rngs=rngs,
+                ),
+            ],
+        )
 
-    @nn.compact
+        self.categorical_dense1 = nnx.Dense(
+            features=len(self.config.token_decoder_dict.items()),
+        )
+        self.categorical_dense2 = nnx.Dense(features=self.config.categorical_col_tokens)
+
+    # config: TimeSeriesConfig
+    # d_model: int = 64 * 10
+    # n_heads: int = 4
+
     def __call__(
         self,
         numeric_inputs: jnp.array,
@@ -651,7 +700,7 @@ class TimeSeriesDecoder(nn.Module):
         causal_mask: bool = True,
     ) -> jnp.array:
         """ """
-        out = TimeSeriesTransformer(self.config, self.d_model, self.n_heads)(
+        out = self.time_series_transformer(
             numeric_inputs=numeric_inputs,
             categorical_inputs=jnp.astype(categorical_inputs, jnp.int32),
             deterministic=deterministic,
@@ -664,33 +713,18 @@ class TimeSeriesDecoder(nn.Module):
         )  # TODO This is wrong. Make this
         #  TODO WORK HERE!!!!! be of shape (batch_size, )
 
-        numeric_out = nn.Sequential(
-            [
-                nn.Dense(name="RegressionDense1", features=self.d_model * 2),
-                nn.relu,
-                nn.Dense(
-                    name="RegressionDense2", features=len(self.config.numeric_indices)
-                ),
-            ],
-            name="RegressionOutputChain",
-        )(numeric_out)
+        numeric_out = self.sequential(numeric_out)
         numeric_out = numeric_out.swapaxes(1, 2)
 
         if categorical_inputs is not None:
             categorical_out = out.copy()
-            categorical_out = nn.Dense(
-                name="CategoricalDense1",
-                features=len(self.config.token_decoder_dict.items()),
-            )(categorical_out)
+            categorical_out = self.categorical_dense1(categorical_out)
 
-            categorical_out = nn.relu(categorical_out)
+            categorical_out = nnx.relu(categorical_out)
 
             categorical_out = categorical_out.swapaxes(1, 3)
 
-            categorical_out = nn.Dense(
-                name="CategoricalDense2",
-                features=len(self.config.categorical_col_tokens),
-            )(categorical_out)
+            categorical_out = self.categorical_dense2(categorical_out)
 
             categorical_out = categorical_out.swapaxes(1, 3)
 
@@ -700,7 +734,7 @@ class TimeSeriesDecoder(nn.Module):
         return {"numeric_out": numeric_out, "categorical_out": categorical_out}
 
 
-class PositionalEncoding(nn.Module):
+class PositionalEncoding(nnx.Module):
     """
     PositionalEncoding module using @nn.compact. This module injects information
     about the relative or absolute position of the tokens in the sequence.
@@ -709,10 +743,10 @@ class PositionalEncoding(nn.Module):
     of tokens within the sequence.
     """
 
-    max_len: int  # Maximum length of the input sequences
-    d_pos_encoding: int  # Dimensionality of the embeddings/inputs
+    def __init__(self, max_len: int, d_pos_encoding: int):
+        self.max_len = max_len  # Maximum length of the input sequences
+        self.d_pos_encoding = d_pos_encoding  # Dimensionality of the embeddings/inputs
 
-    @nn.compact
     def __call__(self, x):
         """
         Forward pass of the positional encoding. Concatenates positional encoding to
@@ -750,7 +784,3 @@ class PositionalEncoding(nn.Module):
         result = x + pe
 
         return result
-
-
-# %%
-# %%
