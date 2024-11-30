@@ -111,13 +111,15 @@ class TimeSeriesConfig:
     token_dict: dict = None
     token_decoder_dict: dict = None
     n_tokens: int = None
-    numeric_indices: jnp.array = None
-    categorical_indices: jnp.array = None
+    numeric_indices: nnx.Variable = None  # jnp.array = None
+    categorical_indices: nnx.Variable = None  #  jnp.array = None
     object_tokens: list = None
     numeric_mask_token: int = None
     reservoir_vocab: list = None
-    reservoir_encoded: jnp.array = None
+    reservoir_encoded: nnx.Variable = None  #  jnp.array = None
     tokenizer: AutoTokenizer = None
+    ds_length: int = None
+    n_columns: int = None
 
     @classmethod
     def generate(cls, df: pd.DataFrame) -> "TimeSeriesConfig":
@@ -133,6 +135,7 @@ class TimeSeriesConfig:
         # max_seq_len = df.groupby("idx").count().time_step.max()
         # Set df.idx to start from 0
         df.idx = df.idx - df.idx.min()
+        ds_length = df.groupby("idx").size().max()
         df = df.set_index("idx")
         df.index.name = None
 
@@ -182,10 +185,13 @@ class TimeSeriesConfig:
         cls_dict["token_decoder_dict"] = token_decoder_dict
         n_tokens = len(cls_dict["tokens"])
         cls_dict["n_tokens"] = n_tokens
-        numeric_indices = jnp.array([tokens.index(i) for i in numeric_col_tokens])
+        numeric_indices = nnx.Variable(
+            jnp.array([tokens.index(i) for i in numeric_col_tokens])
+        )
+        # numeric_indices = jnp.array([tokens.index(i) for i in numeric_col_tokens])
         cls_dict["numeric_indices"] = numeric_indices
-        categorical_indices = jnp.array(
-            [tokens.index(i) for i in categorical_col_tokens]
+        categorical_indices = nnx.Variable(
+            jnp.array([tokens.index(i) for i in categorical_col_tokens])
         )
         cls_dict["categorical_indices"] = categorical_indices
 
@@ -203,16 +209,20 @@ class TimeSeriesConfig:
         ]  # ensures they are in the same order
         tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
         cls_dict["tokenizer"] = tokenizer
-        reservoir_encoded = tokenizer(
-            reservoir_tokens_list,
-            padding="max_length",
-            max_length=8,  # TODO Make this dynamic
-            truncation=True,
-            return_tensors="jax",
-            add_special_tokens=False,
-        )["input_ids"]  # TODO make this custom to reduce dictionary size
+        reservoir_encoded = nnx.Variable(
+            tokenizer(
+                reservoir_tokens_list,
+                padding="max_length",
+                max_length=8,  # TODO Make this dynamic
+                truncation=True,
+                return_tensors="jax",
+                add_special_tokens=False,
+            )["input_ids"]
+        )  # TODO make this custom to reduce dictionary size
         cls_dict["reservoir_encoded"] = reservoir_encoded
         cls_dict["reservoir_vocab"] = reservoir_vocab
+        cls_dict["ds_length"] = ds_length
+        cls_dict["n_columns"] = len(df.columns)
 
         df_categorical = convert_object_to_int_tokens(df_categorical, token_dict)
 
@@ -692,7 +702,9 @@ class TimeSeriesDecoder(nnx.Module):
         #     ),
         # )
         self.numeric_linear1 = nnx.Linear(
-            in_features=2560, out_features=self.d_model * 2, rngs=rngs
+            in_features=d_model * self.config.n_columns,  # self.config.ds_length,
+            out_features=self.d_model * 2,
+            rngs=rngs,
         )
         self.numeric_linear2 = nnx.Linear(
             in_features=d_model * 2,
@@ -700,7 +712,7 @@ class TimeSeriesDecoder(nnx.Module):
             rngs=rngs,
         )
         self.categorical_dense1 = nnx.Linear(
-            in_features=512,  # len(self.config.token_decoder_dict.items()),
+            in_features=self.d_model,  # self.config.ds_length,  # len(self.config.token_decoder_dict.items()),
             out_features=self.d_model,
             rngs=rngs,
         )
@@ -737,7 +749,7 @@ class TimeSeriesDecoder(nnx.Module):
 
         # numeric_out = self.sequential(numeric_out)
         ic("Starting shit")
-        ic(numeric_out.shape)
+        ic(numeric_out.shape, self.config.ds_length)
         numeric_out = self.numeric_linear1(numeric_out)
         ic(numeric_out.shape)
         numeric_out = nnx.relu(numeric_out)
