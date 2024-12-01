@@ -712,12 +712,12 @@ class TimeSeriesDecoder(nnx.Module):
             rngs=rngs,
         )
         self.categorical_dense1 = nnx.Linear(
-            in_features=self.d_model,  # self.config.ds_length,  # len(self.config.token_decoder_dict.items()),
-            out_features=self.d_model,
+            in_features=self.d_model,
+            out_features=len(self.config.token_decoder_dict.items()),
             rngs=rngs,
         )
         self.categorical_dense2 = nnx.Linear(
-            in_features=d_model,
+            in_features=30,
             out_features=len(self.config.categorical_col_tokens),
             rngs=rngs,
         )
@@ -766,10 +766,16 @@ class TimeSeriesDecoder(nnx.Module):
             categorical_out = nnx.relu(categorical_out)
 
             # categorical_out = categorical_out.swapaxes(1, 3)
-            ic(categorical_out.shape, "latest problem")
-            categorical_out = self.categorical_dense2(categorical_out)
-
+            ic(
+                "Categorical after dense1",
+                categorical_out.shape,
+            )
             categorical_out = categorical_out.swapaxes(1, 3)
+            ic("Categorical out after first swap", categorical_out.shape)
+            categorical_out = self.categorical_dense2(categorical_out)
+            ic("Categorical after dense2", categorical_out.shape)
+            categorical_out = categorical_out.swapaxes(1, 3)
+            ic("Categorical after swap", categorical_out.shape)
 
         else:
             categorical_out = None
