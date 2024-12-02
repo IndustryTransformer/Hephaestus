@@ -717,7 +717,7 @@ class TimeSeriesDecoder(nnx.Module):
             rngs=rngs,
         )
         self.categorical_dense2 = nnx.Linear(
-            in_features=30,
+            in_features=self.config.n_columns,
             out_features=len(self.config.categorical_col_tokens),
             rngs=rngs,
         )
