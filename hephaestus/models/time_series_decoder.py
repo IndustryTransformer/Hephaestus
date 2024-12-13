@@ -372,7 +372,13 @@ class ReservoirEmbedding(nnx.Module):
         frozen_index (int, optional): The index of the embedding to freeze. Defaults to 0.
     """
 
-    def __init__(self, config: TimeSeriesConfig, features: int, frozen_index: int = 0):
+    def __init__(
+        self,
+        config: TimeSeriesConfig,
+        features: int,
+        rngs: nnx.Rngs,
+        frozen_index: int = 0,
+    ):
         self.config = config
         self.features = features
         self.frozen_index = frozen_index
@@ -382,6 +388,21 @@ class ReservoirEmbedding(nnx.Module):
             nnx.initializers.normal(stddev=0.02),
             (self.config.tokenizer.vocab_size, self.features),
         )
+
+    # def __init__(self, config: TimeSeriesConfig, features: int, frozen_index: int = 0, rngs: nnx.Rngs):
+    #     self.config = config
+    #     self.features = features
+    #     self.frozen_index = frozen_index
+
+    #     # Modified to properly handle the random key initialization
+    #     self.embedding = nnx.Param(
+    #         "embedding",
+    #         lambda key: nnx.initializers.normal(stddev=0.02)(
+    #             key,
+    #             (self.config.tokenizer.vocab_size, self.features),
+    #         ),
+    #         rngs=rngs  # Pass the rngs through
+    #     )
 
     def __call__(self, base_indices: jnp.array):
         """
