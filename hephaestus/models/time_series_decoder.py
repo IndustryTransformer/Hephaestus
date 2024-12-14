@@ -292,17 +292,20 @@ class FeedForwardNetwork(nnx.Module):
         self.d_ff = d_ff
         self.dropout_rate = dropout_rate
         self.dense1 = nnx.Linear(in_features=512, out_features=512, rngs=rngs)
-        self.dropout1 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
+        # self.dropout1 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
         self.dense2 = nnx.Linear(in_features=d_model, out_features=512, rngs=rngs)
-        self.dropout2 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
+        # self.dropout2 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
 
     def __call__(self, x, deterministic: bool):
         # Feed Forward Network
         x = self.dense1(x)
         x = nnx.relu(x)
-        x = self.dropout1(x, deterministic=deterministic)
+        # TODO Add dropout back in
+        # x = self.dropout1(x, deterministic=deterministic)
         x = self.dense2(x)
-        x = self.dropout2(x, deterministic=deterministic)
+        ic("About to call dropout2")
+        # x = self.dropout2(x, deterministic=deterministic)
+        ic("Finished calling dropout2")
         return x
 
 
@@ -383,10 +386,8 @@ class ReservoirEmbedding(nnx.Module):
         self.features = features
         self.frozen_index = frozen_index
 
-        self.embedding = nnx.Param(
-            "embedding",
-            nnx.initializers.normal(stddev=0.02),
-            (self.config.tokenizer.vocab_size, self.features),
+        self.embedding = nnx.Embed(
+            num_embeddings=self.config.n_tokens, features=self.features, rngs=rngs
         )
 
     # def __init__(self, config: TimeSeriesConfig, features: int, frozen_index: int = 0, rngs: nnx.Rngs):
@@ -414,24 +415,32 @@ class ReservoirEmbedding(nnx.Module):
         Returns:
             jnp.array: The ultimate embedding after reservoir embedding.
         """
-
-        # Create a mask for the frozen embedding
-        frozen_mask = jnp.arange(self.config.tokenizer.vocab_size) == self.frozen_index
-
-        # Set the frozen embedding to zero
-        frozen_embedding = jnp.where(frozen_mask[:, None], 0.0, self.embedding)
-
-        # Stop gradient for the frozen embedding
-        penultimate_embedding = stop_gradient(frozen_embedding) + jnp.where(
-            frozen_mask[:, None], 0.0, self.embedding - frozen_embedding
-        )
         token_reservoir_lookup = self.config.reservoir_encoded
         reservoir_indices = token_reservoir_lookup[base_indices]
+        return_embed = self.embedding(reservoir_indices)
+        return_embed = jnp.sum(return_embed, axis=-2)
+        return return_embed
 
-        ultimate_embedding = penultimate_embedding[reservoir_indices]
-        ultimate_embedding = jnp.sum(ultimate_embedding, axis=-2)
+        # Create a mask for the frozen embedding
+        # frozen_mask = jnp.arange(self.config.tokenizer.vocab_size) == self.frozen_index
 
-        return ultimate_embedding
+        # # Set the frozen embedding to zero
+        # frozen_embedding = jnp.where(
+        #     frozen_mask[:, None], 0.0, self.embedding.embedding
+        # )
+
+        # # Stop gradient for the frozen embedding
+        # penultimate_embedding = stop_gradient(frozen_embedding) + jnp.where(
+        #     frozen_mask[:, None], 0.0, self.embedding.embedding - frozen_embedding
+        # )
+        # token_reservoir_lookup = self.config.reservoir_encoded
+        # reservoir_indices = token_reservoir_lookup[base_indices]
+
+        # ultimate_embedding = penultimate_embedding[reservoir_indices]
+        # ultimate_embedding = jnp.sum(ultimate_embedding, axis=-2)
+        # ic(ultimate_embedding.shape)
+
+        # return ultimate_embedding
 
 
 @dataclass
@@ -472,8 +481,11 @@ class TimeSeriesTransformer(nnx.Module):
         self.d_model = d_model
         self.n_heads = n_heads
         self.time_window = 10000
-        self.embedding = nnx.Embed(
-            num_embeddings=self.config.n_tokens, features=self.d_model, rngs=rngs
+        # self.embedding = nnx.Embed(
+        #     num_embeddings=self.config.n_tokens, features=self.d_model, rngs=rngs
+        # )
+        self.embedding = ReservoirEmbedding(
+            config=self.config, features=self.d_model, rngs=rngs
         )
         self.transformer_block_0 = TransformerBlock(
             num_heads=self.n_heads,
@@ -805,13 +817,7 @@ class TimeSeriesDecoder(nnx.Module):
 
 
 class PositionalEncoding(nnx.Module):
-    """
-    PositionalEncoding module using @nn.compact. This module injects information
-    about the relative or absolute position of the tokens in the sequence.
-    The positional encodings have the same dimension as the embeddings, so that
-    the two can be summed. This allows the model to learn the relative positions
-    of tokens within the sequence.
-    """
+    """ """
 
     def __init__(self, max_len: int, d_pos_encoding: int):
         self.max_len = max_len  # Maximum length of the input sequences
