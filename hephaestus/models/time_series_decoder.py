@@ -292,7 +292,7 @@ class FeedForwardNetwork(nnx.Module):
         self.d_ff = d_ff
         self.dropout_rate = dropout_rate
         self.dense1 = nnx.Linear(in_features=512, out_features=512, rngs=rngs)
-        # self.dropout1 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
+        self.dropout1 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
         self.dense2 = nnx.Linear(in_features=d_model, out_features=512, rngs=rngs)
         # self.dropout2 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
 
@@ -300,12 +300,11 @@ class FeedForwardNetwork(nnx.Module):
         # Feed Forward Network
         x = self.dense1(x)
         x = nnx.relu(x)
-        # TODO Add dropout back in
-        # x = self.dropout1(x, deterministic=deterministic)
+        x = self.dropout1(x, deterministic=deterministic)
         x = self.dense2(x)
-        ic("About to call dropout2")
-        # x = self.dropout2(x, deterministic=deterministic)
-        ic("Finished calling dropout2")
+        # ic("About to call dropout2")
+        x = self.dropout(x, deterministic=deterministic)
+        # ic("Finished calling dropout2")
         return x
 
 
