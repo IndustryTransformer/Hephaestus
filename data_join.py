@@ -1,6 +1,8 @@
 # %%
 import os
+
 import pandas as pd
+
 # %%
 data_dir = "data/beam_data"
 files = os.listdir(data_dir)
@@ -14,4 +16,4 @@ dfs = pd.concat(dfs)
 # %%
 trans_df = pd.read_csv(os.path.join(data_dir, "transactions.csv"))
 # %%
-df = pd.merge(dfs
+df = pd.merge(dfs)
