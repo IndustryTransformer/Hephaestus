@@ -118,6 +118,7 @@ class TimeSeriesConfig:
     reservoir_vocab: list = None
     reservoir_encoded: nnx.Variable = None  #  jnp.array = None
     tokenizer: AutoTokenizer = None
+    vocab_size: int = None
     ds_length: int = None
     n_columns: int = None
 
@@ -223,7 +224,7 @@ class TimeSeriesConfig:
         cls_dict["reservoir_vocab"] = reservoir_vocab
         cls_dict["ds_length"] = ds_length
         cls_dict["n_columns"] = len(df.columns)
-
+        cls_dict["vocab_size"] = tokenizer.vocab_size
         df_categorical = convert_object_to_int_tokens(df_categorical, token_dict)
 
         return cls(**cls_dict)
@@ -386,7 +387,7 @@ class ReservoirEmbedding(nnx.Module):
         self.frozen_index = frozen_index
 
         self.embedding = nnx.Embed(
-            num_embeddings=self.config.n_tokens, features=self.features, rngs=rngs
+            num_embeddings=self.config.vocab_size, features=self.features, rngs=rngs
         )
 
     # def __init__(self, config: TimeSeriesConfig, features: int, frozen_index: int = 0, rngs: nnx.Rngs):
@@ -416,8 +417,15 @@ class ReservoirEmbedding(nnx.Module):
         """
         token_reservoir_lookup = self.config.reservoir_encoded
         reservoir_indices = token_reservoir_lookup[base_indices]
+        ic(
+            "Reservoir indices",
+            jnp.isnan(reservoir_indices).any(),
+            reservoir_indices.dtype,
+        )
         return_embed = self.embedding(reservoir_indices)
+        ic("Return embed", jnp.isnan(return_embed).any())
         return_embed = jnp.sum(return_embed, axis=-2)
+        ic("Return embed final", jnp.isnan(return_embed).any())
         return return_embed
 
         # Create a mask for the frozen embedding
@@ -486,6 +494,11 @@ class TimeSeriesTransformer(nnx.Module):
         self.embedding = ReservoirEmbedding(
             config=self.config, features=self.d_model, rngs=rngs
         )
+        # ic(
+        #     "Embedding Test Value",
+        #     self.embedding(jnp.array([0])),
+        #     self.embedding(jnp.array([0])).shape,
+        # )
         self.transformer_block_0 = TransformerBlock(
             num_heads=self.n_heads,
             d_model=self.d_model,
@@ -516,21 +529,27 @@ class TimeSeriesTransformer(nnx.Module):
         """
         # Create a nan mask for the numeric inputs
         nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
-
+        # ic(
+        #     "Second Embedding Dim",
+        #     self.embedding(jnp.array([0])),
+        #     self.embedding(jnp.array([0])).shape,
+        # )
         # Replace NaN values with zeros
         numeric_inputs = jnp.where(nan_mask, 0.0, numeric_inputs)
         repeated_numeric_indices = jnp.tile(
             self.config.numeric_indices, (numeric_inputs.shape[2], 1)
         )
-
+        ic("Before embedding", jnp.isnan(repeated_numeric_indices).any())
         # repeated_numeric_indices = jnp.swapaxes(repeated_numeric_indices, 0, 1)
         repeated_numeric_indices = repeated_numeric_indices.T
         numeric_col_embeddings = self.embedding(repeated_numeric_indices)
+        ic("After embedding", jnp.isnan(numeric_col_embeddings).any())
         # Nan Masking
         numeric_col_embeddings = jnp.tile(
             numeric_col_embeddings[None, :, :, :],
             (numeric_inputs.shape[0], 1, 1, 1),
         )
+        ic("col_token type", numeric_col_embeddings.dtype)
         numeric_embedding = self.embedding(
             jnp.array(self.config.token_dict[self.config.numeric_token])
         )
@@ -546,6 +565,7 @@ class TimeSeriesTransformer(nnx.Module):
         )
         # End Nan Masking
         ic(numeric_embedding.shape)
+        ic(jnp.isnan(numeric_embedding).any())
         # numeric_embedding = self.embedding(numeric_embedding.astype(jnp.int32))
         return ProcessedEmbeddings(
             column_embeddings=numeric_col_embeddings,
@@ -859,3 +879,6 @@ class PositionalEncoding(nnx.Module):
         result = x + pe
 
         return result
+
+
+# %%
