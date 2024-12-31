@@ -36,3 +36,4 @@ dev-dependencies = [
 cuda = [
     "jax[cuda]>=0.4.1",
 ]
+packages = ["hephaestus"]  # Only include the main package
