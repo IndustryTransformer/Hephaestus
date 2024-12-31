@@ -7,7 +7,8 @@ import jax
 import optax
 from flax.training import train_state
 
-from .data_utils import MLMModelInputs, MTMModelInputs, TabularDS
+from .data_utils import MLMModelInputs
+from .hephaestus import hp
 
 
 def create_trm_state(
@@ -43,7 +44,7 @@ def calculate_trm_loss(
 
 
 @jax.jit
-def trm_train_step(state, mi):
+def trm_train_step(state, mi, trm):
     def loss_fn(params):
         return calculate_trm_loss(params, trm, mi)
 
@@ -54,5 +55,5 @@ def trm_train_step(state, mi):
 
 
 @jax.jit
-def trm_eval_step(params, mi):
+def trm_eval_step(params, mi, trm):
     return calculate_trm_loss(params, trm, mi)
