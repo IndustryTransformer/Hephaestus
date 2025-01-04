@@ -58,7 +58,7 @@ def categorical_loss(inputs, outputs, input_offset: int = 1):
     return masked_loss
 
 
-@partial(jax.jit, static_argnums=(0,))
+@partial(jax.jit, static_argnums=(0, 2, 3))
 def train_step(
     model: hp.TimeSeriesDecoder,
     inputs: dict,
