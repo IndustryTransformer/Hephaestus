@@ -26,3 +26,4 @@ repos:
     hooks:
       - id: nbqa-ruff
       - id: nbqa-pyupgrade
+      - id: nbqa-isort
