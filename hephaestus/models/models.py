@@ -94,7 +94,6 @@ class TimeSeriesTransformerModel(nn.Module):
         # Embed column indices
         col_embeddings = embedding(jnp.array(self.dataset.col_indices))
         cat_embeddings = embedding(categorical_inputs)
-        # TODO implement no grad here
         repeated_numeric_indices = jnp.tile(
             self.dataset.numeric_indices, (numeric_inputs.shape[0], 1)
         )
@@ -132,9 +131,7 @@ class TimeSeriesTransformerModel(nn.Module):
             n_heads=self.n_heads,
             d_ff=self.d_model * 4,
             dropout_rate=0.1,
-        )(
-            q=out, k=out, v=out
-        )  # Check if we should reuse the col embeddings here
+        )(q=out, k=out, v=out)  # Check if we should reuse the col embeddings here
         # print(f"Second MHA out shape: {out.shape}")
         print(f"here1 {out.shape}")
         return out
@@ -164,7 +161,6 @@ class TabTransformer(nn.Module):
         )
         col_embeddings = embedding(repeated_col_indices)
         cat_embeddings = embedding(categorical_inputs)
-        # TODO implement no grad here
         repeated_numeric_indices = jnp.tile(
             self.dataset.numeric_indices, (numeric_inputs.shape[0], 1)
         )

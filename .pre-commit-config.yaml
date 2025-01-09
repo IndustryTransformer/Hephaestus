@@ -12,14 +12,20 @@ repos:
   #   rev: 8f9b4931b9a28896fb43edccb23016a7540f5b82
   #   hooks:
   #     - id: flake8
-  - repo: https://github.com/ambv/black
-    rev: 22.12.0
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Ruff version.
+    rev: v0.8.3
     hooks:
-      - id: black
-      - id: black-jupyter
-        language_version: python3.10
-  - repo: https://github.com/pycqa/isort
-    rev: 5.12.0
+      # Run the linter.
+      - id: ruff
+        args: [--fix]
+      # Run the formatter.
+      - id: ruff-format
+  - repo: https://github.com/nbQA-dev/nbQA
+    rev: 1.9.1
     hooks:
-      - id: isort
-        name: isort (python)
+      - id: nbqa-ruff
+      - id: nbqa-pyupgrade
+      # use black profile for isort
+      - id: nbqa-isort
+        args: ['--profile=black']
