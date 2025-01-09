@@ -538,8 +538,7 @@ class TimeSeriesTransformer(nnx.Module):
         numeric_col_embeddings = self.embedding(repeated_numeric_indices)
         # Nan Masking
         numeric_col_embeddings = jnp.tile(
-            # jnp.squeeze(
-            numeric_col_embeddings[None, :, :, :],  # ),
+            jnp.squeeze(numeric_col_embeddings[None, :, :, :]),
             (numeric_inputs.shape[0], 1, 1, 1),
         )
         ic("col_token type", numeric_col_embeddings.dtype)
@@ -593,8 +592,7 @@ class TimeSeriesTransformer(nnx.Module):
             self.config.categorical_indices.shape,
         )
         repeated_categorical_indices = jnp.tile(
-            self.config.categorical_indices,
-            # jnp.squeeze(self.config.categorical_indices),
+            jnp.squeeze(self.config.categorical_indices),
             (categorical_inputs.shape[2], 1),
         )
         ic(repeated_categorical_indices.shape)
