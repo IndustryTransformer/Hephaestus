@@ -2,6 +2,8 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
+import hephaestus as hp
+
 
 def add_input_offsets(
     inputs: jnp.array, outputs: jnp.array, inputs_offset: int = 1
@@ -54,38 +56,43 @@ def categorical_loss(inputs, outputs, input_offset: int = 1):
     return masked_loss
 
 
-# @partial(jax.jit, static_argnums=(0, 2, 3))
-# def train_step(
-#     model: hp.TimeSeriesDecoder,
-#     inputs: dict,
-#     optimizer: nnx.Optimizer,
-#     metrics: nnx.MultiMetric,
-# ):
-#     def loss_fn(model):
-#         res = model(
-#             numeric_inputs=inputs["numeric"],
-#             categorical_inputs=inputs["categorical"],
-#             deterministic=False,
-#         )
+def create_train_step(
+    model: hp.TimeSeriesDecoder, optimizer: nnx.Optimizer, metrics: nnx.MultiMetric
+):
+    @nnx.jit
+    def train_step(
+        model: hp.TimeSeriesDecoder,
+        inputs: dict,
+        optimizer: nnx.Optimizer,
+        metrics: nnx.MultiMetric,
+    ):
+        def loss_fn(model):
+            res = model(
+                numeric_inputs=inputs["numeric"],
+                categorical_inputs=inputs["categorical"],
+                deterministic=False,
+            )
 
-#         numeric_loss_value = numeric_loss(inputs["numeric"], res["numeric_out"])
-#         categorical_loss_value = categorical_loss(
-#             inputs["categorical"], res["categorical_out"]
-#         )
-#         loss = numeric_loss_value + categorical_loss_value
-#         return loss, (numeric_loss_value, categorical_loss_value)
+            numeric_loss_value = numeric_loss(inputs["numeric"], res["numeric_out"])
+            categorical_loss_value = categorical_loss(
+                inputs["categorical"], res["categorical_out"]
+            )
+            loss = numeric_loss_value + categorical_loss_value
+            return loss, (numeric_loss_value, categorical_loss_value)
 
-#     grad_fn = nnx.value_and_grad(loss_fn, has_aux=True)
-#     # grad_fn = nnx.value_and_grad(loss_fn, has_aux=False)
-#     # loss, grads = grad_fn(model)
-#     (loss, (numeric_loss_value, categorical_loss_value)), grads = grad_fn(model)
-#     metrics.update(
-#         loss=loss,
-#         numeric_loss=numeric_loss_value,
-#         categorical_loss=categorical_loss_value,
-#     )
+        grad_fn = nnx.value_and_grad(loss_fn, has_aux=True)
+        # grad_fn = nnx.value_and_grad(loss_fn, has_aux=False)
+        # loss, grads = grad_fn(model)
+        (loss, (numeric_loss_value, categorical_loss_value)), grads = grad_fn(model)
+        metrics.update(
+            loss=loss,
+            numeric_loss=numeric_loss_value,
+            categorical_loss=categorical_loss_value,
+        )
 
-#     optimizer.update(grads)
+        optimizer.update(grads)
+
+    return train_step
 
 
 def create_metric_history():
