@@ -417,15 +417,9 @@ class ReservoirEmbedding(nnx.Module):
         """
         token_reservoir_lookup = self.config.reservoir_encoded
         reservoir_indices = token_reservoir_lookup[base_indices]
-        ic(
-            "Reservoir indices",
-            jnp.isnan(reservoir_indices).any(),
-            reservoir_indices.dtype,
-        )
+
         return_embed = self.embedding(reservoir_indices)
-        ic("Return embed", jnp.isnan(return_embed).any())
         return_embed = jnp.sum(return_embed, axis=-2)
-        ic("Return embed final", jnp.isnan(return_embed).any())
         return return_embed
 
         # Create a mask for the frozen embedding
@@ -539,14 +533,13 @@ class TimeSeriesTransformer(nnx.Module):
         repeated_numeric_indices = jnp.tile(
             self.config.numeric_indices, (numeric_inputs.shape[2], 1)
         )
-        ic("Before embedding", jnp.isnan(repeated_numeric_indices).any())
         # repeated_numeric_indices = jnp.swapaxes(repeated_numeric_indices, 0, 1)
         repeated_numeric_indices = repeated_numeric_indices.T
         numeric_col_embeddings = self.embedding(repeated_numeric_indices)
-        ic("After embedding", jnp.isnan(numeric_col_embeddings).any())
         # Nan Masking
         numeric_col_embeddings = jnp.tile(
-            numeric_col_embeddings[None, :, :, :],
+            # jnp.squeeze(
+            numeric_col_embeddings[None, :, :, :],  # ),
             (numeric_inputs.shape[0], 1, 1, 1),
         )
         ic("col_token type", numeric_col_embeddings.dtype)
@@ -565,7 +558,6 @@ class TimeSeriesTransformer(nnx.Module):
         )
         # End Nan Masking
         ic(numeric_embedding.shape)
-        ic(jnp.isnan(numeric_embedding).any())
         # numeric_embedding = self.embedding(numeric_embedding.astype(jnp.int32))
         return ProcessedEmbeddings(
             column_embeddings=numeric_col_embeddings,
@@ -593,16 +585,28 @@ class TimeSeriesTransformer(nnx.Module):
             categorical_inputs,
         )
         categorical_embeddings = self.embedding(categorical_inputs)
-
-        repeated_categorical_indices = jnp.tile(
-            self.config.categorical_indices, (categorical_inputs.shape[2], 1)
+        ic(
+            "Issue here",
+            categorical_inputs.shape,
+            "args",
+            categorical_inputs.shape[2],
+            self.config.categorical_indices.shape,
         )
+        repeated_categorical_indices = jnp.tile(
+            self.config.categorical_indices,
+            # jnp.squeeze(self.config.categorical_indices),
+            (categorical_inputs.shape[2], 1),
+        )
+        ic(repeated_categorical_indices.shape)
         repeated_categorical_indices = repeated_categorical_indices.T
+        ic(repeated_categorical_indices.shape)
         categorical_col_embeddings = self.embedding(repeated_categorical_indices)
+        ic("Extra dim here?", categorical_col_embeddings.shape)
         categorical_col_embeddings = jnp.tile(
             categorical_col_embeddings[None, :, :, :],
             (categorical_inputs.shape[0], 1, 1, 1),
         )
+        ic(categorical_col_embeddings.shape)
         return ProcessedEmbeddings(
             column_embeddings=categorical_col_embeddings,
             value_embeddings=categorical_embeddings,
@@ -630,6 +634,7 @@ class TimeSeriesTransformer(nnx.Module):
             and categorical.value_embeddings is not None
         ):
             ic(numeric.value_embeddings.shape, categorical.value_embeddings.shape)
+            ic(numeric.column_embeddings.shape, categorical.column_embeddings.shape)
             value_embeddings = jnp.concatenate(
                 [numeric.value_embeddings, categorical.value_embeddings],
                 axis=1,
@@ -691,6 +696,7 @@ class TimeSeriesTransformer(nnx.Module):
         causal_mask: bool = True,
         encoder_mask: bool = False,
     ):
+        ic(numeric_inputs.shape, categorical_inputs.shape)
         processed_numeric = self.process_numeric(numeric_inputs)
         processed_categorical = self.process_categorical(categorical_inputs)
 
