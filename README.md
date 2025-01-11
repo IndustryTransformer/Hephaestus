@@ -29,3 +29,10 @@ uv pip install -e ".[cpu,dev]"
 ```bash
 uv pip install -e ".[cuda,dev]"
 ```
+
+#### M Series
+
+```bash
+uv pip install -e ".[m,dev]"
+
+```

@@ -30,4 +30,5 @@ dev-dependencies = ["ipykernel>=6.29.5"]
 [project.optional-dependencies]
 cuda = ["jax[cuda]>=0.4.1"]
 cpu = ["jax>=0.4.1"]
+m = ["jax-metal"]
 packages = ["hephaestus"]   # Only include the main package
