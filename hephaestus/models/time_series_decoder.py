@@ -223,6 +223,7 @@ class TimeSeriesConfig:
         cls_dict["reservoir_encoded"] = reservoir_encoded
         cls_dict["reservoir_vocab"] = reservoir_vocab
         cls_dict["ds_length"] = ds_length
+
         cls_dict["n_columns"] = len(df.columns)
         cls_dict["vocab_size"] = tokenizer.vocab_size
         df_categorical = convert_object_to_int_tokens(df_categorical, token_dict)
