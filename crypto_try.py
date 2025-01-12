@@ -233,7 +233,7 @@ train_step = ht.create_train_step(
 )
 
 # %%
-train_len = len(train_data_loader)
+counter = 0
 for epoch in trange(10):
     for step, batch in enumerate(tqdm(train_data_loader)):
         batch = {"numeric": jnp.array(batch[0]), "categorical": jnp.array(batch[1])}
@@ -244,9 +244,8 @@ for epoch in trange(10):
             metric_history[metric].append(value)
             if jnp.isnan(value).any():
                 raise ValueError("Nan Values")
-            summary_writer.add_scalar(
-                f"train/{metric}", np.array(value), step + epoch * train_len
-            )
+            summary_writer.add_scalar(f"train/{metric}", np.array(value), counter)
+        counter += 1
         metrics.reset()
 
 # %%
