@@ -25,7 +25,11 @@ dependencies = [
 dev = ["ipykernel>=6.29.5"]
 
 [tool.uv]
-dev-dependencies = ["ipykernel>=6.29.5"]
+dev-dependencies = [
+    "ipykernel>=6.29.5",
+    "ipywidgets>=8.1.5",
+    "nbconvert>=7.16.6",
+]
 
 [project.optional-dependencies]
 cuda = ["jax[cuda]>=0.4.1"]
