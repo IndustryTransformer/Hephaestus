@@ -105,7 +105,11 @@ def create_metric_history():
 
 # Then create the optimizer with the schedule
 def create_optimizer(
-    model, learning_rate, momentum: float = 0.4, warmup_steps: int = 500
+    model,
+    learning_rate,
+    momentum: float = 0.4,
+    warmup_steps: int = 500,
+    clip_norm: float = 1.0,  # added parameter for gradient clipping
 ):
     schedule = optax.warmup_cosine_decay_schedule(
         init_value=0.0,
@@ -116,6 +120,9 @@ def create_optimizer(
     optimizer = nnx.Optimizer(
         model,
         optax.chain(
+            optax.clip_by_global_norm(
+                clip_norm
+            ),  # clip gradients to avoid exploding gradients
             optax.adamw(learning_rate=learning_rate, b1=momentum),
             optax.scale_by_schedule(schedule),
         ),
