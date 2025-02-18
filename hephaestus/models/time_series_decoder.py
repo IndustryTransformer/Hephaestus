@@ -293,9 +293,9 @@ class FeedForwardNetwork(nnx.Module):
         self.d_model = d_model
         self.d_ff = d_ff
         self.dropout_rate = dropout_rate
-        self.dense1 = nnx.Linear(in_features=512, out_features=512, rngs=rngs)
+        self.dense1 = nnx.Linear(in_features=d_model, out_features=d_model, rngs=rngs)
         self.dropout = nnx.Dropout(rate=dropout_rate, rngs=rngs)
-        self.dense2 = nnx.Linear(in_features=d_model, out_features=512, rngs=rngs)
+        self.dense2 = nnx.Linear(in_features=d_model, out_features=d_model, rngs=rngs)
         # self.dropout2 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
 
     def __call__(self, x, deterministic: bool):
