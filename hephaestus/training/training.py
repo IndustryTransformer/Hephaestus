@@ -2,7 +2,7 @@ import jax.numpy as jnp
 import optax
 from flax import nnx
 
-import hephaestus as hp
+from hephaestus.models.models import TimeSeriesDecoder
 
 
 def add_input_offsets(
@@ -57,11 +57,11 @@ def categorical_loss(inputs, outputs, input_offset: int = 1):
 
 
 def create_train_step(
-    model: hp.TimeSeriesDecoder, optimizer: nnx.Optimizer, metrics: nnx.MultiMetric
+    model: TimeSeriesDecoder, optimizer: nnx.Optimizer, metrics: nnx.MultiMetric
 ):
     @nnx.jit
     def train_step(
-        model: hp.TimeSeriesDecoder,
+        model: TimeSeriesDecoder,
         inputs: dict,
         optimizer: nnx.Optimizer,
         metrics: nnx.MultiMetric,
@@ -136,3 +136,20 @@ def create_metrics():
         categorical_loss=nnx.metrics.Average("categorical_loss"),
         numeric_loss=nnx.metrics.Average("numeric_loss"),
     )
+
+
+def time_series_regressor(*, numeric_inputs, categorical_inputs):
+    """Regressor function for time series data.
+
+    Args:
+        numeric_inputs: Numeric input data
+        categorical_inputs: Categorical input data
+
+    Returns:
+        dict with keys 'numeric_out' and 'categorical_out'
+    """
+    # Add implementation here
+    return {
+        "numeric_out": numeric_inputs,  # Replace with actual implementation
+        "categorical_out": categorical_inputs,  # Replace with actual implementation
+    }
