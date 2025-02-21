@@ -174,3 +174,6 @@ pre_trained_models/
 ckpts/
 images/
 checkpoints/
+
+# Quarto
+/*_files/*

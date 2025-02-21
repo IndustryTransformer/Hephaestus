@@ -22,7 +22,10 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["ipykernel>=6.29.5"]
+dev = [
+    "ipykernel>=6.29.5",
+    "nbformat>=5.10.4",
+]
 
 [tool.uv]
 dev-dependencies = [
