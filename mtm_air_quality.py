@@ -18,7 +18,7 @@ from tqdm.notebook import tqdm, trange
 from transformers import BertTokenizerFast, FlaxBertModel
 
 import hephaestus as hp
-import hephaestus.training.training as ht
+import hephaestus.training as ht
 
 icecream.install()
 ic_disable = False  # Global variable to disable ic
@@ -54,7 +54,7 @@ df.dropna(subset=["pm2_5"], inplace=True)
 print(df.shape)
 df = df.reset_index(drop=True)
 
-df["idx"] = df.index // 32
+df["idx"] = df.index // 128
 df.head()
 
 # %%
@@ -118,7 +118,7 @@ print(batch["numeric"].shape, batch["categorical"].shape)
 # batch
 
 # %%
-multiplier = 4
+multiplier = 1
 time_series_regressor = hp.TimeSeriesDecoder(
     time_series_config, d_model=1024, n_heads=8 * multiplier, rngs=nnx.Rngs(0)
 )
@@ -475,5 +475,16 @@ plot_comparison(actual_df, auto_df, res_df, "pres")
 
 # %%
 plot_comparison(actual_df, auto_df, res_df, "temp")
+
+# %%
+df.temp.mean()
+
+# %%
+numeric_summary = df.select_dtypes(include=np.number).agg(["min", "max"])
+print("Numeric columns min and max values:")
+print(numeric_summary)
+
+# %%
+df.select_dtypes(include=np.number).columns
 
 # %%

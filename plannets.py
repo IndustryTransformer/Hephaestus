@@ -19,7 +19,7 @@ import hephaestus as hp
 import hephaestus.training as ht
 
 icecream.install()
-ic_disable = True  # Global variable to disable ic
+ic_disable = False  # Global variable to disable ic
 if ic_disable:
     ic.disable()
 ic.configureOutput(includeContext=True, contextAbsPath=True)
