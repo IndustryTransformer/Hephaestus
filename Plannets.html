@@ -1,0 +1,3360 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.6.41">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+
+<title>plannets</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { display: inline-block; text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js" integrity="sha512-bLT0Qm9VnAYZDflyKcBaQ2gg0hSYNQrJ8RilYldYQ1FxQYoCLtUjuuRuZo+fjqhx/qtq/1itJ0C2ejDxltZVFg==" crossorigin="anonymous"></script><script src="Plannets_files/libs/clipboard/clipboard.min.js"></script>
+<script src="Plannets_files/libs/quarto-html/quarto.js"></script>
+<script src="Plannets_files/libs/quarto-html/popper.min.js"></script>
+<script src="Plannets_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="Plannets_files/libs/quarto-html/anchor.min.js"></script>
+<link href="Plannets_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="Plannets_files/libs/quarto-html/quarto-syntax-highlighting-48ffa3e5b9d089919c6712c39e5b00f2.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="Plannets_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="Plannets_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="Plannets_files/libs/bootstrap/bootstrap-c0367b04c37547644fece4185067e4a7.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" integrity="sha512-c3Nl8+7g4LMSTdrm621y7kf9v3SDPnhxLNhcjFJbKECVnmZHTdo+IRO05sNLTH/D3vA6u1X32ehoLC7WFVdheg==" crossorigin="anonymous"></script>
+
+<script type="application/javascript">define('jquery', [],function() {return window.jQuery;})</script>
+<script src="https://unpkg.com/@jupyter-widgets/html-manager@*/dist/embed-amd.js" crossorigin="anonymous"></script>
+
+
+</head>
+
+<body class="fullcontent">
+
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article">
+
+<main class="content" id="quarto-document-content">
+
+
+
+
+<div id="cell-0" class="cell" data-executioninfo="{&quot;elapsed&quot;:18045,&quot;status&quot;:&quot;ok&quot;,&quot;timestamp&quot;:1708903436762,&quot;user&quot;:{&quot;displayName&quot;:&quot;Kai Lukowiak&quot;,&quot;userId&quot;:&quot;12340107642472090190&quot;},&quot;user_tz&quot;:420}" data-outputid="49871258-6ef7-4956-ad3b-90af827f7253" data-execution_count="1">
+<div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> ast</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> os</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> re</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> datetime <span class="im">import</span> datetime <span class="im">as</span> dt</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> icecream</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> jax.numpy <span class="im">as</span> jnp</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> flax <span class="im">import</span> nnx</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> icecream <span class="im">import</span> ic</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> torch.utils.data <span class="im">import</span> DataLoader</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> torch.utils.tensorboard <span class="im">import</span> SummaryWriter</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tqdm.notebook <span class="im">import</span> tqdm, trange</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> transformers <span class="im">import</span> BertTokenizerFast, FlaxBertModel</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> hephaestus <span class="im">as</span> hp</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> hephaestus.training <span class="im">as</span> ht</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>icecream.install()</span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>ic_disable <span class="op">=</span> <span class="va">False</span>  <span class="co"># Global variable to disable ic</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> ic_disable:</span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>    ic.disable()</span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>ic.configureOutput(includeContext<span class="op">=</span><span class="va">True</span>, contextAbsPath<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>pd.options.mode.copy_on_write <span class="op">=</span> <span class="va">True</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>os.environ[<span class="st">"TOKENIZERS_PARALLELISM"</span>] <span class="op">=</span> <span class="st">"false"</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="cell-1" class="cell" data-notebookrungroups="{&quot;groupValue&quot;:&quot;1&quot;}" data-execution_count="2">
+<div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Load pre-trained BERT model and tokenizer</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>model_name <span class="op">=</span> <span class="st">"bert-base-uncased"</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>model <span class="op">=</span> FlaxBertModel.from_pretrained(model_name)</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>tokenizer <span class="op">=</span> BertTokenizerFast.from_pretrained(model_name)</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="co"># Get the embeddings matrix</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>embeddings <span class="op">=</span> model.params[<span class="st">"embeddings"</span>][<span class="st">"word_embeddings"</span>][<span class="st">"embedding"</span>]</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Now you can access specific embeddings like this:</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="co"># For example, to get embeddings for tokens 23, 293, and 993:</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>selected_embeddings <span class="op">=</span> jnp.take(embeddings, jnp.array([<span class="dv">23</span>, <span class="dv">293</span>, <span class="dv">993</span>]), axis<span class="op">=</span><span class="dv">0</span>)</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a><span class="co"># If you want to get embeddings for specific words:</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>words <span class="op">=</span> [<span class="st">"hello"</span>, <span class="st">"world"</span>, <span class="st">"example"</span>]</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>tokens <span class="op">=</span> tokenizer.convert_tokens_to_ids(words)</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>word_embeddings <span class="op">=</span> jnp.take(embeddings, jnp.array(tokens), axis<span class="op">=</span><span class="dv">0</span>)</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>word_embeddings.shape</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stderr">
+<pre><code>Some weights of FlaxBertModel were not initialized from the model checkpoint at bert-base-uncased and are newly initialized: {('pooler', 'dense', 'bias'), ('pooler', 'dense', 'kernel')}
+You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.</code></pre>
+</div>
+<div class="cell-output cell-output-display" data-execution_count="2">
+<pre><code>(3, 768)</code></pre>
+</div>
+</div>
+<div id="cell-2" class="cell" data-execution_count="3">
+<div class="sourceCode cell-code" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> line2df(line, idx):</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>    data_rows <span class="op">=</span> []</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    line <span class="op">=</span> ast.literal_eval(line)</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> i, time_step <span class="kw">in</span> <span class="bu">enumerate</span>(line[<span class="st">"data"</span>]):</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>        row <span class="op">=</span> {<span class="st">"time_step"</span>: i}</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Add position data for each planet</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> j, position <span class="kw">in</span> <span class="bu">enumerate</span>(time_step):</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>            row[<span class="ss">f"planet</span><span class="sc">{</span>j<span class="sc">}</span><span class="ss">_x"</span>] <span class="op">=</span> position[<span class="dv">0</span>]</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>            row[<span class="ss">f"planet</span><span class="sc">{</span>j<span class="sc">}</span><span class="ss">_y"</span>] <span class="op">=</span> position[<span class="dv">1</span>]</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>        data_rows.append(row)</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>    df <span class="op">=</span> pd.DataFrame(data_rows)</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>    description <span class="op">=</span> line.pop(<span class="st">"description"</span>)</span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>    step_size <span class="op">=</span> description.pop(<span class="st">"stepsize"</span>)</span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> k, v <span class="kw">in</span> description.items():</span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> k_prop, v_prop <span class="kw">in</span> v.items():</span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>            df[<span class="ss">f"</span><span class="sc">{</span>k<span class="sc">}</span><span class="ss">_</span><span class="sc">{</span>k_prop<span class="sc">}</span><span class="ss">"</span>] <span class="op">=</span> v_prop</span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>    df[<span class="st">"time_step"</span>] <span class="op">=</span> df[<span class="st">"time_step"</span>] <span class="op">*</span> step_size</span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>    df.insert(<span class="dv">0</span>, <span class="st">"idx"</span>, idx)</span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> df</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="cell-3" class="cell" data-execution_count="4">
+<div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>files <span class="op">=</span> os.listdir(<span class="st">"data"</span>)</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="st">"planets.parquet"</span> <span class="kw">not</span> <span class="kw">in</span> files:</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">with</span> <span class="bu">open</span>(<span class="st">"data/planets.data"</span>) <span class="im">as</span> f:</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>        data <span class="op">=</span> f.read().splitlines()</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>        dfs <span class="op">=</span> []</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> idx, line <span class="kw">in</span> <span class="bu">enumerate</span>(tqdm(data)):</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>            dfs.append(line2df(line, idx))</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>        df <span class="op">=</span> pd.concat(dfs)</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>    df.to_parquet(<span class="st">"data/planets.parquet"</span>)</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a><span class="cf">else</span>:</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>    df <span class="op">=</span> pd.read_parquet(<span class="st">"data/planets.parquet"</span>)</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a><span class="co"># Combine total mass of all planets into one column `planet&lt;n&gt;_m`</span></span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>mass_regex <span class="op">=</span> re.<span class="bu">compile</span>(<span class="vs">r"planet(\d+)_m"</span>)</span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>mass_cols <span class="op">=</span> [col <span class="cf">for</span> col <span class="kw">in</span> df.columns <span class="cf">if</span> mass_regex.match(col)]</span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>df[<span class="st">"total_mass"</span>] <span class="op">=</span> df[mass_cols].<span class="bu">sum</span>(axis<span class="op">=</span><span class="dv">1</span>)</span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a><span class="co"># df = df.reset_index(drop=True)</span></span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a><span class="co"># Introduce categorical columns for the number of planets choose non null columns with mass</span></span>
+<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a>df[<span class="st">"n_planets"</span>] <span class="op">=</span> df[mass_cols].notnull().<span class="bu">sum</span>(axis<span class="op">=</span><span class="dv">1</span>).astype(<span class="st">"object"</span>)</span>
+<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a>df[<span class="st">"n_planets"</span>] <span class="op">=</span> df[<span class="st">"n_planets"</span>].<span class="bu">apply</span>(<span class="kw">lambda</span> x: <span class="ss">f"</span><span class="sc">{</span>x<span class="sc">}</span><span class="ss">_planets"</span>)</span>
+<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a><span class="co"># Create category acceleration if the sum of plane/d_[x,y, z] is greater than 0</span></span>
+<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a>df[<span class="st">"acceleration_x"</span>] <span class="op">=</span> df[</span>
+<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a>    [col <span class="cf">for</span> col <span class="kw">in</span> df.columns <span class="cf">if</span> <span class="st">"planet"</span> <span class="kw">in</span> col <span class="kw">and</span> <span class="st">"_x"</span> <span class="kw">in</span> col]</span>
+<span id="cb6-26"><a href="#cb6-26" aria-hidden="true" tabindex="-1"></a>].<span class="bu">sum</span>(axis<span class="op">=</span><span class="dv">1</span>)</span>
+<span id="cb6-27"><a href="#cb6-27" aria-hidden="true" tabindex="-1"></a><span class="co"># Set acceleration_x to "increasing" if greater than 0 else "decreasing"</span></span>
+<span id="cb6-28"><a href="#cb6-28" aria-hidden="true" tabindex="-1"></a>df[<span class="st">"acceleration_x"</span>] <span class="op">=</span> (</span>
+<span id="cb6-29"><a href="#cb6-29" aria-hidden="true" tabindex="-1"></a>    df[<span class="st">"acceleration_x"</span>]</span>
+<span id="cb6-30"><a href="#cb6-30" aria-hidden="true" tabindex="-1"></a>    .<span class="bu">apply</span>(<span class="kw">lambda</span> x: <span class="st">"increasing"</span> <span class="cf">if</span> x <span class="op">&gt;</span> <span class="dv">0</span> <span class="cf">else</span> <span class="st">"decreasing"</span>)</span>
+<span id="cb6-31"><a href="#cb6-31" aria-hidden="true" tabindex="-1"></a>    .astype(<span class="st">"object"</span>)</span>
+<span id="cb6-32"><a href="#cb6-32" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb6-33"><a href="#cb6-33" aria-hidden="true" tabindex="-1"></a>df[<span class="st">"acceleration_y"</span>] <span class="op">=</span> df[</span>
+<span id="cb6-34"><a href="#cb6-34" aria-hidden="true" tabindex="-1"></a>    [col <span class="cf">for</span> col <span class="kw">in</span> df.columns <span class="cf">if</span> <span class="st">"planet"</span> <span class="kw">in</span> col <span class="kw">and</span> <span class="st">"_y"</span> <span class="kw">in</span> col]</span>
+<span id="cb6-35"><a href="#cb6-35" aria-hidden="true" tabindex="-1"></a>].<span class="bu">sum</span>(axis<span class="op">=</span><span class="dv">1</span>)</span>
+<span id="cb6-36"><a href="#cb6-36" aria-hidden="true" tabindex="-1"></a>df[<span class="st">"acceleration_y"</span>] <span class="op">=</span> df[<span class="st">"acceleration_y"</span>].<span class="bu">apply</span>(</span>
+<span id="cb6-37"><a href="#cb6-37" aria-hidden="true" tabindex="-1"></a>    <span class="kw">lambda</span> x: <span class="st">"increasing"</span> <span class="cf">if</span> x <span class="op">&gt;</span> <span class="dv">0</span> <span class="cf">else</span> <span class="st">"decreasing"</span></span>
+<span id="cb6-38"><a href="#cb6-38" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb6-39"><a href="#cb6-39" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-40"><a href="#cb6-40" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-41"><a href="#cb6-41" aria-hidden="true" tabindex="-1"></a>df.describe()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display" data-execution_count="4">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-quarto-postprocess="true" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">idx</th>
+<th data-quarto-table-cell-role="th">time_step</th>
+<th data-quarto-table-cell-role="th">planet0_x</th>
+<th data-quarto-table-cell-role="th">planet0_y</th>
+<th data-quarto-table-cell-role="th">planet1_x</th>
+<th data-quarto-table-cell-role="th">planet1_y</th>
+<th data-quarto-table-cell-role="th">planet2_x</th>
+<th data-quarto-table-cell-role="th">planet2_y</th>
+<th data-quarto-table-cell-role="th">planet0_m</th>
+<th data-quarto-table-cell-role="th">planet0_a</th>
+<th data-quarto-table-cell-role="th">...</th>
+<th data-quarto-table-cell-role="th">planet3_y</th>
+<th data-quarto-table-cell-role="th">planet3_m</th>
+<th data-quarto-table-cell-role="th">planet3_a</th>
+<th data-quarto-table-cell-role="th">planet3_e</th>
+<th data-quarto-table-cell-role="th">planet4_x</th>
+<th data-quarto-table-cell-role="th">planet4_y</th>
+<th data-quarto-table-cell-role="th">planet4_m</th>
+<th data-quarto-table-cell-role="th">planet4_a</th>
+<th data-quarto-table-cell-role="th">planet4_e</th>
+<th data-quarto-table-cell-role="th">total_mass</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">count</td>
+<td>5.563957e+06</td>
+<td>5.563957e+06</td>
+<td>5.563957e+06</td>
+<td>5.563957e+06</td>
+<td>5.563957e+06</td>
+<td>5.563957e+06</td>
+<td>4.165044e+06</td>
+<td>4.165044e+06</td>
+<td>5.563957e+06</td>
+<td>5.563957e+06</td>
+<td>...</td>
+<td>2.783627e+06</td>
+<td>2.783627e+06</td>
+<td>2.783627e+06</td>
+<td>2.783627e+06</td>
+<td>1.392864e+06</td>
+<td>1.392864e+06</td>
+<td>1.392864e+06</td>
+<td>1.392864e+06</td>
+<td>1.392864e+06</td>
+<td>5.563957e+06</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">mean</td>
+<td>6.248635e+04</td>
+<td>9.748911e+00</td>
+<td>-1.339198e-01</td>
+<td>7.391138e-02</td>
+<td>-1.340140e-01</td>
+<td>7.291389e-02</td>
+<td>-1.305344e-01</td>
+<td>7.065633e-02</td>
+<td>2.999306e+00</td>
+<td>1.624756e+00</td>
+<td>...</td>
+<td>6.559150e-02</td>
+<td>2.996303e+00</td>
+<td>1.623874e+00</td>
+<td>9.980576e-01</td>
+<td>-1.276881e-01</td>
+<td>6.519469e-02</td>
+<td>3.002531e+00</td>
+<td>1.625815e+00</td>
+<td>1.001317e+00</td>
+<td>1.049149e+01</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">std</td>
+<td>3.607949e+04</td>
+<td>5.993534e+00</td>
+<td>1.228071e+00</td>
+<td>1.213232e+00</td>
+<td>1.227950e+00</td>
+<td>1.212650e+00</td>
+<td>1.217229e+00</td>
+<td>1.203678e+00</td>
+<td>1.157182e+00</td>
+<td>5.876632e-01</td>
+<td>...</td>
+<td>1.200148e+00</td>
+<td>1.153190e+00</td>
+<td>5.270725e-01</td>
+<td>5.764675e-01</td>
+<td>1.211648e+00</td>
+<td>1.199625e+00</td>
+<td>1.156856e+00</td>
+<td>5.167198e-01</td>
+<td>5.779763e-01</td>
+<td>3.991780e+00</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">min</td>
+<td>0.000000e+00</td>
+<td>0.000000e+00</td>
+<td>-3.294763e+00</td>
+<td>-2.997514e+00</td>
+<td>-3.284004e+00</td>
+<td>-2.998546e+00</td>
+<td>-3.289790e+00</td>
+<td>-2.998050e+00</td>
+<td>1.000003e+00</td>
+<td>1.000000e+00</td>
+<td>...</td>
+<td>-2.997621e+00</td>
+<td>1.000054e+00</td>
+<td>1.000000e+00</td>
+<td>9.369537e-05</td>
+<td>-3.273603e+00</td>
+<td>-2.998913e+00</td>
+<td>1.000103e+00</td>
+<td>1.000000e+00</td>
+<td>6.720938e-05</td>
+<td>2.014597e+00</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">25%</td>
+<td>3.124400e+04</td>
+<td>4.655172e+00</td>
+<td>-1.030131e+00</td>
+<td>-9.020907e-01</td>
+<td>-1.030516e+00</td>
+<td>-9.028009e-01</td>
+<td>-1.050662e+00</td>
+<td>-9.211662e-01</td>
+<td>1.993948e+00</td>
+<td>1.000000e+00</td>
+<td>...</td>
+<td>-9.321272e-01</td>
+<td>1.996853e+00</td>
+<td>1.191548e+00</td>
+<td>4.980967e-01</td>
+<td>-1.071974e+00</td>
+<td>-9.394428e-01</td>
+<td>2.004240e+00</td>
+<td>1.215927e+00</td>
+<td>5.032645e-01</td>
+<td>7.282371e+00</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">50%</td>
+<td>6.249100e+04</td>
+<td>9.523810e+00</td>
+<td>-1.542335e-01</td>
+<td>1.117099e-01</td>
+<td>-1.538916e-01</td>
+<td>1.099474e-01</td>
+<td>-1.525520e-01</td>
+<td>1.118031e-01</td>
+<td>2.994477e+00</td>
+<td>1.543047e+00</td>
+<td>...</td>
+<td>1.067355e-01</td>
+<td>3.001879e+00</td>
+<td>1.535683e+00</td>
+<td>9.955040e-01</td>
+<td>-1.507184e-01</td>
+<td>1.055276e-01</td>
+<td>3.000454e+00</td>
+<td>1.519040e+00</td>
+<td>1.003118e+00</td>
+<td>1.028205e+01</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">75%</td>
+<td>9.372800e+04</td>
+<td>1.440000e+01</td>
+<td>8.583344e-01</td>
+<td>9.784987e-01</td>
+<td>8.581045e-01</td>
+<td>9.783998e-01</td>
+<td>8.762358e-01</td>
+<td>9.912902e-01</td>
+<td>4.005747e+00</td>
+<td>2.020672e+00</td>
+<td>...</td>
+<td>9.956064e-01</td>
+<td>3.986406e+00</td>
+<td>1.969644e+00</td>
+<td>1.497746e+00</td>
+<td>8.906780e-01</td>
+<td>9.991220e-01</td>
+<td>4.003332e+00</td>
+<td>1.950518e+00</td>
+<td>1.503457e+00</td>
+<td>1.345633e+01</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">max</td>
+<td>1.249990e+05</td>
+<td>2.400000e+01</td>
+<td>2.996370e+00</td>
+<td>2.999014e+00</td>
+<td>2.993319e+00</td>
+<td>2.999536e+00</td>
+<td>2.990464e+00</td>
+<td>2.998478e+00</td>
+<td>4.999994e+00</td>
+<td>2.999984e+00</td>
+<td>...</td>
+<td>3.000881e+00</td>
+<td>4.999990e+00</td>
+<td>2.999909e+00</td>
+<td>1.999957e+00</td>
+<td>2.985180e+00</td>
+<td>2.998936e+00</td>
+<td>4.999679e+00</td>
+<td>2.999497e+00</td>
+<td>1.999999e+00</td>
+<td>2.382455e+01</td>
+</tr>
+</tbody>
+</table>
+
+<p>8 rows × 28 columns</p>
+</div>
+</div>
+</div>
+<div id="cell-4" class="cell" data-execution_count="5">
+<div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>df.head()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display" data-execution_count="5">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-quarto-postprocess="true" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">idx</th>
+<th data-quarto-table-cell-role="th">time_step</th>
+<th data-quarto-table-cell-role="th">planet0_x</th>
+<th data-quarto-table-cell-role="th">planet0_y</th>
+<th data-quarto-table-cell-role="th">planet1_x</th>
+<th data-quarto-table-cell-role="th">planet1_y</th>
+<th data-quarto-table-cell-role="th">planet2_x</th>
+<th data-quarto-table-cell-role="th">planet2_y</th>
+<th data-quarto-table-cell-role="th">planet0_m</th>
+<th data-quarto-table-cell-role="th">planet0_a</th>
+<th data-quarto-table-cell-role="th">...</th>
+<th data-quarto-table-cell-role="th">planet3_e</th>
+<th data-quarto-table-cell-role="th">planet4_x</th>
+<th data-quarto-table-cell-role="th">planet4_y</th>
+<th data-quarto-table-cell-role="th">planet4_m</th>
+<th data-quarto-table-cell-role="th">planet4_a</th>
+<th data-quarto-table-cell-role="th">planet4_e</th>
+<th data-quarto-table-cell-role="th">total_mass</th>
+<th data-quarto-table-cell-role="th">n_planets</th>
+<th data-quarto-table-cell-role="th">acceleration_x</th>
+<th data-quarto-table-cell-role="th">acceleration_y</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">0</td>
+<td>0</td>
+<td>0.000000</td>
+<td>1.560060</td>
+<td>-0.854437</td>
+<td>0.720639</td>
+<td>0.691729</td>
+<td>0.944008</td>
+<td>2.700632</td>
+<td>1.312562</td>
+<td>1.944263</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974122</td>
+<td>3_planets</td>
+<td>increasing</td>
+<td>increasing</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">1</td>
+<td>0</td>
+<td>0.465116</td>
+<td>1.689858</td>
+<td>-0.514359</td>
+<td>0.333295</td>
+<td>0.942289</td>
+<td>0.681604</td>
+<td>2.785811</td>
+<td>1.312562</td>
+<td>1.944263</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974122</td>
+<td>3_planets</td>
+<td>increasing</td>
+<td>increasing</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">2</td>
+<td>0</td>
+<td>0.930233</td>
+<td>1.753589</td>
+<td>-0.154209</td>
+<td>-0.124995</td>
+<td>0.992368</td>
+<td>0.412951</td>
+<td>2.845461</td>
+<td>1.312562</td>
+<td>1.944263</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974122</td>
+<td>3_planets</td>
+<td>increasing</td>
+<td>increasing</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">3</td>
+<td>0</td>
+<td>1.395349</td>
+<td>1.748068</td>
+<td>0.212022</td>
+<td>-0.556775</td>
+<td>0.831727</td>
+<td>0.140540</td>
+<td>2.879232</td>
+<td>1.312562</td>
+<td>1.944263</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974122</td>
+<td>3_planets</td>
+<td>increasing</td>
+<td>increasing</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">4</td>
+<td>0</td>
+<td>1.860465</td>
+<td>1.673573</td>
+<td>0.569904</td>
+<td>-0.870579</td>
+<td>0.494812</td>
+<td>-0.133144</td>
+<td>2.887018</td>
+<td>1.312562</td>
+<td>1.944263</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974122</td>
+<td>3_planets</td>
+<td>increasing</td>
+<td>increasing</td>
+</tr>
+</tbody>
+</table>
+
+<p>5 rows × 31 columns</p>
+</div>
+</div>
+</div>
+<div id="cell-5" class="cell" data-execution_count="6">
+<div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>df_categorical <span class="op">=</span> df.select_dtypes(include<span class="op">=</span>[<span class="st">"object"</span>]).astype(<span class="bu">str</span>)</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>unique_values_per_column <span class="op">=</span> df_categorical.<span class="bu">apply</span>(</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>    pd.Series.unique</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>).values  <span class="co"># .flatten().tolist()</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>flattened_unique_values <span class="op">=</span> np.concatenate(unique_values_per_column).tolist()</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>unique_values <span class="op">=</span> <span class="bu">list</span>(<span class="bu">set</span>(flattened_unique_values))</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>unique_values</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display" data-execution_count="6">
+<pre><code>['4_planets',
+ 'decreasing',
+ '5_planets',
+ 'increasing',
+ '2_planets',
+ '3_planets']</code></pre>
+</div>
+</div>
+<div id="cell-6" class="cell" data-execution_count="7">
+<div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>df.select_dtypes(include<span class="op">=</span><span class="st">"object"</span>).groupby(</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>    df.select_dtypes(include<span class="op">=</span><span class="st">"object"</span>).columns.tolist()</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>).size().reset_index(name<span class="op">=</span><span class="st">"count"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display" data-execution_count="7">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-quarto-postprocess="true" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">n_planets</th>
+<th data-quarto-table-cell-role="th">acceleration_x</th>
+<th data-quarto-table-cell-role="th">acceleration_y</th>
+<th data-quarto-table-cell-role="th">count</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">0</td>
+<td>2_planets</td>
+<td>decreasing</td>
+<td>decreasing</td>
+<td>365720</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">1</td>
+<td>2_planets</td>
+<td>decreasing</td>
+<td>increasing</td>
+<td>410992</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">2</td>
+<td>2_planets</td>
+<td>increasing</td>
+<td>decreasing</td>
+<td>272240</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">3</td>
+<td>2_planets</td>
+<td>increasing</td>
+<td>increasing</td>
+<td>349961</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">4</td>
+<td>3_planets</td>
+<td>decreasing</td>
+<td>decreasing</td>
+<td>410092</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">5</td>
+<td>3_planets</td>
+<td>decreasing</td>
+<td>increasing</td>
+<td>404513</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">6</td>
+<td>3_planets</td>
+<td>increasing</td>
+<td>decreasing</td>
+<td>258536</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">7</td>
+<td>3_planets</td>
+<td>increasing</td>
+<td>increasing</td>
+<td>308276</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">8</td>
+<td>4_planets</td>
+<td>decreasing</td>
+<td>decreasing</td>
+<td>413451</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">9</td>
+<td>4_planets</td>
+<td>decreasing</td>
+<td>increasing</td>
+<td>416444</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">10</td>
+<td>4_planets</td>
+<td>increasing</td>
+<td>decreasing</td>
+<td>260621</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">11</td>
+<td>4_planets</td>
+<td>increasing</td>
+<td>increasing</td>
+<td>300247</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">12</td>
+<td>5_planets</td>
+<td>decreasing</td>
+<td>decreasing</td>
+<td>412799</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">13</td>
+<td>5_planets</td>
+<td>decreasing</td>
+<td>increasing</td>
+<td>419242</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">14</td>
+<td>5_planets</td>
+<td>increasing</td>
+<td>decreasing</td>
+<td>263810</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">15</td>
+<td>5_planets</td>
+<td>increasing</td>
+<td>increasing</td>
+<td>297013</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<div id="cell-7" class="cell" data-execution_count="8">
+<div class="sourceCode cell-code" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>df <span class="op">=</span> df.reset_index(drop<span class="op">=</span><span class="va">True</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="cell-8" class="cell" data-execution_count="9">
+<div class="sourceCode cell-code" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Get train test split at 80/20</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>time_series_config <span class="op">=</span> hp.TimeSeriesConfig.generate(df<span class="op">=</span>df)</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>train_idx <span class="op">=</span> <span class="bu">int</span>(df.idx.<span class="bu">max</span>() <span class="op">*</span> <span class="fl">0.8</span>)</span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>train_df <span class="op">=</span> df.loc[df.idx <span class="op">&lt;</span> train_idx].copy()</span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>test_df <span class="op">=</span> df.loc[df.idx <span class="op">&gt;=</span> train_idx].copy()</span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a><span class="co"># del df</span></span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>train_ds <span class="op">=</span> hp.TimeSeriesDS(train_df, time_series_config)</span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a>test_ds <span class="op">=</span> hp.TimeSeriesDS(test_df, time_series_config)</span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a><span class="bu">len</span>(train_ds), <span class="bu">len</span>(test_ds)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display" data-execution_count="9">
+<pre><code>(99999, 25001)</code></pre>
+</div>
+</div>
+<div id="cell-9" class="cell" data-execution_count="10">
+<div class="sourceCode cell-code" id="cb14"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> make_batch(ds: hp.TimeSeriesDS, start: <span class="bu">int</span>, length: <span class="bu">int</span>):</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>    numeric <span class="op">=</span> []</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>    categorical <span class="op">=</span> []</span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> i <span class="kw">in</span> <span class="bu">range</span>(start, length <span class="op">+</span> start):</span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>        numeric.append(ds[i][<span class="dv">0</span>])</span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>        categorical.append(ds[i][<span class="dv">1</span>])</span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a>    <span class="co"># print index of None values</span></span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> {<span class="st">"numeric"</span>: jnp.array(numeric), <span class="st">"categorical"</span>: jnp.array(categorical)}</span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a>batch <span class="op">=</span> make_batch(train_ds, <span class="dv">0</span>, <span class="dv">4</span>)</span>
+<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(batch[<span class="st">"numeric"</span>].shape, batch[<span class="st">"categorical"</span>].shape)</span>
+<span id="cb14-13"><a href="#cb14-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-14"><a href="#cb14-14" aria-hidden="true" tabindex="-1"></a><span class="co"># (4, 27, 59) (4, 3, 59)</span></span>
+<span id="cb14-15"><a href="#cb14-15" aria-hidden="true" tabindex="-1"></a><span class="co"># batch</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>(4, 27, 59) (4, 3, 59)</code></pre>
+</div>
+</div>
+<div id="cell-10" class="cell" data-execution_count="11">
+<div class="sourceCode cell-code" id="cb16"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>multiplier <span class="op">=</span> <span class="dv">4</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>time_series_regressor <span class="op">=</span> hp.TimeSeriesDecoder(</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>    time_series_config, d_model<span class="op">=</span><span class="dv">512</span>, n_heads<span class="op">=</span><span class="dv">8</span> <span class="op">*</span> multiplier, rngs<span class="op">=</span>nnx.Rngs(<span class="dv">0</span>)</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a><span class="co"># nnx.display(time_series_regressor)</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="cell-11" class="cell" data-execution_count="12">
+<div class="sourceCode cell-code" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>res <span class="op">=</span> time_series_regressor(</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>    numeric_inputs<span class="op">=</span>batch[<span class="st">"numeric"</span>],</span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>    categorical_inputs<span class="op">=</span>batch[<span class="st">"categorical"</span>],</span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>    deterministic<span class="op">=</span><span class="va">False</span>,</span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stderr">
+<pre><code>ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:698 in __call__()
+    numeric_inputs.shape: (4, 27, 59)
+    categorical_inputs.shape: (4, 3, 59)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:545 in process_numeric()
+    "col_token type": 'col_token type'
+    numeric_col_embeddings.dtype: dtype('float32')
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:549 in process_numeric()
+    numeric_embedding.shape: (512,)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:552 in process_numeric()
+    numeric_embedding.shape: (4, 27, 59, 512)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:560 in process_numeric()
+    numeric_embedding.shape: (4, 27, 59, 512)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:588 in process_categorical()
+    "Issue here": 'Issue here'
+    categorical_inputs.shape: (4, 3, 59)
+    "args": 'args'
+    categorical_inputs.shape[2]: 59
+    self.config.categorical_indices.shape: (3,)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:599 in process_categorical()
+    repeated_categorical_indices.shape: (59, 3)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:601 in process_categorical()
+    repeated_categorical_indices.shape: (3, 59)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:603 in process_categorical()
+    "Extra dim here?": 'Extra dim here?'
+    categorical_col_embeddings.shape: (3, 59, 512)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:608 in process_categorical()
+    categorical_col_embeddings.shape: (4, 3, 59, 512)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:635 in combine_inputs()
+    numeric.value_embeddings.shape: (4, 27, 59, 512)
+    categorical.value_embeddings.shape: (4, 3, 59, 512)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:636 in combine_inputs()
+    numeric.column_embeddings.shape: (4, 27, 59, 512)
+    categorical.column_embeddings.shape: (4, 3, 59, 512)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:711 in __call__()
+    combined_inputs.value_embeddings.shape: (4, 30, 59, 512)
+    combined_inputs.column_embeddings.shape: (4, 30, 59, 512)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:356 in __call__()
+    "Transformer Block": 'Transformer Block'
+    q.shape: (4, 30, 59, 512)
+    k.shape: (4, 30, 59, 512)
+    v.shape: (4, 30, 59, 512)
+    mask_shape: (4, 30, 1, 59, 59)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:356 in __call__()
+    "Transformer Block": 'Transformer Block'
+    q.shape: (4, 30, 59, 512)
+    k.shape: (4, 30, 59, 512)
+    v.shape: (4, 30, 59, 512)
+    mask_shape: (4, 30, 1, 59, 59)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:356 in __call__()
+    "Transformer Block": 'Transformer Block'
+    q.shape: (4, 30, 59, 512)
+    k.shape: (4, 30, 59, 512)
+    v.shape: (4, 30, 59, 512)
+    mask_shape: (4, 30, 1, 59, 59)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:356 in __call__()
+    "Transformer Block": 'Transformer Block'
+    q.shape: (4, 30, 59, 512)
+    k.shape: (4, 30, 59, 512)
+    v.shape: (4, 30, 59, 512)
+    mask_shape: (4, 30, 1, 59, 59)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:808 in __call__()
+    "Starting shit": 'Starting shit'
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:809 in __call__()
+    numeric_out.shape: (4, 59, 15360)
+    self.config.ds_length: np.int64(59)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:811 in __call__()
+    numeric_out.shape: (4, 59, 1024)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:813 in __call__()
+    numeric_out.shape: (4, 59, 1024)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:815 in __call__()
+    numeric_out.shape: (4, 59, 27)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:820 in __call__()
+    categorical_out.shape: (4, 30, 59, 512)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:826 in __call__()
+    "Categorical after dense1": 'Categorical after dense1'
+    categorical_out.shape: (4, 30, 59, 41)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:831 in __call__()
+    "Categorical out after first swap": 'Categorical out after first swap'
+    categorical_out.shape: (4, 41, 59, 30)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:833 in __call__()
+    "Categorical after dense2": 'Categorical after dense2'
+    categorical_out.shape: (4, 41, 59, 3)
+ic| /Users/kailukowiak/Hephaestus/hephaestus/models/models.py:835 in __call__()
+    "Categorical after swap": 'Categorical after swap'
+    categorical_out.shape: (4, 3, 59, 41)</code></pre>
+</div>
+</div>
+<div id="cell-12" class="cell" data-execution_count="13">
+<div class="sourceCode cell-code" id="cb19"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>res[<span class="st">"numeric_out"</span>].shape, res[<span class="st">"categorical_out"</span>].shape</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display" data-execution_count="13">
+<pre><code>((4, 27, 59), (4, 3, 59, 41))</code></pre>
+</div>
+</div>
+<div id="cell-13" class="cell" data-execution_count="14">
+<div class="sourceCode cell-code" id="cb21"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> jnp.isnan(res[<span class="st">"numeric_out"</span>]).<span class="bu">any</span>():</span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">raise</span> <span class="pp">ValueError</span>(<span class="st">"NaN in numeric_out"</span>)</span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> jnp.isnan(res[<span class="st">"categorical_out"</span>]).<span class="bu">any</span>():</span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">raise</span> <span class="pp">ValueError</span>(<span class="st">"NaN in categorical_out"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="cell-14" class="cell" data-execution_count="15">
+<div class="sourceCode cell-code" id="cb22"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>ic.disable()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="cell-15" class="cell" data-execution_count="16">
+<div class="sourceCode cell-code" id="cb23"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a>causal_mask <span class="op">=</span> <span class="va">True</span></span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a><span class="co"># time_series_regressor.train()</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="cell-17" class="cell">
+<div class="sourceCode cell-code" id="cb24"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>metric_history <span class="op">=</span> ht.create_metric_history()</span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>learning_rate <span class="op">=</span> <span class="fl">4e-3</span></span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>momentum <span class="op">=</span> <span class="fl">0.9</span></span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a>optimizer <span class="op">=</span> ht.create_optimizer(time_series_regressor, learning_rate, momentum)</span>
+<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-7"><a href="#cb24-7" aria-hidden="true" tabindex="-1"></a>metrics <span class="op">=</span> ht.create_metrics()</span>
+<span id="cb24-8"><a href="#cb24-8" aria-hidden="true" tabindex="-1"></a>writer_name <span class="op">=</span> <span class="st">"LowerRate"</span></span>
+<span id="cb24-9"><a href="#cb24-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Get git commit hash for model name?</span></span>
+<span id="cb24-10"><a href="#cb24-10" aria-hidden="true" tabindex="-1"></a>writer_time <span class="op">=</span> dt.now().strftime(<span class="st">"%Y-%m-</span><span class="sc">%d</span><span class="st">T%H:%M:%S"</span>)</span>
+<span id="cb24-11"><a href="#cb24-11" aria-hidden="true" tabindex="-1"></a>commit_hash <span class="op">=</span> hp.get_git_commit_hash()</span>
+<span id="cb24-12"><a href="#cb24-12" aria-hidden="true" tabindex="-1"></a>model_name <span class="op">=</span> <span class="ss">f"</span><span class="sc">{</span>writer_time<span class="sc">}</span><span class="ss">_</span><span class="sc">{</span>writer_name<span class="sc">}</span><span class="ss">_</span><span class="sc">{</span>commit_hash<span class="sc">}</span><span class="ss">"</span></span>
+<span id="cb24-13"><a href="#cb24-13" aria-hidden="true" tabindex="-1"></a>summary_writer <span class="op">=</span> SummaryWriter(<span class="st">"runs/"</span> <span class="op">+</span> model_name)</span>
+<span id="cb24-14"><a href="#cb24-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-15"><a href="#cb24-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-16"><a href="#cb24-16" aria-hidden="true" tabindex="-1"></a>train_data_loader <span class="op">=</span> DataLoader(train_ds, batch_size<span class="op">=</span><span class="dv">16</span>, shuffle<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb24-17"><a href="#cb24-17" aria-hidden="true" tabindex="-1"></a>train_step <span class="op">=</span> ht.create_train_step(</span>
+<span id="cb24-18"><a href="#cb24-18" aria-hidden="true" tabindex="-1"></a>    model<span class="op">=</span>time_series_regressor, optimizer<span class="op">=</span>optimizer, metrics<span class="op">=</span>metrics</span>
+<span id="cb24-19"><a href="#cb24-19" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb24-20"><a href="#cb24-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-21"><a href="#cb24-21" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> step, batch <span class="kw">in</span> <span class="bu">enumerate</span>(tqdm(train_data_loader)):</span>
+<span id="cb24-22"><a href="#cb24-22" aria-hidden="true" tabindex="-1"></a>    batch <span class="op">=</span> {<span class="st">"numeric"</span>: jnp.array(batch[<span class="dv">0</span>]), <span class="st">"categorical"</span>: jnp.array(batch[<span class="dv">1</span>])}</span>
+<span id="cb24-23"><a href="#cb24-23" aria-hidden="true" tabindex="-1"></a>    train_step(time_series_regressor, batch, optimizer, metrics)</span>
+<span id="cb24-24"><a href="#cb24-24" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> metric, value <span class="kw">in</span> metrics.compute().items():</span>
+<span id="cb24-25"><a href="#cb24-25" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Only shows `loss`</span></span>
+<span id="cb24-26"><a href="#cb24-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-27"><a href="#cb24-27" aria-hidden="true" tabindex="-1"></a>        metric_history[metric].append(value)</span>
+<span id="cb24-28"><a href="#cb24-28" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> jnp.isnan(value).<span class="bu">any</span>():</span>
+<span id="cb24-29"><a href="#cb24-29" aria-hidden="true" tabindex="-1"></a>            <span class="cf">raise</span> <span class="pp">ValueError</span>(<span class="st">"Nan Values"</span>)</span>
+<span id="cb24-30"><a href="#cb24-30" aria-hidden="true" tabindex="-1"></a>        summary_writer.add_scalar(<span class="ss">f"train/</span><span class="sc">{</span>metric<span class="sc">}</span><span class="ss">"</span>, np.array(value), step)</span>
+<span id="cb24-31"><a href="#cb24-31" aria-hidden="true" tabindex="-1"></a>    metrics.reset()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display">
+<script type="application/vnd.jupyter.widget-view+json">
+{"model_id":"47c10e19672b4378be5a2bba0601286b","version_major":2,"version_minor":0,"quarto_mimetype":"application/vnd.jupyter.widget-view+json"}
+</script>
+</div>
+</div>
+<div id="cell-18" class="cell">
+<div class="sourceCode cell-code" id="cb25"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="co"># import orbax.checkpoint as ocp</span></span>
+<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a><span class="co"># ckpt_dir = ocp.test_utils.erase_and_create_empty("/tmp/my-checkpoints1/")</span></span>
+<span id="cb25-4"><a href="#cb25-4" aria-hidden="true" tabindex="-1"></a><span class="co"># _, state = nnx.split(time_series_regressor)</span></span>
+<span id="cb25-5"><a href="#cb25-5" aria-hidden="true" tabindex="-1"></a><span class="co"># state = state.to_pure_dict()</span></span>
+<span id="cb25-6"><a href="#cb25-6" aria-hidden="true" tabindex="-1"></a><span class="co"># # nnx.display(state)</span></span>
+<span id="cb25-7"><a href="#cb25-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb25-8"><a href="#cb25-8" aria-hidden="true" tabindex="-1"></a><span class="co"># checkpointer = ocp.StandardCheckpointer()</span></span>
+<span id="cb25-9"><a href="#cb25-9" aria-hidden="true" tabindex="-1"></a><span class="co"># checkpointer.save(ckpt_dir / "state", state)</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="cell-19" class="cell">
+<div class="sourceCode cell-code" id="cb26"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a>x <span class="op">=</span> hp.return_results(time_series_regressor, train_ds, <span class="dv">0</span>)</span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>x.categorical_out.shape</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display" data-execution_count="20">
+<pre><code>(1, 3, 59)</code></pre>
+</div>
+</div>
+<div id="cell-20" class="cell">
+<div class="sourceCode cell-code" id="cb28"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a>causal_mask <span class="op">=</span> <span class="va">False</span></span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>causal_mask <span class="op">=</span> <span class="va">True</span></span>
+<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb28-5"><a href="#cb28-5" aria-hidden="true" tabindex="-1"></a>df_comp <span class="op">=</span> hp.show_results_df(</span>
+<span id="cb28-6"><a href="#cb28-6" aria-hidden="true" tabindex="-1"></a>    model<span class="op">=</span>time_series_regressor,</span>
+<span id="cb28-7"><a href="#cb28-7" aria-hidden="true" tabindex="-1"></a>    time_series_config<span class="op">=</span>time_series_config,</span>
+<span id="cb28-8"><a href="#cb28-8" aria-hidden="true" tabindex="-1"></a>    dataset<span class="op">=</span>train_ds,</span>
+<span id="cb28-9"><a href="#cb28-9" aria-hidden="true" tabindex="-1"></a>    idx<span class="op">=</span><span class="dv">0</span>,</span>
+<span id="cb28-10"><a href="#cb28-10" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="cell-21" class="cell">
+<div class="sourceCode cell-code" id="cb29"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a>df_comp.output_df.loc[:, time_series_config.categorical_col_tokens].tail()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display" data-execution_count="22">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-quarto-postprocess="true" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">n_planets</th>
+<th data-quarto-table-cell-role="th">acceleration_x</th>
+<th data-quarto-table-cell-role="th">acceleration_y</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">54</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">55</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">56</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">57</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">58</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<div id="cell-22" class="cell">
+<div class="sourceCode cell-code" id="cb30"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a>df_comp.output_df.loc[:, time_series_config.numeric_col_tokens].tail()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display" data-execution_count="23">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-quarto-postprocess="true" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">time_step</th>
+<th data-quarto-table-cell-role="th">planet0_x</th>
+<th data-quarto-table-cell-role="th">planet0_y</th>
+<th data-quarto-table-cell-role="th">planet1_x</th>
+<th data-quarto-table-cell-role="th">planet1_y</th>
+<th data-quarto-table-cell-role="th">planet2_x</th>
+<th data-quarto-table-cell-role="th">planet2_y</th>
+<th data-quarto-table-cell-role="th">planet0_m</th>
+<th data-quarto-table-cell-role="th">planet0_a</th>
+<th data-quarto-table-cell-role="th">planet0_e</th>
+<th data-quarto-table-cell-role="th">...</th>
+<th data-quarto-table-cell-role="th">planet3_y</th>
+<th data-quarto-table-cell-role="th">planet3_m</th>
+<th data-quarto-table-cell-role="th">planet3_a</th>
+<th data-quarto-table-cell-role="th">planet3_e</th>
+<th data-quarto-table-cell-role="th">planet4_x</th>
+<th data-quarto-table-cell-role="th">planet4_y</th>
+<th data-quarto-table-cell-role="th">planet4_m</th>
+<th data-quarto-table-cell-role="th">planet4_a</th>
+<th data-quarto-table-cell-role="th">planet4_e</th>
+<th data-quarto-table-cell-role="th">total_mass</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">54</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">55</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">56</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">57</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">58</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+</tbody>
+</table>
+
+<p>5 rows × 27 columns</p>
+</div>
+</div>
+</div>
+<div id="cell-23" class="cell">
+<div class="sourceCode cell-code" id="cb31"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a>test_inputs <span class="op">=</span> hp.AutoRegressiveResults.from_ds(train_ds, <span class="dv">0</span>, <span class="dv">13</span>)</span>
+<span id="cb31-2"><a href="#cb31-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-3"><a href="#cb31-3" aria-hidden="true" tabindex="-1"></a><span class="co"># inputs_test = train_ds[0]</span></span>
+<span id="cb31-4"><a href="#cb31-4" aria-hidden="true" tabindex="-1"></a><span class="co"># test_numeric = inputs_test[0]</span></span>
+<span id="cb31-5"><a href="#cb31-5" aria-hidden="true" tabindex="-1"></a><span class="co"># test_categorical = inputs_test[1]</span></span>
+<span id="cb31-6"><a href="#cb31-6" aria-hidden="true" tabindex="-1"></a><span class="co"># print(inputs_test.shape)</span></span>
+<span id="cb31-7"><a href="#cb31-7" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> i <span class="kw">in</span> trange(<span class="dv">21</span>):</span>
+<span id="cb31-8"><a href="#cb31-8" aria-hidden="true" tabindex="-1"></a>    test_inputs <span class="op">=</span> hp.auto_regressive_predictions(time_series_regressor, test_inputs)</span>
+<span id="cb31-9"><a href="#cb31-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-10"><a href="#cb31-10" aria-hidden="true" tabindex="-1"></a><span class="co"># x = auto_regressive_predictions(state, test_ds[0], 10)</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display">
+<script type="application/vnd.jupyter.widget-view+json">
+{"model_id":"c1a1a4e0292c4c17b73d8a9134e4bc27","version_major":2,"version_minor":0,"quarto_mimetype":"application/vnd.jupyter.widget-view+json"}
+</script>
+</div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Expanding dims</code></pre>
+</div>
+<div class="cell-output cell-output-error">
+<div class="ansi-escaped-output">
+<pre><span class="ansi-red-fg">---------------------------------------------------------------------------</span>
+<span class="ansi-red-fg">IndexError</span>                                Traceback (most recent call last)
+<span class="ansi-green-fg">/var/folders/rs/qflxwtyx6kvfj8jcqx5zm5hr0000gn/T/ipykernel_47658/785531782.py</span> in <span class="ansi-cyan-fg">?</span><span class="ansi-blue-fg">()</span>
+<span class="ansi-green-fg ansi-bold">      4</span> <span class="ansi-red-fg"># test_numeric = inputs_test[0]</span>
+<span class="ansi-green-fg ansi-bold">      5</span> <span class="ansi-red-fg"># test_categorical = inputs_test[1]</span>
+<span class="ansi-green-fg ansi-bold">      6</span> <span class="ansi-red-fg"># print(inputs_test.shape)</span>
+<span class="ansi-green-fg ansi-bold">      7</span> <span class="ansi-green-fg">for</span> i <span class="ansi-green-fg">in</span> trange<span class="ansi-blue-fg">(</span><span class="ansi-cyan-fg">21</span><span class="ansi-blue-fg">)</span><span class="ansi-blue-fg">:</span>
+<span class="ansi-green-fg">----&gt; 8</span><span class="ansi-red-fg">     </span>test_inputs <span class="ansi-blue-fg">=</span> hp<span class="ansi-blue-fg">.</span>auto_regressive_predictions<span class="ansi-blue-fg">(</span>time_series_regressor<span class="ansi-blue-fg">,</span> test_inputs<span class="ansi-blue-fg">)</span>
+<span class="ansi-green-fg ansi-bold">      9</span>
+<span class="ansi-green-fg ansi-bold">     10</span> <span class="ansi-red-fg"># x = auto_regressive_predictions(state, test_ds[0], 10)</span>
+
+<span class="ansi-green-fg">~/Hephaestus/hephaestus/analysis/analysis.py</span> in <span class="ansi-cyan-fg">?</span><span class="ansi-blue-fg">(model, inputs)</span>
+<span class="ansi-green-fg ansi-bold">    129</span>
+<span class="ansi-green-fg ansi-bold">    130</span>     final_numeric_row <span class="ansi-blue-fg">=</span> final_numeric_row<span class="ansi-blue-fg">[</span><span class="ansi-green-fg">None</span><span class="ansi-blue-fg">,</span> <span class="ansi-blue-fg">:</span><span class="ansi-blue-fg">]</span>  <span class="ansi-red-fg"># New axis</span>
+<span class="ansi-green-fg ansi-bold">    131</span>     final_numeric_row <span class="ansi-blue-fg">=</span> jnp<span class="ansi-blue-fg">.</span>transpose<span class="ansi-blue-fg">(</span>final_numeric_row<span class="ansi-blue-fg">,</span> <span class="ansi-blue-fg">(</span><span class="ansi-cyan-fg">0</span><span class="ansi-blue-fg">,</span> <span class="ansi-cyan-fg">2</span><span class="ansi-blue-fg">,</span> <span class="ansi-cyan-fg">1</span><span class="ansi-blue-fg">)</span><span class="ansi-blue-fg">)</span>
+<span class="ansi-green-fg ansi-bold">    132</span>     <span class="ansi-red-fg"># print(f"{final_numeric_row.shape=}")</span>
+<span class="ansi-green-fg">--&gt; 133</span><span class="ansi-red-fg">     </span>final_categorical_row <span class="ansi-blue-fg">=</span> np<span class="ansi-blue-fg">.</span>array<span class="ansi-blue-fg">(</span>categorical_out<span class="ansi-blue-fg">[</span><span class="ansi-blue-fg">:</span><span class="ansi-blue-fg">,</span> <span class="ansi-blue-fg">:</span><span class="ansi-blue-fg">,</span> <span class="ansi-blue-fg">-</span><span class="ansi-cyan-fg">1</span><span class="ansi-blue-fg">]</span><span class="ansi-blue-fg">)</span>
+<span class="ansi-green-fg ansi-bold">    134</span>     final_categorical_row <span class="ansi-blue-fg">=</span> final_categorical_row<span class="ansi-blue-fg">[</span><span class="ansi-blue-fg">:</span><span class="ansi-blue-fg">,</span> <span class="ansi-green-fg">None</span><span class="ansi-blue-fg">]</span>  <span class="ansi-red-fg"># New axis</span>
+<span class="ansi-green-fg ansi-bold">    135</span>     final_categorical_row <span class="ansi-blue-fg">=</span> jnp<span class="ansi-blue-fg">.</span>transpose<span class="ansi-blue-fg">(</span>final_categorical_row<span class="ansi-blue-fg">,</span> <span class="ansi-blue-fg">(</span><span class="ansi-cyan-fg">0</span><span class="ansi-blue-fg">,</span> <span class="ansi-cyan-fg">2</span><span class="ansi-blue-fg">,</span> <span class="ansi-cyan-fg">1</span><span class="ansi-blue-fg">)</span><span class="ansi-blue-fg">)</span>
+<span class="ansi-green-fg ansi-bold">    136</span>     <span class="ansi-red-fg"># print(f"{numeric_inputs.shape=}, {final_numeric_row.shape=}")</span>
+
+<span class="ansi-green-fg">~/Hephaestus/.venv/lib/python3.11/site-packages/jax/_src/array.py</span> in <span class="ansi-cyan-fg">?</span><span class="ansi-blue-fg">(self, idx)</span>
+<span class="ansi-green-fg ansi-bold">    366</span>
+<span class="ansi-green-fg ansi-bold">    367</span>         return ArrayImpl(
+<span class="ansi-green-fg ansi-bold">    368</span>             out.aval, sharding, [out], committed=False, _skip_checks=True)
+<span class="ansi-green-fg ansi-bold">    369</span>
+<span class="ansi-green-fg">--&gt; 370</span><span class="ansi-red-fg">     </span><span class="ansi-green-fg">return</span> lax_numpy<span class="ansi-blue-fg">.</span>_rewriting_take<span class="ansi-blue-fg">(</span>self<span class="ansi-blue-fg">,</span> idx<span class="ansi-blue-fg">)</span>
+
+<span class="ansi-green-fg">~/Hephaestus/.venv/lib/python3.11/site-packages/jax/_src/numpy/lax_numpy.py</span> in <span class="ansi-cyan-fg">?</span><span class="ansi-blue-fg">(arr, idx, indices_are_sorted, unique_indices, mode, fill_value)</span>
+<span class="ansi-green-fg ansi-bold">  11407</span>           isinstance(arr.shape[0], int)):
+<span class="ansi-green-fg ansi-bold">  11408</span>         <span class="ansi-green-fg">return</span> lax<span class="ansi-blue-fg">.</span>dynamic_index_in_dim<span class="ansi-blue-fg">(</span>arr<span class="ansi-blue-fg">,</span> idx<span class="ansi-blue-fg">,</span> keepdims<span class="ansi-blue-fg">=</span><span class="ansi-green-fg">False</span><span class="ansi-blue-fg">)</span>
+<span class="ansi-green-fg ansi-bold">  11409</span>
+<span class="ansi-green-fg ansi-bold">  11410</span>   treedef<span class="ansi-blue-fg">,</span> static_idx<span class="ansi-blue-fg">,</span> dynamic_idx <span class="ansi-blue-fg">=</span> _split_index_for_jit<span class="ansi-blue-fg">(</span>idx<span class="ansi-blue-fg">,</span> arr<span class="ansi-blue-fg">.</span>shape<span class="ansi-blue-fg">)</span>
+<span class="ansi-green-fg">&gt; 11411</span><span class="ansi-red-fg">   return _gather(arr, treedef, static_idx, dynamic_idx, indices_are_sorted,
+</span><span class="ansi-green-fg ansi-bold">  11412</span>                  unique_indices, mode, fill_value)
+
+<span class="ansi-green-fg">~/Hephaestus/.venv/lib/python3.11/site-packages/jax/_src/numpy/lax_numpy.py</span> in <span class="ansi-cyan-fg">?</span><span class="ansi-blue-fg">(arr, treedef, static_idx, dynamic_idx, indices_are_sorted, unique_indices, mode, fill_value)</span>
+<span class="ansi-green-fg ansi-bold">  11417</span> def _gather(arr, treedef, static_idx, dynamic_idx, indices_are_sorted,
+<span class="ansi-green-fg ansi-bold">  11418</span>             unique_indices, mode, fill_value):
+<span class="ansi-green-fg ansi-bold">  11419</span>   idx <span class="ansi-blue-fg">=</span> _merge_static_and_dynamic_indices<span class="ansi-blue-fg">(</span>treedef<span class="ansi-blue-fg">,</span> static_idx<span class="ansi-blue-fg">,</span> dynamic_idx<span class="ansi-blue-fg">)</span>
+<span class="ansi-green-fg">&gt; 11420</span><span class="ansi-red-fg">   </span>indexer <span class="ansi-blue-fg">=</span> _index_to_gather<span class="ansi-blue-fg">(</span>shape<span class="ansi-blue-fg">(</span>arr<span class="ansi-blue-fg">)</span><span class="ansi-blue-fg">,</span> idx<span class="ansi-blue-fg">)</span>  <span class="ansi-red-fg"># shared with _scatter_update</span>
+<span class="ansi-green-fg ansi-bold">  11421</span>   y <span class="ansi-blue-fg">=</span> arr
+<span class="ansi-green-fg ansi-bold">  11422</span>
+<span class="ansi-green-fg ansi-bold">  11423</span>   <span class="ansi-green-fg">if</span> fill_value <span class="ansi-green-fg">is</span> <span class="ansi-green-fg">not</span> <span class="ansi-green-fg">None</span><span class="ansi-blue-fg">:</span>
+
+<span class="ansi-green-fg">~/Hephaestus/.venv/lib/python3.11/site-packages/jax/_src/numpy/lax_numpy.py</span> in <span class="ansi-cyan-fg">?</span><span class="ansi-blue-fg">(x_shape, idx, normalize_indices)</span>
+<span class="ansi-green-fg ansi-bold">  11525</span> def _index_to_gather(x_shape: Sequence[int], idx: Sequence[Any],
+<span class="ansi-green-fg ansi-bold">  11526</span>                      normalize_indices: bool = True) -&gt; _Indexer:
+<span class="ansi-green-fg ansi-bold">  11527</span>   <span class="ansi-red-fg"># Remove ellipses and add trailing slice(None)s.</span>
+<span class="ansi-green-fg">&gt; 11528</span><span class="ansi-red-fg">   </span>idx <span class="ansi-blue-fg">=</span> _canonicalize_tuple_index<span class="ansi-blue-fg">(</span>len<span class="ansi-blue-fg">(</span>x_shape<span class="ansi-blue-fg">)</span><span class="ansi-blue-fg">,</span> idx<span class="ansi-blue-fg">)</span>
+<span class="ansi-green-fg ansi-bold">  11529</span>
+<span class="ansi-green-fg ansi-bold">  11530</span>   <span class="ansi-red-fg"># Check for scalar boolean indexing: this requires inserting extra dimensions</span>
+<span class="ansi-green-fg ansi-bold">  11531</span>   <span class="ansi-red-fg"># before performing the rest of the logic.</span>
+
+<span class="ansi-green-fg">~/Hephaestus/.venv/lib/python3.11/site-packages/jax/_src/numpy/lax_numpy.py</span> in <span class="ansi-cyan-fg">?</span><span class="ansi-blue-fg">(arr_ndim, idx)</span>
+<span class="ansi-green-fg ansi-bold">  11848</span>   <span class="ansi-blue-fg">"""Helper to remove Ellipsis and add in the implicit trailing slice(None)."""</span>
+<span class="ansi-green-fg ansi-bold">  11849</span>   num_dimensions_consumed <span class="ansi-blue-fg">=</span> sum<span class="ansi-blue-fg">(</span><span class="ansi-green-fg">not</span> <span class="ansi-blue-fg">(</span>e <span class="ansi-green-fg">is</span> <span class="ansi-green-fg">None</span> <span class="ansi-green-fg">or</span> e <span class="ansi-green-fg">is</span> Ellipsis <span class="ansi-green-fg">or</span> isinstance<span class="ansi-blue-fg">(</span>e<span class="ansi-blue-fg">,</span> bool<span class="ansi-blue-fg">)</span><span class="ansi-blue-fg">)</span> <span class="ansi-green-fg">for</span> e <span class="ansi-green-fg">in</span> idx<span class="ansi-blue-fg">)</span>
+<span class="ansi-green-fg ansi-bold">  11850</span>   <span class="ansi-green-fg">if</span> num_dimensions_consumed <span class="ansi-blue-fg">&gt;</span> arr_ndim<span class="ansi-blue-fg">:</span>
+<span class="ansi-green-fg ansi-bold">  11851</span>     index_or_indices <span class="ansi-blue-fg">=</span> <span class="ansi-blue-fg">"index"</span> <span class="ansi-green-fg">if</span> num_dimensions_consumed <span class="ansi-blue-fg">==</span> <span class="ansi-cyan-fg">1</span> <span class="ansi-green-fg">else</span> <span class="ansi-blue-fg">"indices"</span>
+<span class="ansi-green-fg">&gt; 11852</span><span class="ansi-red-fg">     raise IndexError(
+</span><span class="ansi-green-fg ansi-bold">  11853</span>         <span class="ansi-blue-fg">f"Too many indices: {arr_ndim}-dimensional array indexed "</span>
+<span class="ansi-green-fg ansi-bold">  11854</span>         f"with {num_dimensions_consumed} regular {index_or_indices}.")
+<span class="ansi-green-fg ansi-bold">  11855</span>   ellipses <span class="ansi-blue-fg">=</span> <span class="ansi-blue-fg">(</span>i <span class="ansi-green-fg">for</span> i<span class="ansi-blue-fg">,</span> elt <span class="ansi-green-fg">in</span> enumerate<span class="ansi-blue-fg">(</span>idx<span class="ansi-blue-fg">)</span> <span class="ansi-green-fg">if</span> elt <span class="ansi-green-fg">is</span> Ellipsis<span class="ansi-blue-fg">)</span>
+
+<span class="ansi-red-fg">IndexError</span>: Too many indices: 2-dimensional array indexed with 3 regular indices.</pre>
+</div>
+</div>
+</div>
+<div id="cell-24" class="cell">
+<div class="sourceCode cell-code" id="cb33"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a>auto_df <span class="op">=</span> hp.create_test_inputs_df(test_inputs, time_series_config)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="cell-25" class="cell">
+<div class="sourceCode cell-code" id="cb34"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a>auto_df.tail()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display" data-execution_count="26">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-quarto-postprocess="true" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">time_step</th>
+<th data-quarto-table-cell-role="th">planet0_x</th>
+<th data-quarto-table-cell-role="th">planet0_y</th>
+<th data-quarto-table-cell-role="th">planet1_x</th>
+<th data-quarto-table-cell-role="th">planet1_y</th>
+<th data-quarto-table-cell-role="th">planet2_x</th>
+<th data-quarto-table-cell-role="th">planet2_y</th>
+<th data-quarto-table-cell-role="th">planet0_m</th>
+<th data-quarto-table-cell-role="th">planet0_a</th>
+<th data-quarto-table-cell-role="th">planet0_e</th>
+<th data-quarto-table-cell-role="th">...</th>
+<th data-quarto-table-cell-role="th">planet3_e</th>
+<th data-quarto-table-cell-role="th">planet4_x</th>
+<th data-quarto-table-cell-role="th">planet4_y</th>
+<th data-quarto-table-cell-role="th">planet4_m</th>
+<th data-quarto-table-cell-role="th">planet4_a</th>
+<th data-quarto-table-cell-role="th">planet4_e</th>
+<th data-quarto-table-cell-role="th">total_mass</th>
+<th data-quarto-table-cell-role="th">n_planets</th>
+<th data-quarto-table-cell-role="th">acceleration_x</th>
+<th data-quarto-table-cell-role="th">acceleration_y</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">8</td>
+<td>3.720930</td>
+<td>0.801365</td>
+<td>1.668203</td>
+<td>-0.229808</td>
+<td>-0.973515</td>
+<td>-1.192211</td>
+<td>2.664256</td>
+<td>1.312562</td>
+<td>1.944263</td>
+<td>1.897807</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>32.0</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">9</td>
+<td>4.186047</td>
+<td>0.487549</td>
+<td>1.816168</td>
+<td>0.231092</td>
+<td>-0.972449</td>
+<td>-1.436585</td>
+<td>2.548458</td>
+<td>1.312562</td>
+<td>1.944263</td>
+<td>1.897807</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>32.0</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">10</td>
+<td>4.651163</td>
+<td>0.157822</td>
+<td>1.905225</td>
+<td>0.642811</td>
+<td>-0.764575</td>
+<td>-1.668554</td>
+<td>2.410650</td>
+<td>1.312562</td>
+<td>1.944263</td>
+<td>1.897807</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>32.0</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">11</td>
+<td>5.116279</td>
+<td>-0.176870</td>
+<td>1.935436</td>
+<td>0.917559</td>
+<td>-0.393801</td>
+<td>-1.886207</td>
+<td>2.252158</td>
+<td>1.312562</td>
+<td>1.944263</td>
+<td>1.897807</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>32.0</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">12</td>
+<td>5.581395</td>
+<td>-0.506443</td>
+<td>1.908720</td>
+<td>0.996574</td>
+<td>0.061000</td>
+<td>-2.087774</td>
+<td>2.074456</td>
+<td>1.312562</td>
+<td>1.944263</td>
+<td>1.897807</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>32.0</td>
+</tr>
+</tbody>
+</table>
+
+<p>5 rows × 30 columns</p>
+</div>
+</div>
+</div>
+<div id="cell-27" class="cell">
+<div class="sourceCode cell-code" id="cb35"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a>res1 <span class="op">=</span> time_series_regressor(</span>
+<span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a>    numeric_inputs<span class="op">=</span>jnp.array([train_ds[<span class="dv">0</span>][<span class="dv">0</span>][:, :<span class="dv">10</span>]]),</span>
+<span id="cb35-3"><a href="#cb35-3" aria-hidden="true" tabindex="-1"></a>    categorical_inputs<span class="op">=</span>jnp.array([train_ds[<span class="dv">0</span>][<span class="dv">1</span>][:, :<span class="dv">10</span>]]),</span>
+<span id="cb35-4"><a href="#cb35-4" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb35-5"><a href="#cb35-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb35-6"><a href="#cb35-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb35-7"><a href="#cb35-7" aria-hidden="true" tabindex="-1"></a>res_df <span class="op">=</span> hp.create_non_auto_df(res1, time_series_config)</span>
+<span id="cb35-8"><a href="#cb35-8" aria-hidden="true" tabindex="-1"></a>actual_df <span class="op">=</span> hp.create_non_auto_df(</span>
+<span id="cb35-9"><a href="#cb35-9" aria-hidden="true" tabindex="-1"></a>    {<span class="st">"numeric_out"</span>: train_ds[<span class="dv">0</span>][<span class="dv">0</span>], <span class="st">"categorical_out"</span>: train_ds[<span class="dv">0</span>][<span class="dv">1</span>]},</span>
+<span id="cb35-10"><a href="#cb35-10" aria-hidden="true" tabindex="-1"></a>    time_series_config,</span>
+<span id="cb35-11"><a href="#cb35-11" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="cell-28" class="cell">
+<div class="sourceCode cell-code" id="cb36"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a>hp.create_non_auto_df(</span>
+<span id="cb36-2"><a href="#cb36-2" aria-hidden="true" tabindex="-1"></a>    {<span class="st">"numeric_out"</span>: train_ds[<span class="dv">0</span>][<span class="dv">0</span>], <span class="st">"categorical_out"</span>: train_ds[<span class="dv">0</span>][<span class="dv">1</span>]},</span>
+<span id="cb36-3"><a href="#cb36-3" aria-hidden="true" tabindex="-1"></a>    time_series_config,</span>
+<span id="cb36-4"><a href="#cb36-4" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display" data-execution_count="28">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-quarto-postprocess="true" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">n_planets</th>
+<th data-quarto-table-cell-role="th">acceleration_x</th>
+<th data-quarto-table-cell-role="th">acceleration_y</th>
+<th data-quarto-table-cell-role="th">time_step</th>
+<th data-quarto-table-cell-role="th">planet0_x</th>
+<th data-quarto-table-cell-role="th">planet0_y</th>
+<th data-quarto-table-cell-role="th">planet1_x</th>
+<th data-quarto-table-cell-role="th">planet1_y</th>
+<th data-quarto-table-cell-role="th">planet2_x</th>
+<th data-quarto-table-cell-role="th">planet2_y</th>
+<th data-quarto-table-cell-role="th">...</th>
+<th data-quarto-table-cell-role="th">planet3_y</th>
+<th data-quarto-table-cell-role="th">planet3_m</th>
+<th data-quarto-table-cell-role="th">planet3_a</th>
+<th data-quarto-table-cell-role="th">planet3_e</th>
+<th data-quarto-table-cell-role="th">planet4_x</th>
+<th data-quarto-table-cell-role="th">planet4_y</th>
+<th data-quarto-table-cell-role="th">planet4_m</th>
+<th data-quarto-table-cell-role="th">planet4_a</th>
+<th data-quarto-table-cell-role="th">planet4_e</th>
+<th data-quarto-table-cell-role="th">total_mass</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">0</td>
+<td>35.0</td>
+<td>32.0</td>
+<td>32.0</td>
+<td>0.000000</td>
+<td>1.560060</td>
+<td>-0.854437</td>
+<td>0.720639</td>
+<td>0.691729</td>
+<td>0.944008</td>
+<td>2.700632</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">1</td>
+<td>35.0</td>
+<td>32.0</td>
+<td>32.0</td>
+<td>0.465116</td>
+<td>1.689858</td>
+<td>-0.514359</td>
+<td>0.333295</td>
+<td>0.942289</td>
+<td>0.681604</td>
+<td>2.785811</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">2</td>
+<td>35.0</td>
+<td>32.0</td>
+<td>32.0</td>
+<td>0.930233</td>
+<td>1.753589</td>
+<td>-0.154209</td>
+<td>-0.124995</td>
+<td>0.992368</td>
+<td>0.412951</td>
+<td>2.845461</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">3</td>
+<td>35.0</td>
+<td>32.0</td>
+<td>32.0</td>
+<td>1.395349</td>
+<td>1.748068</td>
+<td>0.212022</td>
+<td>-0.556775</td>
+<td>0.831727</td>
+<td>0.140540</td>
+<td>2.879232</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">4</td>
+<td>35.0</td>
+<td>32.0</td>
+<td>32.0</td>
+<td>1.860465</td>
+<td>1.673573</td>
+<td>0.569904</td>
+<td>-0.870579</td>
+<td>0.494812</td>
+<td>-0.133144</td>
+<td>2.887018</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">5</td>
+<td>35.0</td>
+<td>32.0</td>
+<td>32.0</td>
+<td>2.325581</td>
+<td>1.533811</td>
+<td>0.905607</td>
+<td>-1.000151</td>
+<td>0.053178</td>
+<td>-0.405638</td>
+<td>2.868949</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">6</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>32.0</td>
+<td>2.790698</td>
+<td>1.335526</td>
+<td>1.206832</td>
+<td>-0.918192</td>
+<td>-0.399688</td>
+<td>-0.674529</td>
+<td>2.825381</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">7</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>32.0</td>
+<td>3.255814</td>
+<td>1.087824</td>
+<td>1.463513</td>
+<td>-0.641980</td>
+<td>-0.767958</td>
+<td>-0.937474</td>
+<td>2.756889</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">8</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>32.0</td>
+<td>3.720930</td>
+<td>0.801365</td>
+<td>1.668203</td>
+<td>-0.229808</td>
+<td>-0.973515</td>
+<td>-1.192211</td>
+<td>2.664256</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">9</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>32.0</td>
+<td>4.186047</td>
+<td>0.487549</td>
+<td>1.816168</td>
+<td>0.231092</td>
+<td>-0.972449</td>
+<td>-1.436585</td>
+<td>2.548458</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">10</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>32.0</td>
+<td>4.651163</td>
+<td>0.157822</td>
+<td>1.905225</td>
+<td>0.642811</td>
+<td>-0.764575</td>
+<td>-1.668554</td>
+<td>2.410650</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">11</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>32.0</td>
+<td>5.116279</td>
+<td>-0.176870</td>
+<td>1.935436</td>
+<td>0.917559</td>
+<td>-0.393801</td>
+<td>-1.886207</td>
+<td>2.252158</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">12</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>32.0</td>
+<td>5.581395</td>
+<td>-0.506443</td>
+<td>1.908720</td>
+<td>0.996574</td>
+<td>0.061000</td>
+<td>-2.087774</td>
+<td>2.074456</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">13</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>32.0</td>
+<td>6.046512</td>
+<td>-0.821885</td>
+<td>1.828463</td>
+<td>0.862921</td>
+<td>0.502832</td>
+<td>-2.271633</td>
+<td>1.879159</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">14</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>32.0</td>
+<td>6.511628</td>
+<td>-1.115352</td>
+<td>1.699162</td>
+<td>0.545212</td>
+<td>0.837490</td>
+<td>-2.436322</td>
+<td>1.668004</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">15</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>32.0</td>
+<td>6.976744</td>
+<td>-1.380170</td>
+<td>1.526119</td>
+<td>0.111347</td>
+<td>0.993853</td>
+<td>-2.580544</td>
+<td>1.442838</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">16</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>32.0</td>
+<td>7.441861</td>
+<td>-1.610795</td>
+<td>1.315203</td>
+<td>-0.346239</td>
+<td>0.939015</td>
+<td>-2.703172</td>
+<td>1.205600</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">17</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>32.0</td>
+<td>7.906977</td>
+<td>-1.802741</td>
+<td>1.072663</td>
+<td>-0.730422</td>
+<td>0.685027</td>
+<td>-2.803255</td>
+<td>0.958309</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">18</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>32.0</td>
+<td>8.372093</td>
+<td>-1.952503</td>
+<td>0.804994</td>
+<td>-0.959957</td>
+<td>0.286020</td>
+<td>-2.880023</td>
+<td>0.703051</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">19</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>32.0</td>
+<td>8.837210</td>
+<td>-2.057485</td>
+<td>0.518845</td>
+<td>-0.986439</td>
+<td>-0.173427</td>
+<td>-2.932885</td>
+<td>0.441961</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">20</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>37.0</td>
+<td>9.302325</td>
+<td>-2.115938</td>
+<td>0.220954</td>
+<td>-0.804305</td>
+<td>-0.596103</td>
+<td>-2.961438</td>
+<td>0.177211</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">21</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>37.0</td>
+<td>9.767442</td>
+<td>-2.126912</td>
+<td>-0.081893</td>
+<td>-0.451965</td>
+<td>-0.892498</td>
+<td>-2.965464</td>
+<td>-0.089004</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">22</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>37.0</td>
+<td>10.232558</td>
+<td>-2.090237</td>
+<td>-0.382893</td>
+<td>-0.003872</td>
+<td>-0.999585</td>
+<td>-2.944932</td>
+<td>-0.354477</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">23</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>37.0</td>
+<td>10.697675</td>
+<td>-2.006509</td>
+<td>-0.675252</td>
+<td>0.444975</td>
+<td>-0.894252</td>
+<td>-2.899997</td>
+<td>-0.617010</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">24</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>37.0</td>
+<td>11.162790</td>
+<td>-1.877113</td>
+<td>-0.952210</td>
+<td>0.799049</td>
+<td>-0.598498</td>
+<td>-2.831004</td>
+<td>-0.874419</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">25</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>37.0</td>
+<td>11.627907</td>
+<td>-1.704255</td>
+<td>-1.207074</td>
+<td>0.982727</td>
+<td>-0.175061</td>
+<td>-2.738478</td>
+<td>-1.124556</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">26</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>37.0</td>
+<td>12.093023</td>
+<td>-1.491017</td>
+<td>-1.433278</td>
+<td>0.956673</td>
+<td>0.285841</td>
+<td>-2.623132</td>
+<td>-1.365315</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">27</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>37.0</td>
+<td>12.558140</td>
+<td>-1.241423</td>
+<td>-1.624455</td>
+<td>0.726448</td>
+<td>0.685888</td>
+<td>-2.485858</td>
+<td>-1.594656</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">28</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>37.0</td>
+<td>13.023255</td>
+<td>-0.960518</td>
+<td>-1.774551</td>
+<td>0.341305</td>
+<td>0.939879</td>
+<td>-2.327724</td>
+<td>-1.810607</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">29</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>37.0</td>
+<td>13.488372</td>
+<td>-0.654444</td>
+<td>-1.877989</td>
+<td>-0.116555</td>
+<td>0.994010</td>
+<td>-2.149972</td>
+<td>-2.011292</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">30</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>37.0</td>
+<td>13.953488</td>
+<td>-0.330492</td>
+<td>-1.929876</td>
+<td>-0.549761</td>
+<td>0.837182</td>
+<td>-1.954013</td>
+<td>-2.194933</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">31</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>37.0</td>
+<td>14.418605</td>
+<td>0.002871</td>
+<td>-1.926281</td>
+<td>-0.866538</td>
+<td>0.503039</td>
+<td>-1.741415</td>
+<td>-2.359874</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">32</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>37.0</td>
+<td>14.883721</td>
+<td>0.336052</td>
+<td>-1.864565</td>
+<td>-1.000002</td>
+<td>0.062565</td>
+<td>-1.513904</td>
+<td>-2.504591</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">33</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>37.0</td>
+<td>15.348837</td>
+<td>0.658485</td>
+<td>-1.743757</td>
+<td>-0.922043</td>
+<td>-0.390993</td>
+<td>-1.273345</td>
+<td>-2.627708</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">34</td>
+<td>35.0</td>
+<td>37.0</td>
+<td>37.0</td>
+<td>15.813953</td>
+<td>0.958914</td>
+<td>-1.564952</td>
+<td>-0.649103</td>
+<td>-0.761665</td>
+<td>-1.021741</td>
+<td>-2.728011</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">35</td>
+<td>35.0</td>
+<td>32.0</td>
+<td>37.0</td>
+<td>16.279070</td>
+<td>1.225853</td>
+<td>-1.331663</td>
+<td>-0.238785</td>
+<td>-0.970834</td>
+<td>-0.761212</td>
+<td>-2.804462</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">36</td>
+<td>35.0</td>
+<td>32.0</td>
+<td>37.0</td>
+<td>16.744186</td>
+<td>1.448211</td>
+<td>-1.050060</td>
+<td>0.222075</td>
+<td>-0.973830</td>
+<td>-0.493987</td>
+<td>-2.856214</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">37</td>
+<td>35.0</td>
+<td>32.0</td>
+<td>37.0</td>
+<td>17.209303</td>
+<td>1.616059</td>
+<td>-0.729007</td>
+<td>0.635585</td>
+<td>-0.769602</td>
+<td>-0.222387</td>
+<td>-2.882622</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">38</td>
+<td>35.0</td>
+<td>32.0</td>
+<td>37.0</td>
+<td>17.674419</td>
+<td>1.721456</td>
+<td>-0.379819</td>
+<td>0.913575</td>
+<td>-0.401274</td>
+<td>0.051193</td>
+<td>-2.883258</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">39</td>
+<td>35.0</td>
+<td>32.0</td>
+<td>37.0</td>
+<td>18.139534</td>
+<td>1.759203</td>
+<td>-0.015710</td>
+<td>0.996587</td>
+<td>0.052806</td>
+<td>0.324305</td>
+<td>-2.857916</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">40</td>
+<td>35.0</td>
+<td>32.0</td>
+<td>37.0</td>
+<td>18.604650</td>
+<td>1.727386</td>
+<td>0.349052</td>
+<td>0.866830</td>
+<td>0.495796</td>
+<td>0.594465</td>
+<td>-2.806627</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">41</td>
+<td>35.0</td>
+<td>32.0</td>
+<td>37.0</td>
+<td>19.069767</td>
+<td>1.627587</td>
+<td>0.700142</td>
+<td>0.552081</td>
+<td>0.833240</td>
+<td>0.859181</td>
+<td>-2.729662</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">42</td>
+<td>35.0</td>
+<td>32.0</td>
+<td>37.0</td>
+<td>19.534883</td>
+<td>1.464716</td>
+<td>1.024199</td>
+<td>0.119611</td>
+<td>0.993425</td>
+<td>1.115970</td>
+<td>-2.627536</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">43</td>
+<td>35.0</td>
+<td>32.0</td>
+<td>37.0</td>
+<td>20.000000</td>
+<td>1.246492</td>
+<td>1.309683</td>
+<td>-0.338443</td>
+<td>0.942632</td>
+<td>1.362393</td>
+<td>-2.501014</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>6.974123</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">44</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">45</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">46</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">47</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">48</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">49</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">50</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">51</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">52</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">53</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">54</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">55</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">56</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="even">
+<td data-quarto-table-cell-role="th">57</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+<tr class="odd">
+<td data-quarto-table-cell-role="th">58</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>...</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+<td>NaN</td>
+</tr>
+</tbody>
+</table>
+
+<p>59 rows × 30 columns</p>
+</div>
+</div>
+</div>
+<div id="cell-29" class="cell">
+<div class="sourceCode cell-code" id="cb37"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a>hp.plot_comparison(actual_df, auto_df, res_df, <span class="st">"planet0_x"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="Plannets_files/figure-html/cell-30-output-1.png" class="img-fluid figure-img"></p>
+</figure>
+</div>
+</div>
+</div>
+<div id="cell-30" class="cell">
+<div class="sourceCode cell-code" id="cb38"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb38-1"><a href="#cb38-1" aria-hidden="true" tabindex="-1"></a>test_inputs.numeric_inputs.shape</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display" data-execution_count="30">
+<pre><code>(27, 13)</code></pre>
+</div>
+</div>
+
+</main>
+<!-- /main column -->
+<script type="application/vnd.jupyter.widget-state+json">
+{"01ca2dcb14e647dfb1e68750ca6de39c":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"HBoxModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"HBoxModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"1.5.0","_view_name":"HBoxView","box_style":"","children":["IPY_MODEL_a51aa7b827db4f768dce6315dbebf379","IPY_MODEL_634935ff0a6b4d65b72f87359d9f82fc","IPY_MODEL_09b63c98bee543dfb557a007d50c41d1"],"layout":"IPY_MODEL_dc4a8a3b0a8b4ef49dcd6269a1b32e14"}},"0481743e80634f7a8e718fb528950e54":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"ProgressStyleModel","state":{"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"ProgressStyleModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"StyleView","bar_color":null,"description_width":""}},"055681c8159b4b6c8104d4e06279803c":{"model_module":"@jupyter-widgets/base","model_module_version":"1.2.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"1.2.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"overflow_x":null,"overflow_y":null,"padding":null,"right":null,"top":null,"visibility":null,"width":null}},"09b63c98bee543dfb557a007d50c41d1":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"HTMLModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"HTMLModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"1.5.0","_view_name":"HTMLView","description":"","description_tooltip":null,"layout":"IPY_MODEL_2fb36a08ca1540228919af722727572c","placeholder":"​","style":"IPY_MODEL_3bd47d84fac442d4bcf49dceeb699d45","value":" 807/807 [04:29&lt;00:00,  3.10it/s]"}},"0e26d28846fb449789510e4748c01c6a":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"DescriptionStyleModel","state":{"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"DescriptionStyleModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"StyleView","description_width":""}},"25ce5408138f4cb28e163f1fdffdee5f":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"HTMLModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"HTMLModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"1.5.0","_view_name":"HTMLView","description":"","description_tooltip":null,"layout":"IPY_MODEL_8b35a70a3b9e4f3b87cf2a7280439ac6","placeholder":"​","style":"IPY_MODEL_0e26d28846fb449789510e4748c01c6a","value":"100%"}},"2ac0cceac38e43adb00a10b778fad2df":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"HTMLModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"HTMLModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"1.5.0","_view_name":"HTMLView","description":"","description_tooltip":null,"layout":"IPY_MODEL_ddb1791795134ac0a754748f9793c214","placeholder":"​","style":"IPY_MODEL_d95aea2b915b44f38b5090ee186abafd","value":" 807/807 [04:31&lt;00:00,  2.80it/s]"}},"2fb36a08ca1540228919af722727572c":{"model_module":"@jupyter-widgets/base","model_module_version":"1.2.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"1.2.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"overflow_x":null,"overflow_y":null,"padding":null,"right":null,"top":null,"visibility":null,"width":null}},"31d37adf891a4da68675945509051210":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"HTMLModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"HTMLModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"1.5.0","_view_name":"HTMLView","description":"","description_tooltip":null,"layout":"IPY_MODEL_055681c8159b4b6c8104d4e06279803c","placeholder":"​","style":"IPY_MODEL_9f5e5843559b4f9e8f3440ebd85743f8","value":" 807/807 [04:52&lt;00:00,  3.03it/s]"}},"3bd47d84fac442d4bcf49dceeb699d45":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"DescriptionStyleModel","state":{"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"DescriptionStyleModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"StyleView","description_width":""}},"4151c7353de54909aa9deecbe8c1e1e1":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"ProgressStyleModel","state":{"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"ProgressStyleModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"StyleView","bar_color":null,"description_width":""}},"462d9e93a94f44868fec1ece82f0a241":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"DescriptionStyleModel","state":{"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"DescriptionStyleModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"StyleView","description_width":""}},"47793d3155614c8cbd7d3337dcb2f895":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"FloatProgressModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"FloatProgressModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"1.5.0","_view_name":"ProgressView","bar_style":"success","description":"","description_tooltip":null,"layout":"IPY_MODEL_f8093c8ddeec4c55ac6cc5f8f7df30bf","max":3,"min":0,"orientation":"horizontal","style":"IPY_MODEL_4151c7353de54909aa9deecbe8c1e1e1","value":3}},"4bc81f6d94394d7f90e070d8b11a7059":{"model_module":"@jupyter-widgets/base","model_module_version":"1.2.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"1.2.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"overflow_x":null,"overflow_y":null,"padding":null,"right":null,"top":null,"visibility":null,"width":null}},"4da9993585914618a35d8d5382fef850":{"model_module":"@jupyter-widgets/base","model_module_version":"1.2.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"1.2.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"overflow_x":null,"overflow_y":null,"padding":null,"right":null,"top":null,"visibility":"hidden","width":null}},"4dd64f565fcf4b259ef24944493477bf":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"HBoxModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"HBoxModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"1.5.0","_view_name":"HBoxView","box_style":"","children":["IPY_MODEL_25ce5408138f4cb28e163f1fdffdee5f","IPY_MODEL_47793d3155614c8cbd7d3337dcb2f895","IPY_MODEL_f9ec11073e484927a4cc1ee2e3da132f"],"layout":"IPY_MODEL_62e750769d364ab2b80d5b9646b10ea6"}},"5e15315a77864badafe48c2baf31b030":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"HBoxModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"HBoxModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"1.5.0","_view_name":"HBoxView","box_style":"","children":["IPY_MODEL_dfd9dd713862479bba73b6c0a12a1902","IPY_MODEL_88be535ce5a945f4979fe72d9f086365","IPY_MODEL_31d37adf891a4da68675945509051210"],"layout":"IPY_MODEL_4da9993585914618a35d8d5382fef850"}},"5edd903b07594d128ded9b4844835159":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"FloatProgressModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"FloatProgressModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"1.5.0","_view_name":"ProgressView","bar_style":"","description":"","description_tooltip":null,"layout":"IPY_MODEL_4bc81f6d94394d7f90e070d8b11a7059","max":807,"min":0,"orientation":"horizontal","style":"IPY_MODEL_d3bc58d04d5f42a5a24bd467a9569e01","value":807}},"5f1fb4d40e154e27baa0d4f330df540e":{"model_module":"@jupyter-widgets/base","model_module_version":"1.2.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"1.2.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"overflow_x":null,"overflow_y":null,"padding":null,"right":null,"top":null,"visibility":null,"width":null}},"62e750769d364ab2b80d5b9646b10ea6":{"model_module":"@jupyter-widgets/base","model_module_version":"1.2.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"1.2.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"overflow_x":null,"overflow_y":null,"padding":null,"right":null,"top":null,"visibility":null,"width":null}},"634935ff0a6b4d65b72f87359d9f82fc":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"FloatProgressModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"FloatProgressModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"1.5.0","_view_name":"ProgressView","bar_style":"","description":"","description_tooltip":null,"layout":"IPY_MODEL_e4de75777bba4d72b61936baf3d84cbb","max":807,"min":0,"orientation":"horizontal","style":"IPY_MODEL_0481743e80634f7a8e718fb528950e54","value":807}},"6f5ca39406174a4fb1bee9eb1e35fccb":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"DescriptionStyleModel","state":{"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"DescriptionStyleModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"StyleView","description_width":""}},"70c7b641da5c4b82bbd5b2e1750f3b39":{"model_module":"@jupyter-widgets/base","model_module_version":"1.2.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"1.2.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"overflow_x":null,"overflow_y":null,"padding":null,"right":null,"top":null,"visibility":null,"width":null}},"851b29291123491a821b1ce8088ca785":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"ProgressStyleModel","state":{"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"ProgressStyleModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"StyleView","bar_color":null,"description_width":""}},"88be535ce5a945f4979fe72d9f086365":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"FloatProgressModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"FloatProgressModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"1.5.0","_view_name":"ProgressView","bar_style":"","description":"","description_tooltip":null,"layout":"IPY_MODEL_f8382d8bbb7f42f6a0f4d4028203615f","max":807,"min":0,"orientation":"horizontal","style":"IPY_MODEL_851b29291123491a821b1ce8088ca785","value":807}},"8b35a70a3b9e4f3b87cf2a7280439ac6":{"model_module":"@jupyter-widgets/base","model_module_version":"1.2.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"1.2.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"overflow_x":null,"overflow_y":null,"padding":null,"right":null,"top":null,"visibility":null,"width":null}},"948787e6434f419a86d9d7da831e2572":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"DescriptionStyleModel","state":{"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"DescriptionStyleModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"StyleView","description_width":""}},"9ced4485d5c641eda90ab0634e0691d3":{"model_module":"@jupyter-widgets/base","model_module_version":"1.2.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"1.2.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"overflow_x":null,"overflow_y":null,"padding":null,"right":null,"top":null,"visibility":null,"width":null}},"9f5e5843559b4f9e8f3440ebd85743f8":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"DescriptionStyleModel","state":{"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"DescriptionStyleModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"StyleView","description_width":""}},"a317a54aa1a349f490e388aacb2d1e4d":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"HBoxModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"HBoxModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"1.5.0","_view_name":"HBoxView","box_style":"","children":["IPY_MODEL_c470a61e692a4459988f63f0024f7eac","IPY_MODEL_5edd903b07594d128ded9b4844835159","IPY_MODEL_2ac0cceac38e43adb00a10b778fad2df"],"layout":"IPY_MODEL_c7f61bdee3ca4ca0a3f7d021aa558deb"}},"a51aa7b827db4f768dce6315dbebf379":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"HTMLModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"HTMLModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"1.5.0","_view_name":"HTMLView","description":"","description_tooltip":null,"layout":"IPY_MODEL_5f1fb4d40e154e27baa0d4f330df540e","placeholder":"​","style":"IPY_MODEL_948787e6434f419a86d9d7da831e2572","value":"100%"}},"acee2c1ed91e44188d5ca40bddace4b1":{"model_module":"@jupyter-widgets/base","model_module_version":"1.2.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"1.2.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"overflow_x":null,"overflow_y":null,"padding":null,"right":null,"top":null,"visibility":null,"width":null}},"c470a61e692a4459988f63f0024f7eac":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"HTMLModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"HTMLModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"1.5.0","_view_name":"HTMLView","description":"","description_tooltip":null,"layout":"IPY_MODEL_70c7b641da5c4b82bbd5b2e1750f3b39","placeholder":"​","style":"IPY_MODEL_462d9e93a94f44868fec1ece82f0a241","value":"100%"}},"c7f61bdee3ca4ca0a3f7d021aa558deb":{"model_module":"@jupyter-widgets/base","model_module_version":"1.2.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"1.2.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"overflow_x":null,"overflow_y":null,"padding":null,"right":null,"top":null,"visibility":"hidden","width":null}},"cc57eeb92d32434ca82b7c3f669865d1":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"DescriptionStyleModel","state":{"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"DescriptionStyleModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"StyleView","description_width":""}},"d3bc58d04d5f42a5a24bd467a9569e01":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"ProgressStyleModel","state":{"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"ProgressStyleModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"StyleView","bar_color":null,"description_width":""}},"d95aea2b915b44f38b5090ee186abafd":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"DescriptionStyleModel","state":{"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"DescriptionStyleModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"StyleView","description_width":""}},"dc4a8a3b0a8b4ef49dcd6269a1b32e14":{"model_module":"@jupyter-widgets/base","model_module_version":"1.2.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"1.2.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"overflow_x":null,"overflow_y":null,"padding":null,"right":null,"top":null,"visibility":"hidden","width":null}},"ddb1791795134ac0a754748f9793c214":{"model_module":"@jupyter-widgets/base","model_module_version":"1.2.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"1.2.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"overflow_x":null,"overflow_y":null,"padding":null,"right":null,"top":null,"visibility":null,"width":null}},"dfd9dd713862479bba73b6c0a12a1902":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"HTMLModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"HTMLModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"1.5.0","_view_name":"HTMLView","description":"","description_tooltip":null,"layout":"IPY_MODEL_acee2c1ed91e44188d5ca40bddace4b1","placeholder":"​","style":"IPY_MODEL_cc57eeb92d32434ca82b7c3f669865d1","value":"100%"}},"e4de75777bba4d72b61936baf3d84cbb":{"model_module":"@jupyter-widgets/base","model_module_version":"1.2.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"1.2.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"overflow_x":null,"overflow_y":null,"padding":null,"right":null,"top":null,"visibility":null,"width":null}},"f8093c8ddeec4c55ac6cc5f8f7df30bf":{"model_module":"@jupyter-widgets/base","model_module_version":"1.2.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"1.2.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"overflow_x":null,"overflow_y":null,"padding":null,"right":null,"top":null,"visibility":null,"width":null}},"f8382d8bbb7f42f6a0f4d4028203615f":{"model_module":"@jupyter-widgets/base","model_module_version":"1.2.0","model_name":"LayoutModel","state":{"_model_module":"@jupyter-widgets/base","_model_module_version":"1.2.0","_model_name":"LayoutModel","_view_count":null,"_view_module":"@jupyter-widgets/base","_view_module_version":"1.2.0","_view_name":"LayoutView","align_content":null,"align_items":null,"align_self":null,"border":null,"bottom":null,"display":null,"flex":null,"flex_flow":null,"grid_area":null,"grid_auto_columns":null,"grid_auto_flow":null,"grid_auto_rows":null,"grid_column":null,"grid_gap":null,"grid_row":null,"grid_template_areas":null,"grid_template_columns":null,"grid_template_rows":null,"height":null,"justify_content":null,"justify_items":null,"left":null,"margin":null,"max_height":null,"max_width":null,"min_height":null,"min_width":null,"object_fit":null,"object_position":null,"order":null,"overflow":null,"overflow_x":null,"overflow_y":null,"padding":null,"right":null,"top":null,"visibility":null,"width":null}},"f9ec11073e484927a4cc1ee2e3da132f":{"model_module":"@jupyter-widgets/controls","model_module_version":"1.5.0","model_name":"HTMLModel","state":{"_dom_classes":[],"_model_module":"@jupyter-widgets/controls","_model_module_version":"1.5.0","_model_name":"HTMLModel","_view_count":null,"_view_module":"@jupyter-widgets/controls","_view_module_version":"1.5.0","_view_name":"HTMLView","description":"","description_tooltip":null,"layout":"IPY_MODEL_9ced4485d5c641eda90ab0634e0691d3","placeholder":"​","style":"IPY_MODEL_6f5ca39406174a4fb1bee9eb1e35fccb","value":" 3/3 [13:53&lt;00:00, 275.36s/it]"}}}
+</script>
+<script id="quarto-html-after-body" type="application/javascript">
+window.document.addEventListener("DOMContentLoaded", function (event) {
+  const toggleBodyColorMode = (bsSheetEl) => {
+    const mode = bsSheetEl.getAttribute("data-mode");
+    const bodyEl = window.document.querySelector("body");
+    if (mode === "dark") {
+      bodyEl.classList.add("quarto-dark");
+      bodyEl.classList.remove("quarto-light");
+    } else {
+      bodyEl.classList.add("quarto-light");
+      bodyEl.classList.remove("quarto-dark");
+    }
+  }
+  const toggleBodyColorPrimary = () => {
+    const bsSheetEl = window.document.querySelector("link#quarto-bootstrap");
+    if (bsSheetEl) {
+      toggleBodyColorMode(bsSheetEl);
+    }
+  }
+  toggleBodyColorPrimary();
+  const icon = "";
+  const anchorJS = new window.AnchorJS();
+  anchorJS.options = {
+    placement: 'right',
+    icon: icon
+  };
+  anchorJS.add('.anchored');
+  const isCodeAnnotation = (el) => {
+    for (const clz of el.classList) {
+      if (clz.startsWith('code-annotation-')) {
+        return true;
+      }
+    }
+    return false;
+  }
+  const onCopySuccess = function(e) {
+    // button target
+    const button = e.trigger;
+    // don't keep focus
+    button.blur();
+    // flash "checked"
+    button.classList.add('code-copy-button-checked');
+    var currentTitle = button.getAttribute("title");
+    button.setAttribute("title", "Copied!");
+    let tooltip;
+    if (window.bootstrap) {
+      button.setAttribute("data-bs-toggle", "tooltip");
+      button.setAttribute("data-bs-placement", "left");
+      button.setAttribute("data-bs-title", "Copied!");
+      tooltip = new bootstrap.Tooltip(button,
+        { trigger: "manual",
+          customClass: "code-copy-button-tooltip",
+          offset: [0, -8]});
+      tooltip.show();
+    }
+    setTimeout(function() {
+      if (tooltip) {
+        tooltip.hide();
+        button.removeAttribute("data-bs-title");
+        button.removeAttribute("data-bs-toggle");
+        button.removeAttribute("data-bs-placement");
+      }
+      button.setAttribute("title", currentTitle);
+      button.classList.remove('code-copy-button-checked');
+    }, 1000);
+    // clear code selection
+    e.clearSelection();
+  }
+  const getTextToCopy = function(trigger) {
+      const codeEl = trigger.previousElementSibling.cloneNode(true);
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+  }
+  const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+    text: getTextToCopy
+  });
+  clipboard.on('success', onCopySuccess);
+  if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+    const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+      text: getTextToCopy,
+      container: window.document.getElementById('quarto-embedded-source-code-modal')
+    });
+    clipboardModal.on('success', onCopySuccess);
+  }
+    var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+    var mailtoRegex = new RegExp(/^mailto:/);
+      var filterRegex = new RegExp('/' + window.location.host + '/');
+    var isInternal = (href) => {
+        return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+    }
+    // Inspect non-navigation links and adorn them if external
+ 	var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+    for (var i=0; i<links.length; i++) {
+      const link = links[i];
+      if (!isInternal(link.href)) {
+        // undo the damage that might have been done by quarto-nav.js in the case of
+        // links that we want to consider external
+        if (link.dataset.originalHref !== undefined) {
+          link.href = link.dataset.originalHref;
+        }
+      }
+    }
+  function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+    const config = {
+      allowHTML: true,
+      maxWidth: 500,
+      delay: 100,
+      arrow: false,
+      appendTo: function(el) {
+          return el.parentElement;
+      },
+      interactive: true,
+      interactiveBorder: 10,
+      theme: 'quarto',
+      placement: 'bottom-start',
+    };
+    if (contentFn) {
+      config.content = contentFn;
+    }
+    if (onTriggerFn) {
+      config.onTrigger = onTriggerFn;
+    }
+    if (onUntriggerFn) {
+      config.onUntrigger = onUntriggerFn;
+    }
+    window.tippy(el, config);
+  }
+  const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+  for (var i=0; i<noterefs.length; i++) {
+    const ref = noterefs[i];
+    tippyHover(ref, function() {
+      // use id or data attribute instead here
+      let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+      try { href = new URL(href).hash; } catch {}
+      const id = href.replace(/^#\/?/, "");
+      const note = window.document.getElementById(id);
+      if (note) {
+        return note.innerHTML;
+      } else {
+        return "";
+      }
+    });
+  }
+  const xrefs = window.document.querySelectorAll('a.quarto-xref');
+  const processXRef = (id, note) => {
+    // Strip column container classes
+    const stripColumnClz = (el) => {
+      el.classList.remove("page-full", "page-columns");
+      if (el.children) {
+        for (const child of el.children) {
+          stripColumnClz(child);
+        }
+      }
+    }
+    stripColumnClz(note)
+    if (id === null || id.startsWith('sec-')) {
+      // Special case sections, only their first couple elements
+      const container = document.createElement("div");
+      if (note.children && note.children.length > 2) {
+        container.appendChild(note.children[0].cloneNode(true));
+        for (let i = 1; i < note.children.length; i++) {
+          const child = note.children[i];
+          if (child.tagName === "P" && child.innerText === "") {
+            continue;
+          } else {
+            container.appendChild(child.cloneNode(true));
+            break;
+          }
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(container);
+        }
+        return container.innerHTML
+      } else {
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        return note.innerHTML;
+      }
+    } else {
+      // Remove any anchor links if they are present
+      const anchorLink = note.querySelector('a.anchorjs-link');
+      if (anchorLink) {
+        anchorLink.remove();
+      }
+      if (window.Quarto?.typesetMath) {
+        window.Quarto.typesetMath(note);
+      }
+      if (note.classList.contains("callout")) {
+        return note.outerHTML;
+      } else {
+        return note.innerHTML;
+      }
+    }
+  }
+  for (var i=0; i<xrefs.length; i++) {
+    const xref = xrefs[i];
+    tippyHover(xref, undefined, function(instance) {
+      instance.disable();
+      let url = xref.getAttribute('href');
+      let hash = undefined;
+      if (url.startsWith('#')) {
+        hash = url;
+      } else {
+        try { hash = new URL(url).hash; } catch {}
+      }
+      if (hash) {
+        const id = hash.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note !== null) {
+          try {
+            const html = processXRef(id, note.cloneNode(true));
+            instance.setContent(html);
+          } finally {
+            instance.enable();
+            instance.show();
+          }
+        } else {
+          // See if we can fetch this
+          fetch(url.split('#')[0])
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.getElementById(id);
+            if (note !== null) {
+              const html = processXRef(id, note);
+              instance.setContent(html);
+            }
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      } else {
+        // See if we can fetch a full url (with no hash to target)
+        // This is a special case and we should probably do some content thinning / targeting
+        fetch(url)
+        .then(res => res.text())
+        .then(html => {
+          const parser = new DOMParser();
+          const htmlDoc = parser.parseFromString(html, "text/html");
+          const note = htmlDoc.querySelector('main.content');
+          if (note !== null) {
+            // This should only happen for chapter cross references
+            // (since there is no id in the URL)
+            // remove the first header
+            if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+              note.children[0].remove();
+            }
+            const html = processXRef(null, note);
+            instance.setContent(html);
+          }
+        }).finally(() => {
+          instance.enable();
+          instance.show();
+        });
+      }
+    }, function(instance) {
+    });
+  }
+      let selectedAnnoteEl;
+      const selectorForAnnotation = ( cell, annotation) => {
+        let cellAttr = 'data-code-cell="' + cell + '"';
+        let lineAttr = 'data-code-annotation="' +  annotation + '"';
+        const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+        return selector;
+      }
+      const selectCodeLines = (annoteEl) => {
+        const doc = window.document;
+        const targetCell = annoteEl.getAttribute("data-target-cell");
+        const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+        const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+        const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+        const lineIds = lines.map((line) => {
+          return targetCell + "-" + line;
+        })
+        let top = null;
+        let height = null;
+        let parent = null;
+        if (lineIds.length > 0) {
+            //compute the position of the single el (top and bottom and make a div)
+            const el = window.document.getElementById(lineIds[0]);
+            top = el.offsetTop;
+            height = el.offsetHeight;
+            parent = el.parentElement.parentElement;
+          if (lineIds.length > 1) {
+            const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+            const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+            height = bottom - top;
+          }
+          if (top !== null && height !== null && parent !== null) {
+            // cook up a div (if necessary) and position it
+            let div = window.document.getElementById("code-annotation-line-highlight");
+            if (div === null) {
+              div = window.document.createElement("div");
+              div.setAttribute("id", "code-annotation-line-highlight");
+              div.style.position = 'absolute';
+              parent.appendChild(div);
+            }
+            div.style.top = top - 2 + "px";
+            div.style.height = height + 4 + "px";
+            div.style.left = 0;
+            let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+            if (gutterDiv === null) {
+              gutterDiv = window.document.createElement("div");
+              gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+              gutterDiv.style.position = 'absolute';
+              const codeCell = window.document.getElementById(targetCell);
+              const gutter = codeCell.querySelector('.code-annotation-gutter');
+              gutter.appendChild(gutterDiv);
+            }
+            gutterDiv.style.top = top - 2 + "px";
+            gutterDiv.style.height = height + 4 + "px";
+          }
+          selectedAnnoteEl = annoteEl;
+        }
+      };
+      const unselectCodeLines = () => {
+        const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+        elementsIds.forEach((elId) => {
+          const div = window.document.getElementById(elId);
+          if (div) {
+            div.remove();
+          }
+        });
+        selectedAnnoteEl = undefined;
+      };
+        // Handle positioning of the toggle
+    window.addEventListener(
+      "resize",
+      throttle(() => {
+        elRect = undefined;
+        if (selectedAnnoteEl) {
+          selectCodeLines(selectedAnnoteEl);
+        }
+      }, 10)
+    );
+    function throttle(fn, ms) {
+    let throttle = false;
+    let timer;
+      return (...args) => {
+        if(!throttle) { // first call gets through
+            fn.apply(this, args);
+            throttle = true;
+        } else { // all the others get throttled
+            if(timer) clearTimeout(timer); // cancel #2
+            timer = setTimeout(() => {
+              fn.apply(this, args);
+              timer = throttle = false;
+            }, ms);
+        }
+      };
+    }
+      // Attach click handler to the DT
+      const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+      for (const annoteDlNode of annoteDls) {
+        annoteDlNode.addEventListener('click', (event) => {
+          const clickedEl = event.target;
+          if (clickedEl !== selectedAnnoteEl) {
+            unselectCodeLines();
+            const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+            if (activeEl) {
+              activeEl.classList.remove('code-annotation-active');
+            }
+            selectCodeLines(clickedEl);
+            clickedEl.classList.add('code-annotation-active');
+          } else {
+            // Unselect the line
+            unselectCodeLines();
+            clickedEl.classList.remove('code-annotation-active');
+          }
+        });
+      }
+  const findCites = (el) => {
+    const parentEl = el.parentElement;
+    if (parentEl) {
+      const cites = parentEl.dataset.cites;
+      if (cites) {
+        return {
+          el,
+          cites: cites.split(' ')
+        };
+      } else {
+        return findCites(el.parentElement)
+      }
+    } else {
+      return undefined;
+    }
+  };
+  var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+  for (var i=0; i<bibliorefs.length; i++) {
+    const ref = bibliorefs[i];
+    const citeInfo = findCites(ref);
+    if (citeInfo) {
+      tippyHover(citeInfo.el, function() {
+        var popup = window.document.createElement('div');
+        citeInfo.cites.forEach(function(cite) {
+          var citeDiv = window.document.createElement('div');
+          citeDiv.classList.add('hanging-indent');
+          citeDiv.classList.add('csl-entry');
+          var biblioDiv = window.document.getElementById('ref-' + cite);
+          if (biblioDiv) {
+            citeDiv.innerHTML = biblioDiv.innerHTML;
+          }
+          popup.appendChild(citeDiv);
+        });
+        return popup.innerHTML;
+      });
+    }
+  }
+});
+</script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>
