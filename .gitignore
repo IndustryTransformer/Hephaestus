@@ -177,3 +177,5 @@ checkpoints/
 
 # Quarto
 /*_files/*
+.jupyter_cache/*
+.jupyter_cache
