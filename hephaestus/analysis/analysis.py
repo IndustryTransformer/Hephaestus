@@ -5,7 +5,7 @@ import seaborn as sns
 from flax.struct import dataclass
 from matplotlib import pyplot as plt
 
-from ..models.models import TimeSeriesConfig
+from ..models.models import TimeSeriesConfig, TimeSeriesDecoder
 from ..training.training import time_series_regressor
 
 
@@ -95,7 +95,7 @@ class AutoRegressiveResults:
 def auto_regressive_predictions(
     model: TimeSeriesConfig,
     inputs: AutoRegressiveResults,
-) -> AutoRegressiveResults:
+) -> tuple[AutoRegressiveResults, TimeSeriesDecoder]:
     numeric_inputs = inputs.numeric_inputs
     categorical_inputs = inputs.categorical_inputs
 
