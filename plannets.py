@@ -310,46 +310,12 @@ hp.plot_comparison(actual_df, auto_df, res_df, "planet0_x")
 test_inputs.numeric_inputs.shape
 
 # %%
-# TODO This appears to only work if the model size is 1024
-
-# %%
 
 
 # %%
 
 
 # %%
-# Error here
-#     "Categorical after swap": 'Categorical after swap'
-#     categorical_out.shape: (4, 3, 59, 41)
-#   0%|          | 0/5 [00:00<?, ?it/s]
-#   0%|          | 0/6250 [00:00<?, ?it/s]
-#   0%|          | 0/6250 [00:00<?, ?it/s]
-#   0%|          | 0/6250 [00:00<?, ?it/s]
-#   0%|          | 0/6250 [00:00<?, ?it/s]
-#   0%|          | 0/6250 [00:00<?, ?it/s]
-#   0%|          | 0/21 [00:00<?, ?it/s]
-# Expanding dims
-# Traceback (most recent call last):
-#   File "/home/ubuntu/environment/Hephaestus/plannets.py", line 274, in <module>
-#     test_inputs = hp.auto_regressive_predictions(time_series_regressor, test_inputs)
-#                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/home/ubuntu/environment/Hephaestus/hephaestus/analysis/analysis.py", line 133, in auto_regressive_predictions
-#     final_categorical_row = np.array(categorical_out[:, :, -1])
-#                                      ~~~~~~~~~~~~~~~^^^^^^^^^^
-#   File "/home/ubuntu/environment/Hephaestus/.venv/lib/python3.11/site-packages/jax/_src/array.py", line 370, in __getitem__
-#     return lax_numpy._rewriting_take(self, idx)
-#            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/home/ubuntu/environment/Hephaestus/.venv/lib/python3.11/site-packages/jax/_src/numpy/lax_numpy.py", line 11411, in _rewriting_take
-#     return _gather(arr, treedef, static_idx, dynamic_idx, indices_are_sorted,
-#            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/home/ubuntu/environment/Hephaestus/.venv/lib/python3.11/site-packages/jax/_src/numpy/lax_numpy.py", line 11420, in _gather
-#     indexer = _index_to_gather(shape(arr), idx)  # shared with _scatter_update
-#               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/home/ubuntu/environment/Hephaestus/.venv/lib/python3.11/site-packages/jax/_src/numpy/lax_numpy.py", line 11528, in _index_to_gather
-#     idx = _canonicalize_tuple_index(len(x_shape), idx)
-#           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#   File "/home/ubuntu/environment/Hephaestus/.venv/lib/python3.11/site-packages/jax/_src/numpy/lax_numpy.py", line 11852, in _canonicalize_tuple_index
-#     raise IndexError(
-# IndexError: Too many indices: 2-dimensional array indexed with 3 regular indices.
-# :~/environment/Hephaestus $
+
+
+# %%

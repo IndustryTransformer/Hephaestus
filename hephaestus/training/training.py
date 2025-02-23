@@ -142,14 +142,25 @@ def time_series_regressor(*, numeric_inputs, categorical_inputs):
     """Regressor function for time series data.
 
     Args:
-        numeric_inputs: Numeric input data
-        categorical_inputs: Categorical input data
+        numeric_inputs: Numeric input data of shape (batch, features, timesteps)
+        categorical_inputs: Categorical input data of shape (batch, features, timesteps)
 
     Returns:
-        dict with keys 'numeric_out' and 'categorical_out'
+        dict with keys 'numeric_out' and 'categorical_out' maintaining input dimensions
     """
-    # Add implementation here
+    # Ensure outputs maintain same dimensions as inputs
+    numeric_out = (
+        jnp.expand_dims(numeric_inputs, axis=-1)
+        if numeric_inputs.ndim == 2
+        else numeric_inputs
+    )
+    categorical_out = (
+        jnp.expand_dims(categorical_inputs, axis=-1)
+        if categorical_inputs.ndim == 2
+        else categorical_inputs
+    )
+
     return {
-        "numeric_out": numeric_inputs,  # Replace with actual implementation
-        "categorical_out": categorical_inputs,  # Replace with actual implementation
+        "numeric_out": numeric_out,
+        "categorical_out": categorical_out,
     }

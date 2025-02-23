@@ -95,60 +95,52 @@ class AutoRegressiveResults:
 def auto_regressive_predictions(
     model: TimeSeriesConfig,
     inputs: AutoRegressiveResults,
-) -> jnp.array:
+) -> AutoRegressiveResults:
     numeric_inputs = inputs.numeric_inputs
     categorical_inputs = inputs.categorical_inputs
 
-    # get the first row that contains all nan vales
-    # if nan_rows_start >= stop_idx:
-    #     return inputs
-    # numeric_inputs = inputs.numeric_inputs
-    # categorical_inputs = inputs.categorical_inputs
-
-    # Expand first dim to make it a batch
+    # Ensure 3D shape (batch, features, time)
     if numeric_inputs.ndim == 2:
-        print("Expanding dims")
-        numeric_inputs = jnp.array(jnp.array([numeric_inputs]))
-        categorical_inputs = jnp.array([categorical_inputs])
+        numeric_inputs = jnp.expand_dims(numeric_inputs, axis=0)
+        categorical_inputs = jnp.expand_dims(categorical_inputs, axis=0)
 
+    # Track nan columns
     numeric_nan_columns = jnp.isnan(numeric_inputs).all(axis=2)
     categorical_nan_columns = jnp.isnan(categorical_inputs).all(axis=2)
 
+    # Get model predictions
     outputs = time_series_regressor(
         numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
     )
-    numeric_out = outputs["numeric_out"]  #  jnp.squeeze(outputs["numeric_out"])
-    # print(f"{numeric_out.shape=}")
+
+    # Handle numeric predictions
+    numeric_next = outputs["numeric_out"][:, :, -1:]  # Shape: (batch, features, 1)
+
+    # Handle categorical predictions
     categorical_out = outputs[
         "categorical_out"
-    ]  # jnp.squeeze(outputs["categorical_out"])
+    ]  # Shape: (batch, features, time, classes)
+    categorical_last = categorical_out[:, :, -1]  # Shape: (batch, features, classes)
+    categorical_next = jnp.argmax(categorical_last, axis=-1)  # Shape: (batch, features)
+    # Reshape to match input dimensions (batch, features, 1)
+    categorical_next = jnp.expand_dims(categorical_next, axis=-1)  # Add time dimension
 
-    categorical_out = jnp.argmax(categorical_out, axis=-1)
-
-    final_numeric_row = np.array(numeric_out[:, :, -1])
-
-    final_numeric_row = final_numeric_row[None, :]  # New axis
-    final_numeric_row = jnp.transpose(final_numeric_row, (0, 2, 1))
-    # print(f"{final_numeric_row.shape=}")
-    final_categorical_row = np.array(categorical_out[:, :, -1])
-    final_categorical_row = final_categorical_row[:, None]  # New axis
-    final_categorical_row = jnp.transpose(final_categorical_row, (0, 2, 1))
-    # print(f"{numeric_inputs.shape=}, {final_numeric_row.shape=}")
-    numeric_inputs = jnp.concatenate(
-        [numeric_inputs, final_numeric_row], axis=2
-    )  # here
-
-    categorical_inputs = jnp.concatenate(
-        [categorical_inputs, final_categorical_row], axis=2
+    # Ensure categorical_next has the same batch and feature dimensions as categorical_inputs
+    categorical_next = jnp.broadcast_to(
+        categorical_next, (categorical_inputs.shape[0], categorical_inputs.shape[1], 1)
     )
+
+    # Concatenate new predictions
+    numeric_inputs = jnp.concatenate([numeric_inputs, numeric_next], axis=2)
+    categorical_inputs = jnp.concatenate([categorical_inputs, categorical_next], axis=2)
+
+    # Restore nan values
     numeric_inputs = numeric_inputs.at[jnp.array(numeric_nan_columns)].set(jnp.nan)
     categorical_inputs = categorical_inputs.at[jnp.array(categorical_nan_columns)].set(
         jnp.nan
     )
-    inputs = (numeric_inputs, categorical_inputs)
 
     return AutoRegressiveResults(numeric_inputs, categorical_inputs)
-    # return auto_regressive_predictions(state, inputs, stop_idx)
 
 
 def plot_column_variants(
