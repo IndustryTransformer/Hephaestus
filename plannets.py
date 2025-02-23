@@ -163,9 +163,9 @@ print(batch["numeric"].shape, batch["categorical"].shape)
 # batch
 
 # %%
-multiplier = 4
+multiplier = 1
 time_series_regressor = hp.TimeSeriesDecoder(
-    time_series_config, d_model=512, n_heads=8 * multiplier, rngs=nnx.Rngs(0)
+    time_series_config, d_model=1024, n_heads=8 * multiplier, rngs=nnx.Rngs(0)
 )
 # nnx.display(time_series_regressor)
 
@@ -189,7 +189,7 @@ if jnp.isnan(res["categorical_out"]).any():
 ic.disable()
 
 # %%
-causal_mask = True
+causal_mask = False
 # time_series_regressor.train()
 
 # %%
@@ -198,7 +198,7 @@ causal_mask = True
 # %%
 metric_history = ht.create_metric_history()
 
-learning_rate = 4e-3
+learning_rate = 4e-2
 momentum = 0.9
 optimizer = ht.create_optimizer(time_series_regressor, learning_rate, momentum)
 
@@ -215,18 +215,20 @@ train_data_loader = DataLoader(train_ds, batch_size=16, shuffle=True)
 train_step = ht.create_train_step(
     model=time_series_regressor, optimizer=optimizer, metrics=metrics
 )
+step_counter = 0
+for epoch in trange(5):
+    for step, batch in enumerate(tqdm(train_data_loader)):
+        batch = {"numeric": jnp.array(batch[0]), "categorical": jnp.array(batch[1])}
+        train_step(time_series_regressor, batch, optimizer, metrics)
+        for metric, value in metrics.compute().items():
+            # Only shows `loss`
 
-for step, batch in enumerate(tqdm(train_data_loader)):
-    batch = {"numeric": jnp.array(batch[0]), "categorical": jnp.array(batch[1])}
-    train_step(time_series_regressor, batch, optimizer, metrics)
-    for metric, value in metrics.compute().items():
-        # Only shows `loss`
-
-        metric_history[metric].append(value)
-        if jnp.isnan(value).any():
-            raise ValueError("Nan Values")
-        summary_writer.add_scalar(f"train/{metric}", np.array(value), step)
-    metrics.reset()
+            metric_history[metric].append(value)
+            if jnp.isnan(value).any():
+                raise ValueError("Nan Values")
+            summary_writer.add_scalar(f"train/{metric}", np.array(value), step_counter)
+            step_counter += 1
+        metrics.reset()
 
 # %%
 # import orbax.checkpoint as ocp
@@ -245,7 +247,7 @@ x.categorical_out.shape
 
 # %%
 causal_mask = False
-causal_mask = True
+causal_mask = False
 
 
 df_comp = hp.show_results_df(
@@ -308,12 +310,46 @@ hp.plot_comparison(actual_df, auto_df, res_df, "planet0_x")
 test_inputs.numeric_inputs.shape
 
 # %%
-
-
-# %%
-
+# TODO This appears to only work if the model size is 1024
 
 # %%
 
 
 # %%
+
+
+# %%
+# Error here
+#     "Categorical after swap": 'Categorical after swap'
+#     categorical_out.shape: (4, 3, 59, 41)
+#   0%|          | 0/5 [00:00<?, ?it/s]
+#   0%|          | 0/6250 [00:00<?, ?it/s]
+#   0%|          | 0/6250 [00:00<?, ?it/s]
+#   0%|          | 0/6250 [00:00<?, ?it/s]
+#   0%|          | 0/6250 [00:00<?, ?it/s]
+#   0%|          | 0/6250 [00:00<?, ?it/s]
+#   0%|          | 0/21 [00:00<?, ?it/s]
+# Expanding dims
+# Traceback (most recent call last):
+#   File "/home/ubuntu/environment/Hephaestus/plannets.py", line 274, in <module>
+#     test_inputs = hp.auto_regressive_predictions(time_series_regressor, test_inputs)
+#                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/home/ubuntu/environment/Hephaestus/hephaestus/analysis/analysis.py", line 133, in auto_regressive_predictions
+#     final_categorical_row = np.array(categorical_out[:, :, -1])
+#                                      ~~~~~~~~~~~~~~~^^^^^^^^^^
+#   File "/home/ubuntu/environment/Hephaestus/.venv/lib/python3.11/site-packages/jax/_src/array.py", line 370, in __getitem__
+#     return lax_numpy._rewriting_take(self, idx)
+#            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/home/ubuntu/environment/Hephaestus/.venv/lib/python3.11/site-packages/jax/_src/numpy/lax_numpy.py", line 11411, in _rewriting_take
+#     return _gather(arr, treedef, static_idx, dynamic_idx, indices_are_sorted,
+#            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/home/ubuntu/environment/Hephaestus/.venv/lib/python3.11/site-packages/jax/_src/numpy/lax_numpy.py", line 11420, in _gather
+#     indexer = _index_to_gather(shape(arr), idx)  # shared with _scatter_update
+#               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/home/ubuntu/environment/Hephaestus/.venv/lib/python3.11/site-packages/jax/_src/numpy/lax_numpy.py", line 11528, in _index_to_gather
+#     idx = _canonicalize_tuple_index(len(x_shape), idx)
+#           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/home/ubuntu/environment/Hephaestus/.venv/lib/python3.11/site-packages/jax/_src/numpy/lax_numpy.py", line 11852, in _canonicalize_tuple_index
+#     raise IndexError(
+# IndexError: Too many indices: 2-dimensional array indexed with 3 regular indices.
+# :~/environment/Hephaestus $

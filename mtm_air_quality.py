@@ -136,19 +136,9 @@ res["numeric_out"].shape, res["categorical_out"].shape
 
 # %%
 ic.disable()
-
+causal_mask = False
 
 # %%
-def get_git_commit_hash():
-    try:
-        commit_hash = (
-            subprocess.check_output(["git", "rev-parse", "--short", "HEAD"])
-            .strip()
-            .decode()
-        )
-        return commit_hash
-    except Exception:
-        return "unknown"
 
 
 # %%
@@ -162,7 +152,7 @@ metrics = ht.create_metrics()
 writer_name = "AirQuality1024"
 # Get git commit hash for model name?
 writer_time = dt.now().strftime("%Y-%m-%dT%H:%M:%S")
-commit_hash = get_git_commit_hash()
+commit_hash = hp.get_git_commit_hash()
 model_name = f"{writer_time}_{writer_name}_{commit_hash}"
 summary_writer = SummaryWriter("runs/" + model_name)
 
