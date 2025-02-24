@@ -17,10 +17,13 @@ from transformers import AutoTokenizer
 def split_complex_word(word):
     """
     Splits a complex word into its individual parts.
+
     Args:
         word (str): The complex word to be split.
+
     Returns:
         list: A list of individual parts of the complex word.
+
     Example:
         >>> split_complex_word("myComplexWord")
         ['my', 'Complex', 'Word']
@@ -34,10 +37,13 @@ def split_complex_word(word):
     def split_camel_case(s):
         """
         Splits a camel case string into a list of words.
+
         Args:
             s (str): The camel case string to be split.
+
         Returns:
             list: A list of words obtained from the camel case string.
+
         Examples:
             >>> split_camel_case("helloWorld")
             ['hello', 'World']
@@ -58,11 +64,13 @@ def split_complex_word(word):
 def convert_object_to_int_tokens(df, token_dict):
     """
     Converts object columns to integer tokens using a token dictionary.
-    Parameters:
-    df (pandas.DataFrame): The DataFrame containing the object columns to be converted.
-    token_dict (dict): A dictionary mapping object values to integer tokens.
+
+    Args:
+        df (pandas.DataFrame): The DataFrame containing the object columns to be converted.
+        token_dict (dict): A dictionary mapping object values to integer tokens.
+
     Returns:
-    pandas.DataFrame: The DataFrame with object columns converted to integer tokens.
+        pandas.DataFrame: The DataFrame with object columns converted to integer tokens.
     """
 
     df = df.copy()
@@ -75,6 +83,7 @@ def convert_object_to_int_tokens(df, token_dict):
 class TimeSeriesConfig:
     """
     Configuration class for time series decoder.
+
     Attributes:
         numeric_token (str): Token for numeric embedding.
         numeric_mask (str): Token for numeric mask.
@@ -91,16 +100,6 @@ class TimeSeriesConfig:
         reservoir_vocab (list): List of words in custom vocabulary.
         reservoir_encoded (jnp.array): Encoded reservoir tokens.
         tokenizer (AutoTokenizer): Tokenizer for encoding tokens.
-    Methods:
-        generate(df: pd.DataFrame) -> TimeSeriesConfig:
-            Generates a TimeSeriesConfig object based on the given DataFrame.
-
-
-        Generates a TimeSeriesConfig object based on the given DataFrame.
-        Args:
-            df (pd.DataFrame): The DataFrame containing the time series data.
-        Returns:
-            TimeSeriesConfig: The generated TimeSeriesConfig object.
     """
 
     numeric_token: str = None
@@ -126,9 +125,10 @@ class TimeSeriesConfig:
     def generate(cls, df: pd.DataFrame) -> "TimeSeriesConfig":
         """
         Generate a TimeSeriesConfig object based on the given DataFrame.
+
         Args:
-            cls (class): The class to instantiate.
             df (pd.DataFrame): The DataFrame containing the data.
+
         Returns:
             TimeSeriesConfig: The generated TimeSeriesConfig object.
         """
@@ -232,6 +232,20 @@ class TimeSeriesConfig:
 
 
 class TimeSeriesDS(Dataset):
+    """
+    Dataset class for time series data.
+
+    Args:
+        df (pd.DataFrame): The DataFrame containing the time series data.
+        config (TimeSeriesConfig): Configuration for the time series.
+
+    Attributes:
+        max_seq_len (int): Maximum sequence length.
+        df_categorical (pd.DataFrame): DataFrame of categorical columns.
+        df_numeric (pd.DataFrame): DataFrame of numeric columns.
+        batch_size (int): Batch size for the dataset.
+    """
+
     def __init__(self, df: pd.DataFrame, config: TimeSeriesConfig):
         # Add nan padding to make sure all sequences are the same length
         # use the idx column to group by
@@ -256,11 +270,24 @@ class TimeSeriesDS(Dataset):
         self.batch_size = self.max_seq_len
 
     def __len__(self):
+        """Return the length of the dataset.
+
+        Returns:
+            int: Length of the dataset.
+        """
         # return self.df.idx.max() + 1  # probably should be max idx + 1 thanks
         return self.df_numeric.index.nunique()
 
     def get_data(self, df_name, set_idx):
-        """Gets self.df_<df_name> for a given index"""
+        """Gets self.df_<df_name> for a given index.
+
+        Args:
+            df_name (str): Name of the DataFrame attribute.
+            set_idx (int): Index to get data for.
+
+        Returns:
+            np.array: Data array for the given index.
+        """
         df = getattr(self, df_name)
 
         batch = df.loc[df.index == set_idx, :]
@@ -279,6 +306,14 @@ class TimeSeriesDS(Dataset):
         return batch
 
     def __getitem__(self, set_idx):
+        """Get item from the dataset.
+
+        Args:
+            set_idx (int): Index to get item for.
+
+        Returns:
+            tuple: Tuple containing numeric and categorical inputs.
+        """
         if self.df_categorical.empty:
             categorical_inputs = None
         else:
@@ -289,6 +324,21 @@ class TimeSeriesDS(Dataset):
 
 
 class FeedForwardNetwork(nnx.Module):
+    """
+    Feed-forward neural network module.
+
+    Args:
+        d_model (int): Dimensionality of the model.
+        d_ff (int): Dimensionality of the feed-forward layer.
+        dropout_rate (float): Dropout rate.
+        rngs (nnx.Rngs): Random number generators.
+
+    Attributes:
+        dense1 (nnx.Linear): First dense layer.
+        dropout (nnx.Dropout): Dropout layer.
+        dense2 (nnx.Linear): Second dense layer.
+    """
+
     def __init__(self, d_model: int, d_ff: int, dropout_rate: float, rngs: nnx.Rngs):
         self.d_model = d_model
         self.d_ff = d_ff
@@ -299,6 +349,15 @@ class FeedForwardNetwork(nnx.Module):
         # self.dropout2 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
 
     def __call__(self, x, deterministic: bool):
+        """Forward pass of the feed-forward network.
+
+        Args:
+            x (jnp.array): Input array.
+            deterministic (bool): Whether to use deterministic dropout.
+
+        Returns:
+            jnp.array: Output array.
+        """
         # Feed Forward Network
         x = self.dense1(x)
         x = nnx.relu(x)
@@ -311,6 +370,23 @@ class FeedForwardNetwork(nnx.Module):
 
 
 class TransformerBlock(nnx.Module):
+    """
+    Transformer block module.
+
+    Args:
+        num_heads (int): Number of attention heads.
+        d_model (int): Dimensionality of the model.
+        d_ff (int): Dimensionality of the feed-forward layer.
+        dropout_rate (float): Dropout rate.
+        rngs (nnx.Rngs): Random number generators.
+
+    Attributes:
+        multi_head_attention (nnx.MultiHeadAttention): Multi-head attention layer.
+        layer_norm1 (nnx.LayerNorm): First layer normalization.
+        feed_forward_network (FeedForwardNetwork): Feed-forward network.
+        layer_norm2 (nnx.LayerNorm): Second layer normalization.
+    """
+
     def __init__(
         self,
         num_heads: int,
@@ -349,6 +425,18 @@ class TransformerBlock(nnx.Module):
         deterministic: bool,
         mask: jnp.array = None,
     ):
+        """Forward pass of the transformer block.
+
+        Args:
+            q (jnp.array): Query array.
+            k (jnp.array): Key array.
+            v (jnp.array): Value array.
+            deterministic (bool): Whether to use deterministic dropout.
+            mask (jnp.array, optional): Attention mask. Defaults to None.
+
+        Returns:
+            jnp.array: Output array.
+        """
         if mask is not None:
             mask_shape = mask.shape
         else:
@@ -371,9 +459,13 @@ class ReservoirEmbedding(nnx.Module):
     A module for performing reservoir embedding on a given input.
 
     Args:
-        dataset (SimpleDS): The dataset used for embedding.
+        config (TimeSeriesConfig): Configuration for the time series.
         features (int): The number of features in the embedding.
+        rngs (nnx.Rngs): Random number generators.
         frozen_index (int, optional): The index of the embedding to freeze. Defaults to 0.
+
+    Attributes:
+        embedding (nnx.Embed): Embedding layer.
     """
 
     def __init__(
@@ -447,6 +539,14 @@ class ReservoirEmbedding(nnx.Module):
 
 @dataclass
 class ProcessedEmbeddings:
+    """
+    Data class to store processed embeddings.
+
+    Attributes:
+        column_embeddings (Optional[jnp.array]): Column embeddings.
+        value_embeddings (Optional[jnp.array]): Value embeddings.
+    """
+
     column_embeddings: Optional[jnp.array] = None
     value_embeddings: Optional[jnp.array] = None
 
@@ -456,20 +556,15 @@ class TimeSeriesTransformer(nnx.Module):
     Transformer-based model for time series data.
 
     Args:
-        dataset (SimpleDS): The dataset object containing the time series data.
+        config (TimeSeriesConfig): Configuration for the time series.
+        rngs (nnx.Rngs): Random number generators.
         d_model (int, optional): The dimensionality of the model. Defaults to 64.
         n_heads (int, optional): The number of attention heads. Defaults to 4.
-        time_window (int, optional): The maximum length of the time window. Defaults to 10000.
-
-    Methods:
-        __call__(self, numeric_inputs: jnp.array, deterministic: bool, causal_mask: bool = True) -> jnp.array:
-            Applies the transformer model to the input time series data.
 
     Attributes:
-        dataset (SimpleDS): The dataset object containing the time series data.
-        d_model (int): The dimensionality of the model.
-        n_heads (int): The number of attention heads.
-        time_window (int): The maximum length of the time window.
+        embedding (ReservoirEmbedding): Embedding layer.
+        transformer_block_0 (TransformerBlock): First transformer block.
+        transformer_block_chain (list): List of additional transformer blocks.
     """
 
     def __init__(
@@ -520,7 +615,7 @@ class TimeSeriesTransformer(nnx.Module):
             numeric_inputs (jnp.array): The numeric inputs to be processed.
 
         Returns:
-            jnp.array: The processed numeric inputs.
+            ProcessedEmbeddings: The processed numeric inputs.
         """
         # Create a nan mask for the numeric inputs
         nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
@@ -574,7 +669,7 @@ class TimeSeriesTransformer(nnx.Module):
             categorical_inputs (Optional[jnp.array]): The categorical inputs to be processed.
 
         Returns:
-            jnp.array: The processed categorical inputs.
+            ProcessedEmbeddings: The processed categorical inputs.
         """
         if categorical_inputs is None:
             return None, None
@@ -665,15 +760,17 @@ class TimeSeriesTransformer(nnx.Module):
     ):
         """
         Generates a causal mask for the given numeric and categorical inputs.
+
         Args:
             numeric_inputs (Optional[jnp.array]): Numeric inputs.
             categorical_inputs (Optional[jnp.array]): Categorical inputs.
+
         Returns:
             jnp.array: The generated causal mask.
+
         Raises:
             ValueError: If no numeric or categorical inputs are provided.
         """
-
         if numeric_inputs is not None and categorical_inputs is not None:
             mask_input = jnp.concatenate([numeric_inputs, categorical_inputs], axis=1)
         elif numeric_inputs is not None:
@@ -695,6 +792,18 @@ class TimeSeriesTransformer(nnx.Module):
         causal_mask: bool = True,
         encoder_mask: bool = False,
     ):
+        """Forward pass of the transformer model.
+
+        Args:
+            numeric_inputs (Optional[jnp.array]): Numeric inputs.
+            categorical_inputs (Optional[jnp.array]): Categorical inputs.
+            deterministic (bool, optional): Whether to use deterministic dropout. Defaults to False.
+            causal_mask (bool, optional): Whether to use a causal mask. Defaults to True.
+            encoder_mask (bool, optional): Whether to use an encoder mask. Defaults to False.
+
+        Returns:
+            jnp.array: Output array.
+        """
         ic(numeric_inputs.shape, categorical_inputs.shape)
         processed_numeric = self.process_numeric(numeric_inputs)
         processed_categorical = self.process_categorical(categorical_inputs)
@@ -734,6 +843,23 @@ class TimeSeriesTransformer(nnx.Module):
 
 
 class TimeSeriesDecoder(nnx.Module):
+    """
+    Decoder module for time series data.
+
+    Args:
+        config (TimeSeriesConfig): Configuration for the time series.
+        rngs (nnx.Rngs): Random number generators.
+        d_model (int, optional): Dimensionality of the model. Defaults to 64.
+        n_heads (int, optional): Number of attention heads. Defaults to 4.
+
+    Attributes:
+        time_series_transformer (TimeSeriesTransformer): Transformer model for time series data.
+        numeric_linear1 (nnx.Linear): First linear layer for numeric output.
+        numeric_linear2 (nnx.Linear): Second linear layer for numeric output.
+        categorical_dense1 (nnx.Linear): First dense layer for categorical output.
+        categorical_dense2 (nnx.Linear): Second dense layer for categorical output.
+    """
+
     def __init__(
         self,
         config: TimeSeriesConfig,
@@ -790,7 +916,17 @@ class TimeSeriesDecoder(nnx.Module):
         deterministic: bool = False,
         causal_mask: bool = True,
     ) -> jnp.array:
-        """ """
+        """Forward pass of the decoder.
+
+        Args:
+            numeric_inputs (jnp.array): Numeric inputs.
+            categorical_inputs (Optional[jnp.array]): Categorical inputs.
+            deterministic (bool, optional): Whether to use deterministic dropout. Defaults to False.
+            causal_mask (bool, optional): Whether to use a causal mask. Defaults to True.
+
+        Returns:
+            dict: Dictionary containing numeric and categorical outputs.
+        """
         out = self.time_series_transformer(
             numeric_inputs=numeric_inputs,
             categorical_inputs=jnp.astype(categorical_inputs, jnp.int32),
@@ -841,7 +977,17 @@ class TimeSeriesDecoder(nnx.Module):
 
 
 class PositionalEncoding(nnx.Module):
-    """ """
+    """
+    Positional encoding module.
+
+    Args:
+        max_len (int): Maximum length of the input sequences.
+        d_pos_encoding (int): Dimensionality of the positional encoding.
+
+    Attributes:
+        max_len (int): Maximum length of the input sequences.
+        d_pos_encoding (int): Dimensionality of the positional encoding.
+    """
 
     def __init__(self, max_len: int, d_pos_encoding: int):
         self.max_len = max_len  # Maximum length of the input sequences

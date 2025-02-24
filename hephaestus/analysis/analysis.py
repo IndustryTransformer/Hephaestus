@@ -10,6 +10,15 @@ from ..models.models import TimeSeriesConfig, TimeSeriesDecoder
 
 @dataclass
 class Results:
+    """Data class to store model results.
+
+    Attributes:
+        numeric_out (jnp.array): Numeric output from the model.
+        categorical_out (jnp.array): Categorical output from the model.
+        numeric_inputs (jnp.array): Numeric inputs to the model.
+        categorical_inputs (jnp.array): Categorical inputs to the model.
+    """
+
     numeric_out: jnp.array
     categorical_out: jnp.array
     numeric_inputs: jnp.array
@@ -17,6 +26,17 @@ class Results:
 
 
 def return_results(model, dataset, idx=0, mask_start: int = None):
+    """Return model results for a given dataset index.
+
+    Args:
+        model: The model to generate results from.
+        dataset: The dataset to use.
+        idx (int, optional): Index of the dataset to use. Defaults to 0.
+        mask_start (int, optional): Index to start masking inputs. Defaults to None.
+
+    Returns:
+        Results: The results from the model.
+    """
     numeric_inputs, categorical_inputs = dataset[idx]
     if mask_start:
         numeric_inputs = numeric_inputs[:, :mask_start]
@@ -29,6 +49,16 @@ def return_results(model, dataset, idx=0, mask_start: int = None):
 
 
 def process_results(arr: jnp.array, col_names: list, config: TimeSeriesConfig):
+    """Process model results into a DataFrame.
+
+    Args:
+        arr (jnp.array): Array of results.
+        col_names (list): List of column names.
+        config (TimeSeriesConfig): Configuration for the time series.
+
+    Returns:
+        pd.DataFrame: DataFrame of processed results.
+    """
     arr = jnp.squeeze(arr)
     if arr.ndim == 3:
         # Check if there is a logit array for example if there are 3 dims then the
@@ -43,6 +73,13 @@ def process_results(arr: jnp.array, col_names: list, config: TimeSeriesConfig):
 
 @dataclass
 class DFComparison:
+    """Data class to store input and output DataFrames for comparison.
+
+    Attributes:
+        input_df (pd.DataFrame): Input DataFrame.
+        output_df (pd.DataFrame): Output DataFrame.
+    """
+
     input_df: pd.DataFrame
     output_df: pd.DataFrame
 
@@ -50,6 +87,18 @@ class DFComparison:
 def show_results_df(
     model, time_series_config, dataset, idx: int = 0, mask_start: int = None
 ):
+    """Show results as DataFrames for a given dataset index.
+
+    Args:
+        model: The model to generate results from.
+        time_series_config (TimeSeriesConfig): Configuration for the time series.
+        dataset: The dataset to use.
+        idx (int, optional): Index of the dataset to use. Defaults to 0.
+        mask_start (int, optional): Index to start masking inputs. Defaults to None.
+
+    Returns:
+        DFComparison: DataFrames of input and output results.
+    """
     results = return_results(model, dataset, idx=idx, mask_start=mask_start)
 
     input_categorical = process_results(
@@ -78,11 +127,28 @@ def show_results_df(
 
 @dataclass
 class AutoRegressiveResults:
+    """Data class to store auto-regressive results.
+
+    Attributes:
+        numeric_inputs (jnp.array): Numeric inputs for auto-regressive predictions.
+        categorical_inputs (jnp.array): Categorical inputs for auto-regressive predictions.
+    """
+
     numeric_inputs: jnp.array
     categorical_inputs: jnp.array
 
     @classmethod
     def from_ds(cls, ds: TimeSeriesConfig, idx: int, stop_idx: int = 10):
+        """Create AutoRegressiveResults from a dataset.
+
+        Args:
+            ds (TimeSeriesConfig): The dataset to use.
+            idx (int): Index of the dataset to use.
+            stop_idx (int, optional): Index to stop at. Defaults to 10.
+
+        Returns:
+            AutoRegressiveResults: The auto-regressive results.
+        """
         inputs = ds[idx]
         numeric_inputs = inputs[0][:, :stop_idx]
         categorical_inputs = inputs[1][:, :stop_idx]
@@ -93,6 +159,15 @@ def auto_regressive_predictions(
     model: TimeSeriesDecoder,
     inputs: AutoRegressiveResults,
 ) -> tuple[AutoRegressiveResults, TimeSeriesDecoder]:
+    """Generate auto-regressive predictions.
+
+    Args:
+        model (TimeSeriesDecoder): The model to generate predictions from.
+        inputs (AutoRegressiveResults): The inputs for auto-regressive predictions.
+
+    Returns:
+        tuple[AutoRegressiveResults, TimeSeriesDecoder]: The updated inputs and model.
+    """
     numeric_inputs = inputs.numeric_inputs
     categorical_inputs = inputs.categorical_inputs
 
@@ -143,6 +218,14 @@ def auto_regressive_predictions(
 def plot_column_variants(
     df_pred: pd.DataFrame, df_actual: pd.DataFrame, column: str, offset=0
 ):
+    """Plot column variants for predictions and actual data.
+
+    Args:
+        df_pred (pd.DataFrame): DataFrame of predictions.
+        df_actual (pd.DataFrame): DataFrame of actual data.
+        column (str): Column to plot.
+        offset (int, optional): Offset for the plot. Defaults to 0.
+    """
     plt.figure(figsize=(15, 10))
     plt.plot(df_pred[column], label="Autogregressive")
     plt.plot(df_actual[column], label="Actual")
@@ -157,6 +240,15 @@ def plot_column_variants(
 
 
 def create_test_inputs_df(test_inputs, time_series_config):
+    """Create a DataFrame of test inputs.
+
+    Args:
+        test_inputs (AutoRegressiveResults): The test inputs.
+        time_series_config (TimeSeriesConfig): Configuration for the time series.
+
+    Returns:
+        pd.DataFrame: DataFrame of test inputs.
+    """
     # Extract numeric and categorical inputs from test_inputs
     numeric_inputs = test_inputs.numeric_inputs
     categorical_inputs = test_inputs.categorical_inputs
@@ -176,6 +268,14 @@ def create_test_inputs_df(test_inputs, time_series_config):
 
 
 def plot_comparison(actual_df, one_off_auto_df, auto_regressive_df, column):
+    """Plot comparison of actual, one-off auto, and auto-regressive data.
+
+    Args:
+        actual_df (pd.DataFrame): DataFrame of actual data.
+        one_off_auto_df (pd.DataFrame): DataFrame of one-off auto data.
+        auto_regressive_df (pd.DataFrame): DataFrame of auto-regressive data.
+        column (str): Column to plot.
+    """
     plt.figure(figsize=(15, 10))
 
     # Plot actual data
@@ -203,6 +303,15 @@ def plot_comparison(actual_df, one_off_auto_df, auto_regressive_df, column):
 
 
 def create_non_auto_df(res, time_series_config):
+    """Create a DataFrame of non-auto-regressive results.
+
+    Args:
+        res (dict): Dictionary of results.
+        time_series_config (TimeSeriesConfig): Configuration for the time series.
+
+    Returns:
+        pd.DataFrame: DataFrame of non-auto-regressive results.
+    """
     numeric_out = res["numeric_out"]
     categorical_out = res["categorical_out"]
     numeric_df = process_results(
