@@ -6,7 +6,6 @@ from flax.struct import dataclass
 from matplotlib import pyplot as plt
 
 from ..models.models import TimeSeriesConfig, TimeSeriesDecoder
-from ..training.training import time_series_regressor
 
 
 @dataclass
@@ -24,9 +23,7 @@ def return_results(model, dataset, idx=0, mask_start: int = None):
         categorical_inputs = categorical_inputs[:, :mask_start]
     numeric_inputs = jnp.array([numeric_inputs])
     categorical_inputs = jnp.array([categorical_inputs])
-    out = time_series_regressor(
-        numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
-    )
+    out = model(numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs)
     numeric_out, categorical_out = out["numeric_out"], out["categorical_out"]
     return Results(numeric_out, categorical_out, numeric_inputs, categorical_inputs)
 
@@ -93,7 +90,7 @@ class AutoRegressiveResults:
 
 
 def auto_regressive_predictions(
-    model: TimeSeriesConfig,
+    model: TimeSeriesDecoder,
     inputs: AutoRegressiveResults,
 ) -> tuple[AutoRegressiveResults, TimeSeriesDecoder]:
     numeric_inputs = inputs.numeric_inputs
@@ -109,7 +106,7 @@ def auto_regressive_predictions(
     categorical_nan_columns = jnp.isnan(categorical_inputs).all(axis=2)
 
     # Get model predictions
-    outputs = time_series_regressor(
+    outputs = model(
         numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
     )
 

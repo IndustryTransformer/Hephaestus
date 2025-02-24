@@ -7,5 +7,4 @@ from .training import (
     create_optimizer,
     create_train_step,
     numeric_loss,
-    time_series_regressor,
 )
