@@ -24,12 +24,16 @@ dependencies = [
     "transformers>=4.46.3",
 ]
 
-[dependency-groups]
+[project.optional-dependencies]
 dev = [
     "ipykernel>=6.29.5",
     "jupyter-cache>=1.0.1",
     "nbformat>=5.10.4",
+    "pytest>=8.3.4",
 ]
+cuda = ["jax[cuda]>=0.4.1"]
+cpu = ["jax>=0.4.1"]
+m = ["jax-metal>=0.1.1"]
 
 [tool.uv]
 dev-dependencies = [
@@ -38,8 +42,6 @@ dev-dependencies = [
     "nbconvert>=7.16.6",
 ]
 
-[project.optional-dependencies]
-cuda = ["jax[cuda]>=0.4.1"]
-cpu = ["jax>=0.4.1"]
-m = ["jax-metal>=0.1.1"]
-packages = ["hephaestus"]   # Only include the main package
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
