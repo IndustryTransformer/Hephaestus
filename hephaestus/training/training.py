@@ -133,6 +133,46 @@ def create_train_step(
     return train_step
 
 
+def create_eval_step(model: TimeSeriesDecoder, metrics: nnx.MultiMetric):
+    """Create an evaluation step function.
+
+    Args:
+        model (TimeSeriesDecoder): The model to evaluate.
+        metrics (nnx.MultiMetric): The metrics to track.
+
+    Returns:
+        function: The evaluation step function.
+    """
+
+    @nnx.jit
+    def eval_step(model: TimeSeriesDecoder, inputs: dict, metrics: nnx.MultiMetric):
+        """Perform a single evaluation step.
+
+        Args:
+            model (TimeSeriesDecoder): The model to evaluate.
+            inputs (dict): Dictionary of inputs.
+            metrics (nnx.MultiMetric): The metrics to track.
+        """
+        res = model(
+            numeric_inputs=inputs["numeric"],
+            categorical_inputs=inputs["categorical"],
+            deterministic=True,
+        )
+        numeric_loss_value = numeric_loss(inputs["numeric"], res["numeric_out"])
+        categorical_loss_value = categorical_loss(
+            inputs["categorical"], res["categorical_out"]
+        )
+        loss = numeric_loss_value + categorical_loss_value
+
+        metrics.update(
+            loss=loss,
+            numeric_loss=numeric_loss_value,
+            categorical_loss=categorical_loss_value,
+        )
+
+    return eval_step
+
+
 def create_metric_history():
     """Create a dictionary to store metric history.
 
