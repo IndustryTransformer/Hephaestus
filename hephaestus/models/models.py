@@ -979,12 +979,6 @@ class TimeSeriesDecoder(nn.Module):
             print("Warning: NaNs detected in categorical output")
             categorical_out = torch.nan_to_num(categorical_out, nan=0.0)
 
-        # Print shape information for debugging
-        if categorical_out is not None:
-            print(
-                f"Categorical output shape (batch, n_cat_cols, seq_len, n_tokens): {categorical_out.shape}"
-            )
-
         return {
             "numeric": numeric_out,
             "categorical": categorical_out,

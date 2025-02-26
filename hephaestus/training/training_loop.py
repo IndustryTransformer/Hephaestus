@@ -74,8 +74,9 @@ def train_model(
     # Create optimizer and scheduler
     optimizer, scheduler = create_optimizer(model, learning_rate)
 
-    # Create TensorBoard writer
-    writer = SummaryWriter(log_dir)
+    # Create TensorBoard writer with flush_secs=10 to ensure more frequent writes
+    writer = SummaryWriter(log_dir, flush_secs=10)
+    print(f"TensorBoard log directory: {log_dir}")
 
     # Create directories if they don't exist
     os.makedirs(save_dir, exist_ok=True)
@@ -95,6 +96,9 @@ def train_model(
 
         train_iterator = tqdm(train_loader, desc="Training")
         for batch_idx, batch_data in enumerate(train_iterator):
+            # Calculate global step for logging
+            global_step = epoch * len(train_loader) + batch_idx
+
             # Check batch structure and convert to expected format
             # TimeSeriesDS likely returns a tuple of (numeric, categorical)
             if isinstance(batch_data, (list, tuple)) and len(batch_data) == 2:
@@ -118,6 +122,17 @@ def train_model(
             # Train step
             batch_losses = train_step(model, batch, optimizer)
 
+            # Log batch-level metrics
+            writer.add_scalars(
+                "Batch/Loss",
+                {
+                    "train": batch_losses["loss"],
+                    "numeric": batch_losses["numeric_loss"],
+                    "categorical": batch_losses["categorical_loss"],
+                },
+                global_step,
+            )
+
             # Update running loss
             for key in train_losses:
                 train_losses[key] += batch_losses[key]
@@ -130,6 +145,10 @@ def train_model(
                     "cat_loss": batch_losses["categorical_loss"],
                 }
             )
+
+            # Force a write to disk every 100 batches
+            if batch_idx % 100 == 0:
+                writer.flush()
 
         # Calculate average training losses
         for key in train_losses:
@@ -174,16 +193,38 @@ def train_model(
         for key in val_losses:
             val_losses[key] /= len(val_loader)
 
-        # Log metrics to TensorBoard
-        writer.add_scalar("Loss/train", train_losses["loss"], epoch)
-        writer.add_scalar("Loss/val", val_losses["loss"], epoch)
-        writer.add_scalar("NumericLoss/train", train_losses["numeric_loss"], epoch)
-        writer.add_scalar("NumericLoss/val", val_losses["numeric_loss"], epoch)
-        writer.add_scalar(
-            "CategoricalLoss/train", train_losses["categorical_loss"], epoch
+        # Calculate epoch time before logging
+        epoch_time = time.time() - start_time
+
+        # Enhanced TensorBoard logging
+        # Log training metrics
+        writer.add_scalars(
+            "Loss", {"train": train_losses["loss"], "val": val_losses["loss"]}, epoch
         )
-        writer.add_scalar("CategoricalLoss/val", val_losses["categorical_loss"], epoch)
-        writer.add_scalar("LearningRate", scheduler.get_last_lr()[0], epoch)
+
+        writer.add_scalars(
+            "Numeric_Loss",
+            {"train": train_losses["numeric_loss"], "val": val_losses["numeric_loss"]},
+            epoch,
+        )
+
+        writer.add_scalars(
+            "Categorical_Loss",
+            {
+                "train": train_losses["categorical_loss"],
+                "val": val_losses["categorical_loss"],
+            },
+            epoch,
+        )
+
+        # Log learning rate
+        writer.add_scalar("Learning_Rate", scheduler.get_last_lr()[0], epoch)
+
+        # Log epoch metrics
+        writer.add_scalar("Epoch_Time", epoch_time, epoch)
+
+        # Force a write to disk
+        writer.flush()
 
         # Update history
         history["train_loss"].append(train_losses["loss"])
@@ -234,7 +275,13 @@ def train_model(
         )
         print("-" * 50)
 
+    # Ensure final metrics are written
+    writer.flush()
     writer.close()
-    print("Training completed!")
+
+    # Print final message with log directory
+    print(f"Training completed! TensorBoard logs saved to {log_dir}")
+    print("To view training metrics, run:")
+    print(f"tensorboard --logdir={os.path.dirname(log_dir)}")
 
     return history

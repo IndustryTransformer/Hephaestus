@@ -267,7 +267,6 @@ def run_training():
     print(f"Using device: {device}")
 
     # Create DataLoaders for train and test datasets
-    # Set num_workers=0 to avoid multiprocessing issues on macOS
     batch_size = 64
 
     # Move model to device
@@ -281,8 +280,14 @@ def run_training():
     # Set up training parameters
     learning_rate = 1e-4
     num_epochs = 50
-    log_dir = f"runs/{dt.now()}planets_experiment"
+    timestamp = dt.now().strftime("%Y-t%m-%dT%H-%M-%S")
+    log_dir = f"runs/{timestamp}_planets_experiment1"
     save_dir = "models/planets"
+
+    # Ensure log directory exists
+    os.makedirs(log_dir, exist_ok=True)
+    print(f"TensorBoard logs will be saved to: {log_dir}")
+    print("To view logs, run: tensorboard --logdir=runs")
 
     # Train the model
     history = train_model(
