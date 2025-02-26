@@ -20,6 +20,7 @@ from hephaestus.models.models import TimeSeriesConfig, TimeSeriesDecoder, TimeSe
 from hephaestus.training.training_loop import train_model  # Fixed import path
 
 # %%
+torch.set_default_dtype(torch.float32)
 print("Hello")
 # %%
 icecream.install()
@@ -188,7 +189,7 @@ def check_model_for_nans(model):
 
 # %%
 # Create a sample batch from the training dataset (batch size = 1)
-example_batch = make_batch(train_ds, 0, 1)
+example_batch = make_batch(train_ds, 0, 6)
 numeric_data = example_batch["numeric"]
 categorical_data = example_batch["categorical"]
 
@@ -218,6 +219,15 @@ with torch.no_grad():
     try:
         prediction = tabular_decoder(numeric_data, categorical_data)
 
+        # Adjust the output dimensions to match the input dimensions
+        prediction["numeric"] = prediction["numeric"].transpose(1, 2)
+        prediction["categorical"] = prediction["categorical"].permute(0, 2, 1, 3)
+
+        # Ensure the output dimensions match the expected input dimensions
+        prediction["categorical"] = prediction["categorical"][
+            :, :, : categorical_data.shape[1], :
+        ]
+
         # Check if prediction contains NaNs
         if any(torch.isnan(tensor).any() for tensor in prediction.values()):
             print("Warning: NaNs in prediction. Applying nan_to_num...")
@@ -229,7 +239,7 @@ with torch.no_grad():
         # For debugging only
         prediction = {
             "numeric": torch.zeros_like(numeric_data[:, :, 0]),
-            "categorical": torch.zeros_like(categorical_data[:, :, 0]),
+            "categorical": torch.zeros_like(categorical_data[:, :, 0, 0]),
         }
 
 # Print prediction summary instead of all values
@@ -257,7 +267,7 @@ def run_training():
 
     # Create DataLoaders for train and test datasets
     # Set num_workers=0 to avoid multiprocessing issues on macOS
-    batch_size = 32
+    batch_size = 64
 
     # Either use the loaders directly in the training loop below:
     # train_loader = DataLoader(
@@ -390,3 +400,5 @@ def run_training():
 if __name__ == "__main__":
     # This is critical for multiprocessing with PyTorch DataLoader
     history = run_training()
+
+# %%

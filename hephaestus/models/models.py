@@ -854,14 +854,13 @@ class TimeSeriesDecoder(nn.Module):
             d_model * 2, len(self.config.numeric_col_tokens)
         )
 
-        self.categorical_dense1 = nn.Linear(
-            self.d_model, len(self.config.token_decoder_dict.items())
-        )
+        # For categorical output, we want to produce logits for all possible tokens
+        self.categorical_dense1 = nn.Linear(self.d_model, self.d_model * 2)
 
-        # Fix the input dimension for categorical_dense2
+        # Update the categorical_dense2 to output full token distribution
+        # for cross-entropy loss
         self.categorical_dense2 = nn.Linear(
-            len(self.config.token_decoder_dict.items()),
-            len(self.config.categorical_col_tokens),
+            self.d_model * 2, len(self.config.token_decoder_dict.items())
         )
 
         # Initialize weights to prevent NaN issues
@@ -935,35 +934,56 @@ class TimeSeriesDecoder(nn.Module):
         numeric_out = self.numeric_linear1(numeric_out)
         numeric_out = F.relu(numeric_out)  # Add activation function
         numeric_out = self.numeric_linear2(numeric_out)
+        numeric_out = numeric_out.transpose(1, 2)  # Adjust dimensions
 
         # Check for NaNs after numeric processing
         if torch.isnan(numeric_out).any():
             print("Warning: NaNs detected in numeric output")
             numeric_out = torch.nan_to_num(numeric_out, nan=0.0)
 
-        # Process categorical output
+        # Process categorical output - FIXED VERSION
         batch_size, n_columns, seq_len, d_model = out.shape
 
-        # Apply dense1 to last dimension
-        categorical_out = self.categorical_dense1(out)
-        categorical_out = F.relu(categorical_out)  # Add activation function
+        # We only want to process the categorical columns
+        if categorical_inputs is not None:
+            n_cat_columns = categorical_inputs.shape[1]
 
-        # Reshape to [batch_size*n_columns*seq_len, n_tokens]
-        categorical_out = categorical_out.reshape(-1, categorical_out.size(-1))
+            # Extract only the categorical columns from the output
+            # This assumes categorical columns are at the end of the column dimension
+            categorical_out = out[:, -n_cat_columns:, :, :]
 
-        # Apply dense2 to each token set
-        categorical_out = self.categorical_dense2(categorical_out)
+            ic("Categorical columns extracted", categorical_out.shape)
 
-        # Reshape back
-        categorical_out = categorical_out.reshape(batch_size, n_columns, seq_len, -1)
-        categorical_out = categorical_out.permute(0, 2, 1, 3).reshape(
-            batch_size, seq_len, -1
-        )
+            # Reshape to [batch_size * n_cat_columns * seq_len, d_model]
+            categorical_flat = categorical_out.reshape(-1, d_model)
+
+            # Apply dense1 to the flattened tensor
+            categorical_flat = self.categorical_dense1(categorical_flat)
+            categorical_flat = F.relu(categorical_flat)
+
+            # Apply dense2 to get logits for all possible tokens
+            categorical_logits = self.categorical_dense2(categorical_flat)
+
+            # Reshape back to [batch_size, n_cat_columns, seq_len, n_tokens]
+            n_tokens = len(self.config.token_decoder_dict.items())
+            categorical_out = categorical_logits.reshape(
+                batch_size, n_cat_columns, seq_len, n_tokens
+            )
+
+            ic("Final categorical shape", categorical_out.shape)
+        else:
+            categorical_out = None
 
         # Check for NaNs after categorical processing
-        if torch.isnan(categorical_out).any():
+        if categorical_out is not None and torch.isnan(categorical_out).any():
             print("Warning: NaNs detected in categorical output")
             categorical_out = torch.nan_to_num(categorical_out, nan=0.0)
+
+        # Print shape information for debugging
+        if categorical_out is not None:
+            print(
+                f"Categorical output shape (batch, n_cat_cols, seq_len, n_tokens): {categorical_out.shape}"
+            )
 
         return {
             "numeric": numeric_out,

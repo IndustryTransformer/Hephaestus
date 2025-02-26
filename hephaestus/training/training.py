@@ -1,3 +1,5 @@
+from typing import Dict, Tuple
+
 import torch
 import torch.nn.functional as F
 from torch.optim import AdamW
@@ -87,57 +89,80 @@ def add_input_offsets(inputs, outputs, inputs_offset=1):
     return inputs, outputs, nan_mask
 
 
-def numeric_loss(inputs, outputs, input_offset=1):
-    """Calculate numeric loss (PyTorch version)."""
-    print(f"numeric_loss - input shape: {inputs.shape}, output shape: {outputs.shape}")
+def numeric_loss(inputs: torch.Tensor, outputs: torch.Tensor) -> torch.Tensor:
+    """
+    Compute the MSE loss for numeric outputs, ignoring NaN values.
 
-    try:
-        inputs, outputs, nan_mask = add_input_offsets(
-            inputs=inputs, outputs=outputs, inputs_offset=input_offset
-        )
-        raw_loss = torch.abs(outputs - inputs)
-        masked_loss = torch.where(nan_mask, torch.zeros_like(raw_loss), raw_loss)
-        loss = masked_loss.sum() / (~nan_mask).sum().float().clamp(min=1.0)
-        return loss
-    except RuntimeError as e:
-        print(f"Error in numeric_loss: {e}")
-        # Return a default loss value to prevent training from crashing
-        return torch.tensor(0.0, device=inputs.device, requires_grad=True)
+    Args:
+        inputs: Input numeric values [batch_size, n_cols, seq_len]
+        outputs: Predicted numeric values [batch_size, n_cols, seq_len]
+
+    Returns:
+        torch.Tensor: Scalar MSE loss
+    """
+    # Create mask for non-NaN values in inputs
+    mask = ~torch.isnan(inputs)
+
+    # Replace NaN with zeros for computation
+    inputs_clean = torch.nan_to_num(inputs, nan=0.0)
+
+    # Apply mask to both inputs and outputs
+    masked_inputs = inputs_clean * mask.float()
+    masked_outputs = outputs * mask.float()
+
+    # Calculate MSE on non-NaN elements only
+    mse = F.mse_loss(masked_outputs, masked_inputs, reduction="sum")
+
+    # Normalize by the number of non-NaN values
+    n_valid = mask.sum()
+    if n_valid > 0:
+        mse = mse / n_valid
+
+    return mse
 
 
-def categorical_loss(inputs, outputs, input_offset=1):
-    """Calculate categorical loss (PyTorch version)."""
-    print(
-        f"categorical_loss - input shape: {inputs.shape}, output shape: {outputs.shape}"
-    )
+def categorical_loss(inputs: torch.Tensor, outputs: torch.Tensor) -> torch.Tensor:
+    """
+    Compute the cross entropy loss for categorical outputs, ignoring padding.
 
-    try:
-        inputs, outputs, nan_mask = add_input_offsets(
-            inputs=inputs, outputs=outputs, inputs_offset=input_offset
-        )
-        inputs = inputs.long()
+    Args:
+        inputs: Input categorical indices [batch_size, n_cat_cols, seq_len]
+        outputs: Model logits [batch_size, n_cat_cols, seq_len, n_tokens]
 
-        # Reshape for cross entropy
-        batch_size, seq_len, num_features = inputs.shape
-        outputs_reshaped = outputs.reshape(-1, outputs.size(-1))
-        inputs_reshaped = inputs.reshape(-1)
-        nan_mask_reshaped = nan_mask.reshape(-1)
+    Returns:
+        torch.Tensor: Scalar cross entropy loss
+    """
+    # Get dimensions
+    batch_size, n_cols, seq_len = inputs.shape
+    n_tokens = outputs.shape[-1]
 
-        # Compute cross entropy only for non-nan values
-        valid_indices = ~nan_mask_reshaped
-        if valid_indices.sum() > 0:
-            raw_loss = F.cross_entropy(
-                outputs_reshaped[valid_indices],
-                inputs_reshaped[valid_indices],
-                reduction="none",
-            )
-            return raw_loss.mean()
-        else:
-            return torch.tensor(0.0, device=inputs.device)
-    except RuntimeError as e:
-        print(f"Error in categorical_loss: {e}")
-        # Return a default loss value to prevent training from crashing
-        return torch.tensor(0.0, device=inputs.device, requires_grad=True)
+    # Create mask for non-NaN values in inputs
+    mask = ~torch.isnan(inputs)
+
+    # Replace NaN with zeros for computation
+    inputs_clean = torch.nan_to_num(inputs, nan=0.0).long()
+
+    # Reshape for cross entropy loss
+    inputs_flat = inputs_clean.reshape(-1)
+    outputs_flat = outputs.reshape(-1, n_tokens)
+    mask_flat = mask.reshape(-1)
+
+    # Only compute loss on non-NaN elements
+    valid_indices = mask_flat.nonzero(as_tuple=True)[0]
+
+    if len(valid_indices) == 0:
+        return torch.tensor(0.0, device=inputs.device)
+
+    valid_inputs = inputs_flat[valid_indices]
+    valid_outputs = outputs_flat[valid_indices]
+
+    # Compute cross entropy loss
+    loss = F.cross_entropy(valid_outputs, valid_inputs, reduction="sum")
+
+    # Normalize by number of valid entries
+    loss = loss / len(valid_indices)
+
+    return loss
 
 
 def create_optimizer(
@@ -260,3 +285,35 @@ def create_metric_history():
         "val_numeric_loss": [],
         "val_categorical_loss": [],
     }
+
+
+def compute_batch_loss(
+    model_output: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
+) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    """
+    Compute the combined loss for a batch.
+
+    Args:
+        model_output: Dictionary with 'numeric' and 'categorical' tensors
+        batch: Dictionary with input 'numeric' and 'categorical' tensors
+
+    Returns:
+        total_loss: Combined loss value
+        component_losses: Dictionary with individual loss components
+    """
+    losses = {}
+
+    # Numeric loss
+    if "numeric" in model_output and "numeric" in batch:
+        num_loss = numeric_loss(batch["numeric"], model_output["numeric"])
+        losses["numeric_loss"] = num_loss
+
+    # Categorical loss
+    if "categorical" in model_output and "categorical" in batch:
+        cat_loss = categorical_loss(batch["categorical"], model_output["categorical"])
+        losses["categorical_loss"] = cat_loss
+
+    # Total loss is the sum of component losses
+    total_loss = sum(losses.values())
+
+    return total_loss, losses
