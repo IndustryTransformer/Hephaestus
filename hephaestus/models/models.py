@@ -483,21 +483,6 @@ class ReservoirEmbedding(nnx.Module):
             num_embeddings=self.config.vocab_size, features=self.features, rngs=rngs
         )
 
-    # def __init__(self, config: TimeSeriesConfig, features: int, frozen_index: int = 0, rngs: nnx.Rngs):
-    #     self.config = config
-    #     self.features = features
-    #     self.frozen_index = frozen_index
-
-    #     # Modified to properly handle the random key initialization
-    #     self.embedding = nnx.Param(
-    #         "embedding",
-    #         lambda key: nnx.initializers.normal(stddev=0.02)(
-    #             key,
-    #             (self.config.tokenizer.vocab_size, self.features),
-    #         ),
-    #         rngs=rngs  # Pass the rngs through
-    #     )
-
     def __call__(self, base_indices: jnp.array):
         """
         Perform reservoir embedding on the given input.
@@ -512,29 +497,15 @@ class ReservoirEmbedding(nnx.Module):
         reservoir_indices = token_reservoir_lookup[base_indices]
 
         return_embed = self.embedding(reservoir_indices)
-        return_embed = jnp.sum(return_embed, axis=-2)
+        # Remove the problematic line specifying memory order
+        # return_embed = jnp.asarray(return_embed, order="C")
+
+        # Instead, use the default behavior or specify the supported order
+        return_embed = jnp.asarray(return_embed)  # Use default order
+        # Or alternatively: return_embed = jnp.asarray(return_embed, order="K")
+
+        return_embed = jnp.sum(return_embed, axis=-2, dtype=jnp.float32)
         return return_embed
-
-        # Create a mask for the frozen embedding
-        # frozen_mask = jnp.arange(self.config.tokenizer.vocab_size) == self.frozen_index
-
-        # # Set the frozen embedding to zero
-        # frozen_embedding = jnp.where(
-        #     frozen_mask[:, None], 0.0, self.embedding.embedding
-        # )
-
-        # # Stop gradient for the frozen embedding
-        # penultimate_embedding = stop_gradient(frozen_embedding) + jnp.where(
-        #     frozen_mask[:, None], 0.0, self.embedding.embedding - frozen_embedding
-        # )
-        # token_reservoir_lookup = self.config.reservoir_encoded
-        # reservoir_indices = token_reservoir_lookup[base_indices]
-
-        # ultimate_embedding = penultimate_embedding[reservoir_indices]
-        # ultimate_embedding = jnp.sum(ultimate_embedding, axis=-2)
-        # ic(ultimate_embedding.shape)
-
-        # return ultimate_embedding
 
 
 @dataclass

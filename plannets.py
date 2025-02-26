@@ -1,25 +1,38 @@
-# %%
+# %% [markdown]
+# # Planets Model
+#
+# ## Load Libs
+#
+
+# jax.config.update("jax_disable_jit", False)
 import ast
 import os
 import re
 from datetime import datetime as dt
 
 import icecream
+
+# %%
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
 from flax import nnx
 from icecream import ic
+
+# from torch.utils.tensorboard import SummaryWriter
+from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
 from tqdm.notebook import tqdm, trange
 from transformers import BertTokenizerFast, FlaxBertModel
 
 import hephaestus as hp
 import hephaestus.training as ht
 
+jax.config.update("jax_default_matmul_precision", "float32")
+
 icecream.install()
-ic_disable = False  # Global variable to disable ic
+ic_disable = True  # Global variable to disable ic
 if ic_disable:
     ic.disable()
 ic.configureOutput(includeContext=True, contextAbsPath=True)
@@ -32,18 +45,9 @@ model_name = "bert-base-uncased"
 model = FlaxBertModel.from_pretrained(model_name)
 tokenizer = BertTokenizerFast.from_pretrained(model_name)
 
-# Get the embeddings matrix
-embeddings = model.params["embeddings"]["word_embeddings"]["embedding"]
-
-# Now you can access specific embeddings like this:
-# For example, to get embeddings for tokens 23, 293, and 993:
-selected_embeddings = jnp.take(embeddings, jnp.array([23, 293, 993]), axis=0)
-
-# If you want to get embeddings for specific words:
-words = ["hello", "world", "example"]
-tokens = tokenizer.convert_tokens_to_ids(words)
-word_embeddings = jnp.take(embeddings, jnp.array(tokens), axis=0)
-word_embeddings.shape
+# %% [markdown]
+# ## Load Data
+#
 
 
 # %%
@@ -89,7 +93,6 @@ else:
 mass_regex = re.compile(r"planet(\d+)_m")
 mass_cols = [col for col in df.columns if mass_regex.match(col)]
 df["total_mass"] = df[mass_cols].sum(axis=1)
-# df = df.reset_index(drop=True)
 # Introduce categorical columns for the number of planets choose non null columns with mass
 df["n_planets"] = df[mass_cols].notnull().sum(axis=1).astype("object")
 df["n_planets"] = df["n_planets"].apply(lambda x: f"{x}_planets")
@@ -144,33 +147,21 @@ train_ds = hp.TimeSeriesDS(train_df, time_series_config)
 test_ds = hp.TimeSeriesDS(test_df, time_series_config)
 len(train_ds), len(test_ds)
 
-
 # %%
-def make_batch(ds: hp.TimeSeriesDS, start: int, length: int):
-    numeric = []
-    categorical = []
-    for i in range(start, length + start):
-        numeric.append(ds[i][0])
-        categorical.append(ds[i][1])
-    # print index of None values
-    return {"numeric": jnp.array(numeric), "categorical": jnp.array(categorical)}
-
-
-batch = make_batch(train_ds, 0, 4)
+batch = hp.make_batch(train_ds, 0, 4)
 print(batch["numeric"].shape, batch["categorical"].shape)
-
-# (4, 27, 59) (4, 3, 59)
-# batch
 
 # %%
 multiplier = 1
-time_series_regressor = hp.TimeSeriesDecoder(
-    time_series_config, d_model=1024, n_heads=8 * multiplier, rngs=nnx.Rngs(0)
+# n_heads =
+# n_heads = max(d_model // 64, 1)  # Scale heads with model size
+tabular_decoder = hp.TimeSeriesDecoder(
+    time_series_config, d_model=512, n_heads=8 * multiplier, rngs=nnx.Rngs(0)
 )
-# nnx.display(time_series_regressor)
+# nnx.display(tabular_decoder)
 
 # %%
-res = time_series_regressor(
+res = tabular_decoder(
     numeric_inputs=batch["numeric"],
     categorical_inputs=batch["categorical"],
     deterministic=False,
@@ -189,103 +180,96 @@ if jnp.isnan(res["categorical_out"]).any():
 ic.disable()
 
 # %%
-causal_mask = False
-# time_series_regressor.train()
-
-# %%
-
-
-# %%
 metric_history = ht.create_metric_history()
 
-learning_rate = 4e-2
+learning_rate = 4e-3
 momentum = 0.9
-optimizer = ht.create_optimizer(time_series_regressor, learning_rate, momentum)
+optimizer = ht.create_optimizer(tabular_decoder, learning_rate, momentum)
 
 metrics = ht.create_metrics()
-writer_name = "LowerRate"
+eval_metrics = ht.create_metrics()
+writer_name = "sum-to-float-32"
 # Get git commit hash for model name?
 writer_time = dt.now().strftime("%Y-%m-%dT%H:%M:%S")
 commit_hash = hp.get_git_commit_hash()
 model_name = f"{writer_time}_{writer_name}_{commit_hash}"
-summary_writer = SummaryWriter("runs/" + model_name)
+writer_path = f"runs/{model_name}"
 
 
 train_data_loader = DataLoader(train_ds, batch_size=16, shuffle=True)
+val_data_loader = DataLoader(test_ds, batch_size=16, shuffle=False)
 train_step = ht.create_train_step(
-    model=time_series_regressor, optimizer=optimizer, metrics=metrics
+    model=tabular_decoder, optimizer=optimizer, metrics=metrics
 )
-step_counter = 0
-for epoch in trange(5):
-    for step, batch in enumerate(tqdm(train_data_loader)):
-        batch = {"numeric": jnp.array(batch[0]), "categorical": jnp.array(batch[1])}
-        train_step(time_series_regressor, batch, optimizer, metrics)
-        for metric, value in metrics.compute().items():
-            # Only shows `loss`
+eval_step = ht.create_eval_step(model=tabular_decoder, metrics=eval_metrics)
 
+early_stop = None
+step = 0
+eval_every = 100
+N_EPOCHS = 1
+summary_writer = SummaryWriter(writer_path)
+for epoch in trange(N_EPOCHS):
+    for batch in tqdm(train_data_loader):
+        if early_stop and step > early_stop:
+            break
+        batch = {"numeric": jnp.array(batch[0]), "categorical": jnp.array(batch[1])}
+        train_step(tabular_decoder, batch, optimizer, metrics)
+        for metric, value in metrics.compute().items():
             metric_history[metric].append(value)
             if jnp.isnan(value).any():
                 raise ValueError("Nan Values")
-            summary_writer.add_scalar(f"train/{metric}", np.array(value), step_counter)
-            step_counter += 1
+            summary_writer.add_scalar(f"train/{metric}", np.array(value), step)
+        step += 1
         metrics.reset()
+        if step % eval_every == 0:
+            for batch in val_data_loader:
+                batch = {
+                    "numeric": jnp.array(batch[0]),
+                    "categorical": jnp.array(batch[1]),
+                }
+                eval_step(tabular_decoder, batch, eval_metrics)
+            for metric, value in eval_metrics.compute().items():
+                summary_writer.add_scalar(f"eval/{metric}", np.array(value), step)
+            eval_metrics.reset()
+
+# Final evaluation
+for batch in val_data_loader:
+    batch = {"numeric": jnp.array(batch[0]), "categorical": jnp.array(batch[1])}
+    eval_step(tabular_decoder, batch, eval_metrics)
+for metric, value in eval_metrics.compute().items():
+    summary_writer.add_scalar(f"eval/{metric}", np.array(value), step)
+eval_metrics.reset()
+summary_writer.close()
 
 # %%
-# import orbax.checkpoint as ocp
-
-# ckpt_dir = ocp.test_utils.erase_and_create_empty("/tmp/my-checkpoints1/")
-# _, state = nnx.split(time_series_regressor)
-# state = state.to_pure_dict()
-# # nnx.display(state)
-
-# checkpointer = ocp.StandardCheckpointer()
-# checkpointer.save(ckpt_dir / "state", state)
-
-# %%
-x = hp.return_results(time_series_regressor, train_ds, 0)
-x.categorical_out.shape
-
-# %%
-causal_mask = False
-causal_mask = False
-
-
 df_comp = hp.show_results_df(
-    model=time_series_regressor,
+    model=tabular_decoder,
     time_series_config=time_series_config,
     dataset=train_ds,
     idx=0,
 )
 
 # %%
-df_comp.output_df.loc[:, time_series_config.categorical_col_tokens].tail()
+df_comp.output_df.loc[:, time_series_config.categorical_col_tokens].head()
 
 # %%
-df_comp.output_df.loc[:, time_series_config.numeric_col_tokens].tail()
+df_comp.output_df.loc[:, time_series_config.numeric_col_tokens].head()
 
 # %%
 test_inputs = hp.AutoRegressiveResults.from_ds(train_ds, 0, 13)
 
-# inputs_test = train_ds[0]
-# test_numeric = inputs_test[0]
-# test_categorical = inputs_test[1]
-# print(inputs_test.shape)
-for i in trange(21):
-    test_inputs = hp.auto_regressive_predictions(time_series_regressor, test_inputs)
 
-# x = auto_regressive_predictions(state, test_ds[0], 10)
+for i in trange(21):
+    test_inputs = hp.auto_regressive_predictions(tabular_decoder, test_inputs)
 
 # %%
 auto_df = hp.create_test_inputs_df(test_inputs, time_series_config)
 
 # %%
-auto_df.tail()
-
-# %% [markdown]
-#
+auto_df.head(20)
 
 # %%
-res1 = time_series_regressor(
+res1 = tabular_decoder(
     numeric_inputs=jnp.array([train_ds[0][0][:, :10]]),
     categorical_inputs=jnp.array([train_ds[0][1][:, :10]]),
 )
@@ -304,18 +288,4 @@ hp.create_non_auto_df(
 )
 
 # %%
-hp.plot_comparison(actual_df, auto_df, res_df, "planet0_x")
-
-# %%
-test_inputs.numeric_inputs.shape
-
-# %%
-
-
-# %%
-
-
-# %%
-
-
-# %%
+hp.plot_comparison(actual_df, auto_df, res_df, "planet1_x")
