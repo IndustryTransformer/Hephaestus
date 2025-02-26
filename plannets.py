@@ -4,15 +4,13 @@
 # ## Load Libs
 #
 
-# jax.config.update("jax_disable_jit", False)
+# %%
 import ast
 import os
 import re
 from datetime import datetime as dt
 
 import icecream
-
-# %%
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -29,7 +27,9 @@ from transformers import BertTokenizerFast, FlaxBertModel
 import hephaestus as hp
 import hephaestus.training as ht
 
-jax.config.update("jax_default_matmul_precision", "float32")
+jax.config.update(
+    "jax_default_matmul_precision", "float32"
+)  # One of those things that you set and don't ask questions about.
 
 icecream.install()
 ic_disable = True  # Global variable to disable ic
@@ -152,9 +152,7 @@ batch = hp.make_batch(train_ds, 0, 4)
 print(batch["numeric"].shape, batch["categorical"].shape)
 
 # %%
-multiplier = 1
-# n_heads =
-# n_heads = max(d_model // 64, 1)  # Scale heads with model size
+multiplier = 4
 tabular_decoder = hp.TimeSeriesDecoder(
     time_series_config, d_model=512, n_heads=8 * multiplier, rngs=nnx.Rngs(0)
 )
@@ -188,7 +186,7 @@ optimizer = ht.create_optimizer(tabular_decoder, learning_rate, momentum)
 
 metrics = ht.create_metrics()
 eval_metrics = ht.create_metrics()
-writer_name = "sum-to-float-32"
+writer_name = "Full-Test"
 # Get git commit hash for model name?
 writer_time = dt.now().strftime("%Y-%m-%dT%H:%M:%S")
 commit_hash = hp.get_git_commit_hash()

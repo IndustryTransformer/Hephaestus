@@ -1,15 +1,15 @@
 # %%
-# import jax
+import math
 import re
-from typing import Optional
+from dataclasses import dataclass
+from typing import Dict, Optional
 
-import jax.numpy as jnp
 import numpy as np
 import pandas as pd
-from flax import nnx
-from flax.struct import dataclass
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from icecream import ic
-from jax.lax import stop_gradient
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
 
@@ -93,12 +93,12 @@ class TimeSeriesConfig:
         token_dict (dict): Dictionary mapping tokens to indices.
         token_decoder_dict (dict): Dictionary mapping indices to tokens.
         n_tokens (int): Number of tokens.
-        numeric_indices (jnp.array): Array of indices for numeric columns.
-        categorical_indices (jnp.array): Array of indices for categorical columns.
+        numeric_indices (torch.Tensor): Tensor of indices for numeric columns.
+        categorical_indices (torch.Tensor): Tensor of indices for categorical columns.
         object_tokens (list): List of unique values in categorical columns.
         numeric_mask_token (int): Index of numeric mask token.
         reservoir_vocab (list): List of words in custom vocabulary.
-        reservoir_encoded (jnp.array): Encoded reservoir tokens.
+        reservoir_encoded (torch.Tensor): Encoded reservoir tokens.
         tokenizer (AutoTokenizer): Tokenizer for encoding tokens.
     """
 
@@ -110,12 +110,12 @@ class TimeSeriesConfig:
     token_dict: dict = None
     token_decoder_dict: dict = None
     n_tokens: int = None
-    numeric_indices: nnx.Variable = None  # jnp.array = None
-    categorical_indices: nnx.Variable = None  #  jnp.array = None
+    numeric_indices: torch.Tensor = None
+    categorical_indices: torch.Tensor = None
     object_tokens: list = None
     numeric_mask_token: int = None
     reservoir_vocab: list = None
-    reservoir_encoded: nnx.Variable = None  #  jnp.array = None
+    reservoir_encoded: torch.Tensor = None
     tokenizer: AutoTokenizer = None
     vocab_size: int = None
     ds_length: int = None
@@ -133,7 +133,6 @@ class TimeSeriesConfig:
             TimeSeriesConfig: The generated TimeSeriesConfig object.
         """
 
-        # max_seq_len = df.groupby("idx").count().time_step.max()
         # Set df.idx to start from 0
         df.idx = df.idx - df.idx.min()
         ds_length = df.groupby("idx").size().max()
@@ -161,16 +160,11 @@ class TimeSeriesConfig:
             col_name for col_name in df.select_dtypes(include="object").columns
         ]
         # Get all the unique values in the categorical columns and add them to the tokens
-        unique_values_per_column = df_categorical.apply(
-            pd.Series.unique
-        ).values  # .flatten().tolist()
+        unique_values_per_column = df_categorical.apply(pd.Series.unique).values
         flattened_unique_values = np.concatenate(unique_values_per_column).tolist()
         object_tokens = list(set(flattened_unique_values))
         cls_dict["object_tokens"] = object_tokens
-        # cls_dict["object_tokens"] = cls_dict["object_tokens"]
 
-        # print(f'Type: {cls_dict["numeric_col_tokens"]=}')
-        # print(f'Type: {cls_dict["categorical_col_tokens"]=}')
         cls_dict["tokens"] = (
             special_tokens
             + cls_dict["numeric_col_tokens"]
@@ -186,13 +180,12 @@ class TimeSeriesConfig:
         cls_dict["token_decoder_dict"] = token_decoder_dict
         n_tokens = len(cls_dict["tokens"])
         cls_dict["n_tokens"] = n_tokens
-        numeric_indices = nnx.Variable(
-            jnp.array([tokens.index(i) for i in numeric_col_tokens])
-        )
-        # numeric_indices = jnp.array([tokens.index(i) for i in numeric_col_tokens])
+
+        # Convert to PyTorch tensors
+        numeric_indices = torch.tensor([tokens.index(i) for i in numeric_col_tokens])
         cls_dict["numeric_indices"] = numeric_indices
-        categorical_indices = nnx.Variable(
-            jnp.array([tokens.index(i) for i in categorical_col_tokens])
+        categorical_indices = torch.tensor(
+            [tokens.index(i) for i in categorical_col_tokens]
         )
         cls_dict["categorical_indices"] = categorical_indices
 
@@ -210,17 +203,18 @@ class TimeSeriesConfig:
         ]  # ensures they are in the same order
         tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
         cls_dict["tokenizer"] = tokenizer
-        reservoir_encoded = nnx.Variable(
-            tokenizer(
-                reservoir_tokens_list,
-                padding="max_length",
-                max_length=8,  # TODO Make this dynamic
-                truncation=True,
-                return_tensors="jax",
-                add_special_tokens=False,
-            )["input_ids"]
-        )  # TODO make this custom to reduce dictionary size
-        cls_dict["reservoir_encoded"] = reservoir_encoded
+
+        # Convert to PyTorch tensor
+        encoded = tokenizer(
+            reservoir_tokens_list,
+            padding="max_length",
+            max_length=8,  # TODO Make this dynamic
+            truncation=True,
+            return_tensors="pt",
+            add_special_tokens=False,
+        )["input_ids"]
+        cls_dict["reservoir_encoded"] = encoded
+
         cls_dict["reservoir_vocab"] = reservoir_vocab
         cls_dict["ds_length"] = ds_length
 
@@ -247,8 +241,6 @@ class TimeSeriesDS(Dataset):
     """
 
     def __init__(self, df: pd.DataFrame, config: TimeSeriesConfig):
-        # Add nan padding to make sure all sequences are the same length
-        # use the idx column to group by
         self.max_seq_len = df.groupby("idx").size().max()
         # Set df.idx to start from 0
         df.idx = df.idx - df.idx.min()
@@ -270,50 +262,26 @@ class TimeSeriesDS(Dataset):
         self.batch_size = self.max_seq_len
 
     def __len__(self):
-        """Return the length of the dataset.
-
-        Returns:
-            int: Length of the dataset.
-        """
-        # return self.df.idx.max() + 1  # probably should be max idx + 1 thanks
+        """Return the length of the dataset."""
         return self.df_numeric.index.nunique()
 
     def get_data(self, df_name, set_idx):
-        """Gets self.df_<df_name> for a given index.
-
-        Args:
-            df_name (str): Name of the DataFrame attribute.
-            set_idx (int): Index to get data for.
-
-        Returns:
-            np.array: Data array for the given index.
-        """
+        """Gets self.df_<df_name> for a given index."""
         df = getattr(self, df_name)
 
         batch = df.loc[df.index == set_idx, :]
         batch = np.array(batch.values)
 
         # Add padding
-
         batch_len, n_cols = batch.shape
         pad_len = self.max_seq_len - batch_len
         padding = np.full((pad_len, n_cols), np.nan)
         batch = np.concatenate([batch, padding], axis=0)
         batch = np.swapaxes(batch, 0, 1)
-        # if df_name == "df_categorical":
-        #     # Cast to int
-        #     batch = batch.astype(int)
         return batch
 
     def __getitem__(self, set_idx):
-        """Get item from the dataset.
-
-        Args:
-            set_idx (int): Index to get item for.
-
-        Returns:
-            tuple: Tuple containing numeric and categorical inputs.
-        """
+        """Get item from the dataset."""
         if self.df_categorical.empty:
             categorical_inputs = None
         else:
@@ -323,7 +291,7 @@ class TimeSeriesDS(Dataset):
         return numeric_inputs, categorical_inputs
 
 
-class FeedForwardNetwork(nnx.Module):
+class FeedForwardNetwork(nn.Module):
     """
     Feed-forward neural network module.
 
@@ -331,45 +299,28 @@ class FeedForwardNetwork(nnx.Module):
         d_model (int): Dimensionality of the model.
         d_ff (int): Dimensionality of the feed-forward layer.
         dropout_rate (float): Dropout rate.
-        rngs (nnx.Rngs): Random number generators.
-
-    Attributes:
-        dense1 (nnx.Linear): First dense layer.
-        dropout (nnx.Dropout): Dropout layer.
-        dense2 (nnx.Linear): Second dense layer.
     """
 
-    def __init__(self, d_model: int, d_ff: int, dropout_rate: float, rngs: nnx.Rngs):
+    def __init__(self, d_model: int, d_ff: int, dropout_rate: float):
+        super().__init__()
         self.d_model = d_model
         self.d_ff = d_ff
         self.dropout_rate = dropout_rate
-        self.dense1 = nnx.Linear(in_features=d_model, out_features=d_model, rngs=rngs)
-        self.dropout = nnx.Dropout(rate=dropout_rate, rngs=rngs)
-        self.dense2 = nnx.Linear(in_features=d_model, out_features=d_model, rngs=rngs)
-        # self.dropout2 = nnx.Dropout(rate=dropout_rate, rngs=rngs)
+        self.dense1 = nn.Linear(d_model, d_model)
+        self.dropout = nn.Dropout(dropout_rate)
+        self.dense2 = nn.Linear(d_model, d_model)
 
-    def __call__(self, x, deterministic: bool):
-        """Forward pass of the feed-forward network.
-
-        Args:
-            x (jnp.array): Input array.
-            deterministic (bool): Whether to use deterministic dropout.
-
-        Returns:
-            jnp.array: Output array.
-        """
-        # Feed Forward Network
+    def forward(self, x, deterministic: bool = False):
+        """Forward pass of the feed-forward network."""
         x = self.dense1(x)
-        x = nnx.relu(x)
-        x = self.dropout(x, deterministic=deterministic)
+        x = F.relu(x)
+        x = self.dropout(x) if not deterministic else x
         x = self.dense2(x)
-        # ic("About to call dropout2")
-        x = self.dropout(x, deterministic=deterministic)
-        # ic("Finished calling dropout2")
+        x = self.dropout(x) if not deterministic else x
         return x
 
 
-class TransformerBlock(nnx.Module):
+class TransformerBlock(nn.Module):
     """
     Transformer block module.
 
@@ -378,75 +329,50 @@ class TransformerBlock(nnx.Module):
         d_model (int): Dimensionality of the model.
         d_ff (int): Dimensionality of the feed-forward layer.
         dropout_rate (float): Dropout rate.
-        rngs (nnx.Rngs): Random number generators.
-
-    Attributes:
-        multi_head_attention (nnx.MultiHeadAttention): Multi-head attention layer.
-        layer_norm1 (nnx.LayerNorm): First layer normalization.
-        feed_forward_network (FeedForwardNetwork): Feed-forward network.
-        layer_norm2 (nnx.LayerNorm): Second layer normalization.
     """
 
-    def __init__(
-        self,
-        num_heads: int,
-        d_model: int,
-        d_ff: int,
-        dropout_rate: float,
-        rngs: nnx.Rngs,
-    ):
+    def __init__(self, num_heads: int, d_model: int, d_ff: int, dropout_rate: float):
+        super().__init__()
         self.num_heads = num_heads
         self.d_model = d_model
         self.d_ff = d_ff
         self.dropout_rate = dropout_rate
 
-        self.multi_head_attention = nnx.MultiHeadAttention(
+        self.multi_head_attention = nn.MultiheadAttention(
+            embed_dim=d_model,
             num_heads=num_heads,
-            in_features=d_model,
-            # qkv_features=d_model,
-            dropout_rate=dropout_rate,
-            decode=False,
-            rngs=rngs,
+            dropout=dropout_rate,
+            batch_first=True,
         )
-        self.layer_norm1 = nnx.LayerNorm(num_features=d_model, rngs=rngs)
+        self.layer_norm1 = nn.LayerNorm(d_model)
         self.feed_forward_network = FeedForwardNetwork(
-            d_model=self.d_model,
-            d_ff=self.d_ff,
-            dropout_rate=self.dropout_rate,
-            rngs=rngs,
+            d_model=self.d_model, d_ff=self.d_ff, dropout_rate=self.dropout_rate
         )
-        self.layer_norm2 = nnx.LayerNorm(num_features=d_model, rngs=rngs)
+        self.layer_norm2 = nn.LayerNorm(d_model)
 
-    def __call__(
+    def forward(
         self,
-        q: jnp.array,
-        k: jnp.array,
-        v: jnp.array,
-        deterministic: bool,
-        mask: jnp.array = None,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        deterministic: bool = False,
+        mask: torch.Tensor = None,
     ):
-        """Forward pass of the transformer block.
-
-        Args:
-            q (jnp.array): Query array.
-            k (jnp.array): Key array.
-            v (jnp.array): Value array.
-            deterministic (bool): Whether to use deterministic dropout.
-            mask (jnp.array, optional): Attention mask. Defaults to None.
-
-        Returns:
-            jnp.array: Output array.
-        """
+        """Forward pass of the transformer block."""
         if mask is not None:
             mask_shape = mask.shape
         else:
             mask_shape = None
         ic("Transformer Block", q.shape, k.shape, v.shape, mask_shape)
-        attention = self.multi_head_attention(
-            q, k, v, deterministic=deterministic, mask=mask
+
+        # PyTorch's MultiheadAttention has a different signature than Flax
+        attention_output, _ = self.multi_head_attention(
+            query=q, key=k, value=v, attn_mask=mask, need_weights=False
         )
-        out = q + attention
+
+        out = q + attention_output
         out = self.layer_norm1(out)
+
         # Feed Forward Network
         ffn = self.feed_forward_network(out, deterministic=deterministic)
         out = out + ffn
@@ -454,57 +380,54 @@ class TransformerBlock(nnx.Module):
         return out
 
 
-class ReservoirEmbedding(nnx.Module):
+class ReservoirEmbedding(nn.Module):
     """
     A module for performing reservoir embedding on a given input.
 
     Args:
         config (TimeSeriesConfig): Configuration for the time series.
         features (int): The number of features in the embedding.
-        rngs (nnx.Rngs): Random number generators.
         frozen_index (int, optional): The index of the embedding to freeze. Defaults to 0.
-
-    Attributes:
-        embedding (nnx.Embed): Embedding layer.
     """
 
     def __init__(
         self,
         config: TimeSeriesConfig,
         features: int,
-        rngs: nnx.Rngs,
         frozen_index: int = 0,
     ):
+        super().__init__()
         self.config = config
         self.features = features
         self.frozen_index = frozen_index
 
-        self.embedding = nnx.Embed(
-            num_embeddings=self.config.vocab_size, features=self.features, rngs=rngs
+        self.embedding = nn.Embedding(
+            num_embeddings=self.config.vocab_size, embedding_dim=self.features
         )
 
-    def __call__(self, base_indices: jnp.array):
+    def forward(self, base_indices: torch.Tensor):
         """
         Perform reservoir embedding on the given input.
-
-        Args:
-            base_indices (jnp.array): The base indices for embedding.
-
-        Returns:
-            jnp.array: The ultimate embedding after reservoir embedding.
         """
+        # Get the encoded tokens from config
         token_reservoir_lookup = self.config.reservoir_encoded
-        reservoir_indices = token_reservoir_lookup[base_indices]
 
+        # Convert base_indices to PyTorch device
+        if not isinstance(base_indices, torch.Tensor):
+            base_indices = torch.tensor(
+                base_indices, device=self.embedding.weight.device
+            )
+        else:
+            base_indices = base_indices.to(self.embedding.weight.device)
+
+        # Get reservoir indices for the provided base_indices
+        reservoir_indices = token_reservoir_lookup[base_indices.long()]
+
+        # Embed the reservoir indices
         return_embed = self.embedding(reservoir_indices)
-        # Remove the problematic line specifying memory order
-        # return_embed = jnp.asarray(return_embed, order="C")
 
-        # Instead, use the default behavior or specify the supported order
-        return_embed = jnp.asarray(return_embed)  # Use default order
-        # Or alternatively: return_embed = jnp.asarray(return_embed, order="K")
-
-        return_embed = jnp.sum(return_embed, axis=-2, dtype=jnp.float32)
+        # Sum across the embedding dimension
+        return_embed = torch.sum(return_embed, dim=-2, dtype=torch.float32)
         return return_embed
 
 
@@ -512,166 +435,161 @@ class ReservoirEmbedding(nnx.Module):
 class ProcessedEmbeddings:
     """
     Data class to store processed embeddings.
-
-    Attributes:
-        column_embeddings (Optional[jnp.array]): Column embeddings.
-        value_embeddings (Optional[jnp.array]): Value embeddings.
     """
 
-    column_embeddings: Optional[jnp.array] = None
-    value_embeddings: Optional[jnp.array] = None
+    column_embeddings: Optional[torch.Tensor] = None
+    value_embeddings: Optional[torch.Tensor] = None
 
 
-class TimeSeriesTransformer(nnx.Module):
+class TimeSeriesTransformer(nn.Module):
     """
     Transformer-based model for time series data.
-
-    Args:
-        config (TimeSeriesConfig): Configuration for the time series.
-        rngs (nnx.Rngs): Random number generators.
-        d_model (int, optional): The dimensionality of the model. Defaults to 64.
-        n_heads (int, optional): The number of attention heads. Defaults to 4.
-
-    Attributes:
-        embedding (ReservoirEmbedding): Embedding layer.
-        transformer_block_0 (TransformerBlock): First transformer block.
-        transformer_block_chain (list): List of additional transformer blocks.
     """
 
     def __init__(
         self,
         config: TimeSeriesConfig,
-        rngs=nnx.Rngs,
         d_model: int = 64,
         n_heads: int = 4,
     ):
+        super().__init__()
         self.config = config
         self.d_model = d_model
         self.n_heads = n_heads
         self.time_window = 10000
-        # self.embedding = nnx.Embed(
-        #     num_embeddings=self.config.n_tokens, features=self.d_model, rngs=rngs
-        # )
-        self.embedding = ReservoirEmbedding(
-            config=self.config, features=self.d_model, rngs=rngs
-        )
-        # ic(
-        #     "Embedding Test Value",
-        #     self.embedding(jnp.array([0])),
-        #     self.embedding(jnp.array([0])).shape,
-        # )
+
+        self.embedding = ReservoirEmbedding(config=self.config, features=self.d_model)
+
         self.transformer_block_0 = TransformerBlock(
-            num_heads=self.n_heads,
-            d_model=self.d_model,
-            d_ff=64,
-            dropout_rate=0.1,
-            rngs=rngs,
+            num_heads=self.n_heads, d_model=self.d_model, d_ff=64, dropout_rate=0.1
         )
-        self.transformer_block_chain = [
-            TransformerBlock(
-                num_heads=self.n_heads,
-                d_model=self.d_model,
-                d_ff=64,
-                dropout_rate=0.1,
-                rngs=rngs,
-            )
-            for i in range(1, 4)
-        ]
 
-    def process_numeric(self, numeric_inputs: jnp.array) -> ProcessedEmbeddings:
-        """
-        Processes the numeric inputs for the transformer model.
+        self.transformer_block_chain = nn.ModuleList(
+            [
+                TransformerBlock(
+                    num_heads=self.n_heads,
+                    d_model=self.d_model,
+                    d_ff=64,
+                    dropout_rate=0.1,
+                )
+                for i in range(1, 4)
+            ]
+        )
 
-        Args:
-            numeric_inputs (jnp.array): The numeric inputs to be processed.
-
-        Returns:
-            ProcessedEmbeddings: The processed numeric inputs.
-        """
+    def process_numeric(self, numeric_inputs: torch.Tensor) -> ProcessedEmbeddings:
+        """Processes the numeric inputs for the transformer model."""
         # Create a nan mask for the numeric inputs
-        nan_mask = stop_gradient(jnp.isnan(numeric_inputs))
-        # ic(
-        #     "Second Embedding Dim",
-        #     self.embedding(jnp.array([0])),
-        #     self.embedding(jnp.array([0])).shape,
-        # )
+        nan_mask = torch.isnan(numeric_inputs).detach()
+
         # Replace NaN values with zeros
-        numeric_inputs = jnp.where(nan_mask, 0.0, numeric_inputs)
-        repeated_numeric_indices = jnp.tile(
-            self.config.numeric_indices, (numeric_inputs.shape[2], 1)
+        numeric_inputs = torch.where(
+            nan_mask, torch.zeros_like(numeric_inputs), numeric_inputs
         )
-        # repeated_numeric_indices = jnp.swapaxes(repeated_numeric_indices, 0, 1)
-        repeated_numeric_indices = repeated_numeric_indices.T
+
+        # Process numeric indices
+        if not isinstance(self.config.numeric_indices, torch.Tensor):
+            numeric_indices = torch.tensor(
+                self.config.numeric_indices, device=next(self.parameters()).device
+            )
+        else:
+            numeric_indices = self.config.numeric_indices.to(
+                next(self.parameters()).device
+            )
+
+        repeated_numeric_indices = numeric_indices.repeat(
+            numeric_inputs.shape[2], 1
+        ).t()
         numeric_col_embeddings = self.embedding(repeated_numeric_indices)
+
         # Nan Masking
-        numeric_col_embeddings = jnp.tile(
-            jnp.squeeze(numeric_col_embeddings[None, :, :, :]),
-            (numeric_inputs.shape[0], 1, 1, 1),
+        numeric_col_embeddings = numeric_col_embeddings.unsqueeze(0).expand(
+            numeric_inputs.shape[0], -1, -1, -1
         )
+
         ic("col_token type", numeric_col_embeddings.dtype)
         numeric_embedding = self.embedding(
-            jnp.array(self.config.token_dict[self.config.numeric_token])
+            torch.tensor(
+                self.config.token_dict[self.config.numeric_token],
+                device=next(self.parameters()).device,
+            )
         )
         ic(numeric_embedding.shape)
 
-        numeric_embedding = numeric_inputs[:, :, :, None] * numeric_embedding
+        # Multiply numeric values with embedding
+        numeric_embedding = numeric_inputs.unsqueeze(-1) * numeric_embedding
         ic(numeric_embedding.shape)
 
-        numeric_embedding = jnp.where(
-            nan_mask[:, :, :, None],
-            self.embedding(jnp.array(self.config.numeric_mask_token)),
+        # Replace NaN values with mask token embedding
+        mask_token = torch.tensor(
+            self.config.numeric_mask_token, device=next(self.parameters()).device
+        )
+        mask_embedding = self.embedding(mask_token)
+        numeric_embedding = torch.where(
+            nan_mask.unsqueeze(-1),
+            mask_embedding.expand_as(numeric_embedding),
             numeric_embedding,
         )
-        # End Nan Masking
+
         ic(numeric_embedding.shape)
-        # numeric_embedding = self.embedding(numeric_embedding.astype(jnp.int32))
         return ProcessedEmbeddings(
             column_embeddings=numeric_col_embeddings,
             value_embeddings=numeric_embedding,
         )
 
     def process_categorical(
-        self, categorical_inputs: Optional[jnp.array]
+        self, categorical_inputs: Optional[torch.Tensor]
     ) -> ProcessedEmbeddings:
-        """
-        Processes the categorical inputs for the transformer model.
-
-        Args:
-            categorical_inputs (Optional[jnp.array]): The categorical inputs to be processed.
-
-        Returns:
-            ProcessedEmbeddings: The processed categorical inputs.
-        """
+        """Processes the categorical inputs for the transformer model."""
         if categorical_inputs is None:
-            return None, None
+            return ProcessedEmbeddings(None, None)
+
         # Make sure nans are set to <NAN> token
-        categorical_inputs = jnp.where(
-            jnp.isnan(categorical_inputs),
-            jnp.array(self.config.token_dict["[NUMERIC_MASK]"]),
-            categorical_inputs,
+        nan_mask = torch.isnan(categorical_inputs)
+        mask_token = torch.tensor(
+            self.config.token_dict["[NUMERIC_MASK]"],
+            device=next(self.parameters()).device,
         )
+        categorical_inputs = torch.where(
+            nan_mask, mask_token.expand_as(categorical_inputs), categorical_inputs
+        )
+
+        # Convert to long for embedding
+        categorical_inputs = categorical_inputs.long()
+
+        # Get categorical embeddings
         categorical_embeddings = self.embedding(categorical_inputs)
+
+        # Process categorical indices
+        if not isinstance(self.config.categorical_indices, torch.Tensor):
+            categorical_indices = torch.tensor(
+                self.config.categorical_indices, device=next(self.parameters()).device
+            )
+        else:
+            categorical_indices = self.config.categorical_indices.to(
+                next(self.parameters()).device
+            )
+
         ic(
             "Issue here",
             categorical_inputs.shape,
             "args",
             categorical_inputs.shape[2],
-            self.config.categorical_indices.shape,
+            categorical_indices.shape,
         )
-        repeated_categorical_indices = jnp.tile(
-            jnp.squeeze(self.config.categorical_indices),
-            (categorical_inputs.shape[2], 1),
-        )
+
+        repeated_categorical_indices = categorical_indices.repeat(
+            categorical_inputs.shape[2], 1
+        ).t()
         ic(repeated_categorical_indices.shape)
-        repeated_categorical_indices = repeated_categorical_indices.T
-        ic(repeated_categorical_indices.shape)
+
         categorical_col_embeddings = self.embedding(repeated_categorical_indices)
         ic("Extra dim here?", categorical_col_embeddings.shape)
-        categorical_col_embeddings = jnp.tile(
-            categorical_col_embeddings[None, :, :, :],
-            (categorical_inputs.shape[0], 1, 1, 1),
+
+        categorical_col_embeddings = categorical_col_embeddings.unsqueeze(0).expand(
+            categorical_inputs.shape[0], -1, -1, -1
         )
         ic(categorical_col_embeddings.shape)
+
         return ProcessedEmbeddings(
             column_embeddings=categorical_col_embeddings,
             value_embeddings=categorical_embeddings,
@@ -680,36 +598,23 @@ class TimeSeriesTransformer(nnx.Module):
     def combine_inputs(
         self, numeric: ProcessedEmbeddings, categorical: ProcessedEmbeddings
     ) -> ProcessedEmbeddings:
-        """
-        Combines numeric and categorical embeddings into a single ProcessedEmbeddings object.
-
-        Args:
-            numeric (ProcessedEmbeddings): The numeric embeddings to combine.
-            categorical (ProcessedEmbeddings): The categorical embeddings to combine.
-
-        Returns:
-            ProcessedEmbeddings: A new ProcessedEmbeddings object containing the combined embeddings.
-
-        Raises:
-            ValueError: If neither numeric nor categorical embeddings are provided.
-
-        """
+        """Combines numeric and categorical embeddings."""
         if (
             numeric.value_embeddings is not None
             and categorical.value_embeddings is not None
         ):
             ic(numeric.value_embeddings.shape, categorical.value_embeddings.shape)
             ic(numeric.column_embeddings.shape, categorical.column_embeddings.shape)
-            value_embeddings = jnp.concatenate(
+            value_embeddings = torch.cat(
                 [numeric.value_embeddings, categorical.value_embeddings],
-                axis=1,
+                dim=1,
             )
-            column_embeddings = jnp.concatenate(
+            column_embeddings = torch.cat(
                 [
                     numeric.column_embeddings,
                     categorical.column_embeddings,
                 ],
-                axis=1,
+                dim=1,
             )
         elif numeric.value_embeddings is not None:
             value_embeddings = numeric.value_embeddings
@@ -726,228 +631,194 @@ class TimeSeriesTransformer(nnx.Module):
 
     def causal_mask(
         self,
-        numeric_inputs: Optional[jnp.array],
-        categorical_inputs: Optional[jnp.array],
+        numeric_inputs: Optional[torch.Tensor],
+        categorical_inputs: Optional[torch.Tensor],
     ):
-        """
-        Generates a causal mask for the given numeric and categorical inputs.
-
-        Args:
-            numeric_inputs (Optional[jnp.array]): Numeric inputs.
-            categorical_inputs (Optional[jnp.array]): Categorical inputs.
-
-        Returns:
-            jnp.array: The generated causal mask.
-
-        Raises:
-            ValueError: If no numeric or categorical inputs are provided.
-        """
+        """Generates a causal mask for the inputs."""
         if numeric_inputs is not None and categorical_inputs is not None:
-            mask_input = jnp.concatenate([numeric_inputs, categorical_inputs], axis=1)
+            mask_input = torch.cat([numeric_inputs, categorical_inputs], dim=1)
         elif numeric_inputs is not None:
             mask_input = numeric_inputs
         elif categorical_inputs is not None:
             mask_input = categorical_inputs
         else:
             raise ValueError("No numeric or categorical inputs provided.")
-        causal_mask = nnx.make_causal_mask(mask_input)
-        pad_mask = nnx.make_attention_mask(mask_input, mask_input)
-        mask = nnx.combine_masks(causal_mask, pad_mask)
-        return mask
 
-    def __call__(
+        # Create causal mask (lower triangular)
+        seq_len = mask_input.size(2)
+        mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1).bool()
+        mask = mask.to(next(self.parameters()).device)
+
+        # Create padding mask (for nan values)
+        if torch.is_floating_point(mask_input):
+            pad_mask = torch.isnan(mask_input).any(dim=1)
+        else:
+            # For categorical data
+            pad_mask = (mask_input == self.config.token_dict["[PAD]"]).any(dim=1)
+
+        # Combine masks
+        # In PyTorch attention, True values are masked out
+        combined_mask = mask
+        if pad_mask is not None:
+            # Expand pad_mask to match dimensions
+            expanded_pad_mask = pad_mask.unsqueeze(1).expand(-1, seq_len, -1)
+            combined_mask = combined_mask | expanded_pad_mask
+
+        return combined_mask
+
+    def forward(
         self,
-        numeric_inputs: Optional[jnp.array] = None,
-        categorical_inputs: Optional[jnp.array] = None,
+        numeric_inputs: Optional[torch.Tensor] = None,
+        categorical_inputs: Optional[torch.Tensor] = None,
         deterministic: bool = False,
         causal_mask: bool = True,
         encoder_mask: bool = False,
     ):
-        """Forward pass of the transformer model.
+        """Forward pass of the transformer model."""
+        # Convert inputs to PyTorch tensors if they aren't already
+        if numeric_inputs is not None and not isinstance(numeric_inputs, torch.Tensor):
+            numeric_inputs = torch.tensor(
+                numeric_inputs,
+                dtype=torch.float32,
+                device=next(self.parameters()).device,
+            )
 
-        Args:
-            numeric_inputs (Optional[jnp.array]): Numeric inputs.
-            categorical_inputs (Optional[jnp.array]): Categorical inputs.
-            deterministic (bool, optional): Whether to use deterministic dropout. Defaults to False.
-            causal_mask (bool, optional): Whether to use a causal mask. Defaults to True.
-            encoder_mask (bool, optional): Whether to use an encoder mask. Defaults to False.
+        if categorical_inputs is not None and not isinstance(
+            categorical_inputs, torch.Tensor
+        ):
+            categorical_inputs = torch.tensor(
+                categorical_inputs,
+                dtype=torch.float32,
+                device=next(self.parameters()).device,
+            )
 
-        Returns:
-            jnp.array: Output array.
-        """
         ic(numeric_inputs.shape, categorical_inputs.shape)
         processed_numeric = self.process_numeric(numeric_inputs)
         processed_categorical = self.process_categorical(categorical_inputs)
 
         combined_inputs = self.combine_inputs(processed_numeric, processed_categorical)
 
-        if causal_mask:
-            mask = self.causal_mask(
+        mask = (
+            self.causal_mask(
                 numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
             )
-        else:
-            mask = None
-        # pos_dim = 0 # TODO Add this back in
+            if causal_mask
+            else None
+        )
+
         ic(
             combined_inputs.value_embeddings.shape,
             combined_inputs.column_embeddings.shape,
         )
+
         out = self.transformer_block_0(
             q=combined_inputs.value_embeddings,
             k=combined_inputs.column_embeddings,
             v=combined_inputs.value_embeddings,
             deterministic=deterministic,
-            # decode=False,
             mask=mask,
         )
+
         for transformer_block_iter in self.transformer_block_chain:
             out = transformer_block_iter(
                 q=out,
                 k=combined_inputs.column_embeddings,
                 v=out,
                 deterministic=deterministic,
-                # decode=False,
                 mask=mask,
             )
 
         return out
 
 
-class TimeSeriesDecoder(nnx.Module):
+class TimeSeriesDecoder(nn.Module):
     """
     Decoder module for time series data.
-
-    Args:
-        config (TimeSeriesConfig): Configuration for the time series.
-        rngs (nnx.Rngs): Random number generators.
-        d_model (int, optional): Dimensionality of the model. Defaults to 64.
-        n_heads (int, optional): Number of attention heads. Defaults to 4.
-
-    Attributes:
-        time_series_transformer (TimeSeriesTransformer): Transformer model for time series data.
-        numeric_linear1 (nnx.Linear): First linear layer for numeric output.
-        numeric_linear2 (nnx.Linear): Second linear layer for numeric output.
-        categorical_dense1 (nnx.Linear): First dense layer for categorical output.
-        categorical_dense2 (nnx.Linear): Second dense layer for categorical output.
     """
 
     def __init__(
         self,
         config: TimeSeriesConfig,
-        rngs: nnx.Rngs,
         d_model: int = 64,
         n_heads: int = 4,
     ):
+        super().__init__()
         self.config = config
         self.d_model = d_model
         self.n_heads = n_heads
+
         self.time_series_transformer = TimeSeriesTransformer(
-            config=self.config, d_model=self.d_model, n_heads=self.n_heads, rngs=rngs
-        )
-        # self.sequential = nnx.Sequential(
-        #     nnx.Linear(
-        #         in_features=self.d_model, out_features=self.d_model * 2, rngs=rngs
-        #     ),
-        #     nnx.relu,
-        #     nnx.Linear(
-        #         in_features=d_model * 2,
-        #         out_features=len(self.config.numeric_indices),
-        #         rngs=rngs,
-        #     ),
-        # )
-        self.numeric_linear1 = nnx.Linear(
-            in_features=d_model * self.config.n_columns,  # self.config.ds_length,
-            out_features=self.d_model * 2,
-            rngs=rngs,
-        )
-        self.numeric_linear2 = nnx.Linear(
-            in_features=d_model * 2,
-            out_features=len(self.config.numeric_col_tokens),
-            rngs=rngs,
-        )
-        self.categorical_dense1 = nnx.Linear(
-            in_features=self.d_model,
-            out_features=len(self.config.token_decoder_dict.items()),
-            rngs=rngs,
-        )
-        self.categorical_dense2 = nnx.Linear(
-            in_features=self.config.n_columns,
-            out_features=len(self.config.categorical_col_tokens),
-            rngs=rngs,
+            config=self.config, d_model=self.d_model, n_heads=self.n_heads
         )
 
-    # config: TimeSeriesConfig
-    # d_model: int = 64 * 10
-    # n_heads: int = 4
+        self.numeric_linear1 = nn.Linear(
+            d_model * self.config.n_columns, self.d_model * 2
+        )
 
-    def __call__(
+        self.numeric_linear2 = nn.Linear(
+            d_model * 2, len(self.config.numeric_col_tokens)
+        )
+
+        self.categorical_dense1 = nn.Linear(
+            self.d_model, len(self.config.token_decoder_dict.items())
+        )
+
+        self.categorical_dense2 = nn.Linear(
+            self.config.n_columns, len(self.config.categorical_col_tokens)
+        )
+
+    def forward(
         self,
-        numeric_inputs: jnp.array,
-        categorical_inputs: Optional[jnp.array] = None,
+        numeric_inputs: torch.Tensor,
+        categorical_inputs: Optional[torch.Tensor] = None,
         deterministic: bool = False,
         causal_mask: bool = True,
-    ) -> jnp.array:
-        """Forward pass of the decoder.
+    ) -> Dict[str, torch.Tensor]:
+        """Forward pass of the decoder."""
+        # Convert inputs to PyTorch tensors if they aren't already
+        if not isinstance(numeric_inputs, torch.Tensor):
+            numeric_inputs = torch.tensor(
+                numeric_inputs,
+                dtype=torch.float32,
+                device=next(self.parameters()).device,
+            )
 
-        Args:
-            numeric_inputs (jnp.array): Numeric inputs.
-            categorical_inputs (Optional[jnp.array]): Categorical inputs.
-            deterministic (bool, optional): Whether to use deterministic dropout. Defaults to False.
-            causal_mask (bool, optional): Whether to use a causal mask. Defaults to True.
+        if categorical_inputs is not None and not isinstance(
+            categorical_inputs, torch.Tensor
+        ):
+            categorical_inputs = torch.tensor(
+                categorical_inputs,
+                dtype=torch.long,
+                device=next(self.parameters()).device,
+            )
 
-        Returns:
-            dict: Dictionary containing numeric and categorical outputs.
-        """
         out = self.time_series_transformer(
             numeric_inputs=numeric_inputs,
-            categorical_inputs=jnp.astype(categorical_inputs, jnp.int32),
+            categorical_inputs=categorical_inputs,
             deterministic=deterministic,
             causal_mask=causal_mask,
         )
 
-        numeric_out = out.swapaxes(1, 2)
+        numeric_out = out.transpose(1, 2)
         numeric_out = numeric_out.reshape(
             numeric_out.shape[0], numeric_out.shape[1], -1
-        )  # TODO This is wrong. Make this
-        #  TODO WORK HERE!!!!! be of shape (batch_size, )
+        )
 
-        # numeric_out = self.sequential(numeric_out)
-        ic("Starting shit")
+        ic("Starting numeric output processing")
         ic(numeric_out.shape, self.config.ds_length)
         numeric_out = self.numeric_linear1(numeric_out)
-        ic(numeric_out.shape)
-        numeric_out = nnx.relu(numeric_out)
-        ic(numeric_out.shape)
         numeric_out = self.numeric_linear2(numeric_out)
-        ic(numeric_out.shape)
-        numeric_out = numeric_out.swapaxes(1, 2)
 
-        if categorical_inputs is not None:
-            categorical_out = out.copy()
-            ic(categorical_out.shape)
-            categorical_out = self.categorical_dense1(categorical_out)
+        categorical_out = self.categorical_dense1(out)
+        categorical_out = self.categorical_dense2(categorical_out)
 
-            categorical_out = nnx.relu(categorical_out)
-
-            # categorical_out = categorical_out.swapaxes(1, 3)
-            ic(
-                "Categorical after dense1",
-                categorical_out.shape,
-            )
-            categorical_out = categorical_out.swapaxes(1, 3)
-            ic("Categorical out after first swap", categorical_out.shape)
-            categorical_out = self.categorical_dense2(categorical_out)
-            ic("Categorical after dense2", categorical_out.shape)
-            categorical_out = categorical_out.swapaxes(1, 3)
-            ic("Categorical after swap", categorical_out.shape)
-
-        else:
-            categorical_out = None
-
-        return {"numeric_out": numeric_out, "categorical_out": categorical_out}
+        return {
+            "numeric": numeric_out,
+            "categorical": categorical_out,
+        }
 
 
-class PositionalEncoding(nnx.Module):
+class PositionalEncoding(nn.Module):
     """
     Positional encoding module.
 
@@ -961,46 +832,58 @@ class PositionalEncoding(nnx.Module):
     """
 
     def __init__(self, max_len: int, d_pos_encoding: int):
+        super().__init__()
         self.max_len = max_len  # Maximum length of the input sequences
         self.d_pos_encoding = d_pos_encoding  # Dimensionality of the embeddings/inputs
 
-    def __call__(self, x):
+    def forward(self, x):
         """
-        Forward pass of the positional encoding. Concatenates positional encoding to
+        Forward pass of the positional encoding. Adds positional encoding to
         the input.
 
         Args:
-            x: Input data. Shape: (batch_size, seq_len, d_model)
+            x: Input data. Shape: (batch_size, n_columns, seq_len, d_model)
 
         Returns:
-            Output with positional encoding added. Shape: (batch_size, seq_len, d_model)
+            Output with positional encoding added. Shape: (batch_size, n_columns, seq_len, d_model)
         """
         n_epochs, n_columns, seq_len, _ = x.shape
         if seq_len > self.max_len:
             raise ValueError(
-                f"Sequence length {seq_len} is larger than the",
-                f"maximum length {self.max_len}",
+                f"Sequence length {seq_len} is larger than the "
+                f"maximum length {self.max_len}"
             )
 
         # Calculate positional encoding
-        position = jnp.arange(self.max_len)[:, jnp.newaxis]
-        div_term = jnp.exp(
-            jnp.arange(0, self.d_pos_encoding, 2)
-            * -(jnp.log(10000.0) / self.d_pos_encoding)
+        position = torch.arange(
+            self.max_len, dtype=torch.float, device=x.device
+        ).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, self.d_pos_encoding, 2, dtype=torch.float, device=x.device)
+            * (-math.log(10000.0) / self.d_pos_encoding)
         )
-        pe = jnp.zeros((self.max_len, self.d_pos_encoding))
-        pe = pe.at[:, 0::2].set(jnp.sin(position * div_term))
-        pe = pe.at[:, 1::2].set(jnp.cos(position * div_term))
+
+        pe = torch.zeros((self.max_len, self.d_pos_encoding), device=x.device)
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+
+        # Slice to required sequence length
         pe = pe[:seq_len, :]
-        pe = pe[None, :, :, None]
 
-        pe = jnp.tile(pe, (n_epochs, 1, 1, n_columns))
+        # Reshape for broadcasting
+        pe = pe.unsqueeze(0).unsqueeze(3)  # Shape: (1, seq_len, d_pos_encoding, 1)
 
-        pe = pe.transpose((0, 3, 1, 2))  #
+        # Repeat to match batch and columns dimensions
+        pe = pe.repeat(
+            n_epochs, 1, 1, n_columns
+        )  # Shape: (n_epochs, seq_len, d_pos_encoding, n_columns)
 
+        # Permute to match input dimensions
+        pe = pe.permute(
+            0, 3, 1, 2
+        )  # Shape: (n_epochs, n_columns, seq_len, d_pos_encoding)
+
+        # Add to input
         result = x + pe
 
         return result
-
-
-# %%
