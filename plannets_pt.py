@@ -10,12 +10,14 @@ import torch
 
 # Add these imports
 from icecream import ic
+from torch.utils.data import DataLoader
 
 # from torch.utils.tensorboard import SummaryWriter
 from tqdm.notebook import tqdm
 from transformers import BertTokenizerFast, FlaxBertModel
 
 from hephaestus.models.models import TimeSeriesConfig, TimeSeriesDecoder, TimeSeriesDS
+from hephaestus.training.training_loop import train_model  # Fixed import path
 
 # %%
 print("Hello")
@@ -160,8 +162,12 @@ def make_batch(ds: TimeSeriesDS, start: int, length: int):
     categorical_array = np.array(categorical)
 
     return {
-        "numeric": torch.tensor(numeric_array, dtype=torch.float32),
-        "categorical": torch.tensor(categorical_array, dtype=torch.float32),
+        "numeric": torch.tensor(
+            numeric_array, dtype=torch.float32
+        ),  # Explicitly use float32
+        "categorical": torch.tensor(
+            categorical_array, dtype=torch.float32
+        ),  # Explicitly use float32
     }
 
 
@@ -237,4 +243,150 @@ print(
     "Prediction contains NaN (categorical):",
     torch.isnan(prediction["categorical"]).any().item(),
 )
+
 # %%
+# Modify the main execution code to use the proper multiprocessing pattern
+ic.disable()
+
+
+# Add this near the end, replacing your current training setup
+def run_training():
+    # Set up the training loop
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
+    # Create DataLoaders for train and test datasets
+    # Set num_workers=0 to avoid multiprocessing issues on macOS
+    batch_size = 32
+
+    # Either use the loaders directly in the training loop below:
+    # train_loader = DataLoader(
+    #     train_ds,
+    #     batch_size=batch_size,
+    #     shuffle=True,
+    #     num_workers=0,
+    #     pin_memory=True if torch.cuda.is_available() else False,
+    # )
+    #
+    # test_loader = DataLoader(
+    #     test_ds,
+    #     batch_size=batch_size,
+    #     shuffle=False,
+    #     num_workers=0,
+    #     pin_memory=True if torch.cuda.is_available() else False,
+    # )
+
+    # Or completely remove the loaders if not using them
+
+    # Move model to device
+    tabular_decoder.to(device)
+
+    # Ensure model is using float32
+    for param in tabular_decoder.parameters():
+        if param.dtype != torch.float32:
+            param.data = param.data.to(torch.float32)
+
+    # Set up training parameters
+    learning_rate = 1e-4
+    num_epochs = 50
+    log_dir = "runs/planets_experiment"
+    save_dir = "models/planets"
+
+    # Train the model
+    history = train_model(
+        model=tabular_decoder,
+        train_dataset=train_ds,
+        val_dataset=test_ds,
+        batch_size=batch_size,
+        epochs=num_epochs,
+        learning_rate=learning_rate,
+        log_dir=log_dir,
+        save_dir=save_dir,
+        device=device,
+    )
+
+    # Visualize training history
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(12, 4))
+    plt.subplot(1, 2, 1)
+    plt.plot(history["train_loss"], label="Train Loss")
+    plt.plot(history["val_loss"], label="Val Loss")
+    plt.title("Total Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.legend()
+
+    plt.subplot(1, 2, 2)
+    plt.plot(history["train_numeric_loss"], label="Train Numeric")
+    plt.plot(history["train_categorical_loss"], label="Train Categorical")
+    plt.plot(history["val_numeric_loss"], label="Val Numeric")
+    plt.plot(history["val_categorical_loss"], label="Val Categorical")
+    plt.title("Component Losses")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    # When evaluating the best model, create the test_loader here
+    best_model_path = os.path.join(save_dir, "best_model.pt")
+    if os.path.exists(best_model_path):
+        checkpoint = torch.load(best_model_path, map_location=device)
+        tabular_decoder.load_state_dict(checkpoint["model_state_dict"])
+        print(
+            f"Loaded best model from epoch {checkpoint['epoch']} with validation loss {checkpoint['val_loss']:.4f}"
+        )
+
+        # Create test loader for evaluation
+        test_loader = DataLoader(
+            test_ds,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=0,
+            pin_memory=True if torch.cuda.is_available() else False,
+        )
+
+        # Evaluate on test set
+        tabular_decoder.eval()
+        test_losses = {"loss": 0.0, "numeric_loss": 0.0, "categorical_loss": 0.0}
+
+        with torch.no_grad():
+            for batch in tqdm(test_loader, desc="Evaluating test set"):
+                # Move batch to device
+                for key in batch:
+                    batch[key] = batch[key].to(device)
+
+                # Get predictions
+                outputs = tabular_decoder(
+                    numeric_inputs=batch["numeric"],
+                    categorical_inputs=batch["categorical"],
+                )
+
+                # Calculate losses
+                from hephaestus.training.training import categorical_loss, numeric_loss
+
+                numeric_loss_val = numeric_loss(batch["numeric"], outputs["numeric"])
+                categorical_loss_val = categorical_loss(
+                    batch["categorical"], outputs["categorical"]
+                )
+                total_loss = numeric_loss_val + categorical_loss_val
+
+                test_losses["loss"] += total_loss.item()
+                test_losses["numeric_loss"] += numeric_loss_val.item()
+                test_losses["categorical_loss"] += categorical_loss_val.item()
+
+        # Average losses - this now works because test_loader is defined
+        for key in test_losses:
+            test_losses[key] /= len(test_loader)
+
+        print(f"Test Loss: {test_losses['loss']:.4f}")
+        print(f"Test Numeric Loss: {test_losses['numeric_loss']:.4f}")
+        print(f"Test Categorical Loss: {test_losses['categorical_loss']:.4f}")
+    return history
+
+
+# Add this at the very end of the file
+if __name__ == "__main__":
+    # This is critical for multiprocessing with PyTorch DataLoader
+    history = run_training()

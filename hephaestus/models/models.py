@@ -314,6 +314,9 @@ class FeedForwardNetwork(nn.Module):
 
     def forward(self, x, deterministic: bool = False):
         """Forward pass of the feed-forward network."""
+        # Ensure x is float32 to prevent dtype issues
+        x = x.to(torch.float32)
+
         # Save original shape
         orig_shape = x.shape
 
@@ -361,6 +364,23 @@ class TransformerBlock(nn.Module):
         )
         self.layer_norm2 = nn.LayerNorm(d_model)
 
+        # Initialize weights with consistent dtype
+        self._init_weights()
+
+    def _init_weights(self):
+        """Initialize model weights with consistent data type"""
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight.data)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias.data, 0)
+            elif isinstance(module, nn.LayerNorm):
+                nn.init.constant_(module.weight.data, 1.0)
+                nn.init.constant_(module.bias.data, 0.0)
+                # Ensure LayerNorm parameters are float32
+                module.weight.data = module.weight.data.to(torch.float32)
+                module.bias.data = module.bias.data.to(torch.float32)
+
     def forward(
         self,
         q: torch.Tensor,
@@ -376,6 +396,13 @@ class TransformerBlock(nn.Module):
             mask_shape = None
         ic("Transformer Block", q.shape, k.shape, v.shape, mask_shape)
 
+        # Ensure consistent data types - convert all to float32
+        q = q.to(torch.float32)
+        k = k.to(torch.float32)
+        v = v.to(torch.float32)
+        if mask is not None:
+            mask = mask.to(q.device)
+
         # Use our custom 4D MultiHeadAttention
         attention_output, _ = self.multi_head_attention(
             query=q, key=k, value=v, mask=mask
@@ -386,6 +413,9 @@ class TransformerBlock(nn.Module):
         # Apply layer norm to last dimension - handles 4D tensor
         batch_size, n_columns, seq_len, _ = out.shape
         out = out.view(-1, self.d_model)
+
+        # Ensure LayerNorm operates on float32
+        out = out.to(torch.float32)
         out = self.layer_norm1(out)
         out = out.view(batch_size, n_columns, seq_len, self.d_model)
 
@@ -395,6 +425,9 @@ class TransformerBlock(nn.Module):
 
         # Apply layer norm to last dimension
         out = out.view(-1, self.d_model)
+
+        # Ensure LayerNorm operates on float32
+        out = out.to(torch.float32)
         out = self.layer_norm2(out)
         out = out.view(batch_size, n_columns, seq_len, self.d_model)
 
@@ -509,9 +542,18 @@ class TimeSeriesTransformer(nn.Module):
                     nn.init.constant_(module.bias, 0)
             elif isinstance(module, nn.Embedding):
                 nn.init.normal_(module.weight, mean=0, std=0.02)
+                module.weight.data = module.weight.data.to(torch.float32)
+            elif isinstance(module, nn.LayerNorm):
+                nn.init.constant_(module.weight.data, 1.0)
+                nn.init.constant_(module.bias.data, 0.0)
+                module.weight.data = module.weight.data.to(torch.float32)
+                module.bias.data = module.bias.data.to(torch.float32)
 
     def process_numeric(self, numeric_inputs: torch.Tensor) -> ProcessedEmbeddings:
         """Processes the numeric inputs for the transformer model."""
+        # Ensure consistent data type
+        numeric_inputs = numeric_inputs.to(torch.float32)
+
         # More robust NaN handling
         nan_mask = torch.isnan(numeric_inputs).detach()
 
@@ -528,6 +570,9 @@ class TimeSeriesTransformer(nn.Module):
                 next(self.parameters()).device
             )
 
+        # Convert to long for embedding lookup
+        numeric_indices = numeric_indices.long()
+
         repeated_numeric_indices = numeric_indices.repeat(
             numeric_inputs.shape[2], 1
         ).t()
@@ -543,6 +588,7 @@ class TimeSeriesTransformer(nn.Module):
             torch.tensor(
                 self.config.token_dict[self.config.numeric_token],
                 device=next(self.parameters()).device,
+                dtype=torch.long,
             )
         )
         ic(numeric_embedding.shape)
@@ -553,7 +599,9 @@ class TimeSeriesTransformer(nn.Module):
 
         # Replace NaN values with mask token embedding
         mask_token = torch.tensor(
-            self.config.numeric_mask_token, device=next(self.parameters()).device
+            self.config.numeric_mask_token,
+            device=next(self.parameters()).device,
+            dtype=torch.long,
         )
         mask_embedding = self.embedding(mask_token)
         numeric_embedding = torch.where(
@@ -561,6 +609,10 @@ class TimeSeriesTransformer(nn.Module):
             mask_embedding.expand_as(numeric_embedding),
             numeric_embedding,
         )
+
+        # Ensure output is float32
+        numeric_embedding = numeric_embedding.to(torch.float32)
+        numeric_col_embeddings = numeric_col_embeddings.to(torch.float32)
 
         ic(numeric_embedding.shape)
         return ProcessedEmbeddings(
@@ -575,11 +627,15 @@ class TimeSeriesTransformer(nn.Module):
         if categorical_inputs is None:
             return ProcessedEmbeddings(None, None)
 
+        # Ensure consistent data type
+        categorical_inputs = categorical_inputs.to(torch.float32)
+
         # Make sure nans are set to <NAN> token
         nan_mask = torch.isnan(categorical_inputs)
         mask_token = torch.tensor(
             self.config.token_dict["[NUMERIC_MASK]"],
             device=next(self.parameters()).device,
+            dtype=torch.long,
         )
         categorical_inputs = torch.where(
             nan_mask, mask_token.expand_as(categorical_inputs), categorical_inputs
@@ -601,6 +657,9 @@ class TimeSeriesTransformer(nn.Module):
                 next(self.parameters()).device
             )
 
+        # Convert to long for embedding lookup
+        categorical_indices = categorical_indices.long()
+
         ic(
             "Issue here",
             categorical_inputs.shape,
@@ -621,6 +680,10 @@ class TimeSeriesTransformer(nn.Module):
             categorical_inputs.shape[0], -1, -1, -1
         )
         ic(categorical_col_embeddings.shape)
+
+        # Ensure output is float32
+        categorical_embeddings = categorical_embeddings.to(torch.float32)
+        categorical_col_embeddings = categorical_col_embeddings.to(torch.float32)
 
         return ProcessedEmbeddings(
             column_embeddings=categorical_col_embeddings,
@@ -811,6 +874,10 @@ class TimeSeriesDecoder(nn.Module):
                 nn.init.xavier_uniform_(module.weight)
                 if module.bias is not None:
                     nn.init.constant_(module.bias, 0)
+                # Ensure consistent data type
+                module.weight.data = module.weight.data.to(torch.float32)
+                if module.bias is not None:
+                    module.bias.data = module.bias.data.to(torch.float32)
 
     def forward(
         self,
@@ -827,15 +894,21 @@ class TimeSeriesDecoder(nn.Module):
                 dtype=torch.float32,
                 device=next(self.parameters()).device,
             )
+        else:
+            # Ensure numeric_inputs is float32
+            numeric_inputs = numeric_inputs.to(torch.float32)
 
         if categorical_inputs is not None and not isinstance(
             categorical_inputs, torch.Tensor
         ):
             categorical_inputs = torch.tensor(
                 categorical_inputs,
-                dtype=torch.long,
+                dtype=torch.float32,  # Changed from torch.long to ensure consistent dtypes
                 device=next(self.parameters()).device,
             )
+        elif categorical_inputs is not None:
+            # Ensure categorical_inputs is float32
+            categorical_inputs = categorical_inputs.to(torch.float32)
 
         # Check for NaNs in input data
         if torch.isnan(numeric_inputs).any():
