@@ -50,6 +50,9 @@ def train_model(
 
     # Move model to device
     model = model.to(device)
+    model.train()
+    for param in model.parameters():
+        param.data = param.data.to(torch.float32)
 
     # Create data loaders
     train_loader = DataLoader(
@@ -107,6 +110,10 @@ def train_model(
                     batch[key] = batch[key].to(device)
                     # Ensure data type consistency
                     batch[key] = batch[key].to(torch.float32)
+
+            # Convert batch to float32
+            for key in batch:
+                batch[key] = batch[key].to(device).to(torch.float32)
 
             # Train step
             batch_losses = train_step(model, batch, optimizer)

@@ -2,6 +2,7 @@
 import ast
 import os
 import re
+from datetime import datetime as dt
 
 import icecream
 import numpy as np
@@ -269,25 +270,6 @@ def run_training():
     # Set num_workers=0 to avoid multiprocessing issues on macOS
     batch_size = 64
 
-    # Either use the loaders directly in the training loop below:
-    # train_loader = DataLoader(
-    #     train_ds,
-    #     batch_size=batch_size,
-    #     shuffle=True,
-    #     num_workers=0,
-    #     pin_memory=True if torch.cuda.is_available() else False,
-    # )
-    #
-    # test_loader = DataLoader(
-    #     test_ds,
-    #     batch_size=batch_size,
-    #     shuffle=False,
-    #     num_workers=0,
-    #     pin_memory=True if torch.cuda.is_available() else False,
-    # )
-
-    # Or completely remove the loaders if not using them
-
     # Move model to device
     tabular_decoder.to(device)
 
@@ -299,7 +281,7 @@ def run_training():
     # Set up training parameters
     learning_rate = 1e-4
     num_epochs = 50
-    log_dir = "runs/planets_experiment"
+    log_dir = f"runs/{dt.now()}planets_experiment"
     save_dir = "models/planets"
 
     # Train the model

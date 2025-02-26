@@ -89,80 +89,34 @@ def add_input_offsets(inputs, outputs, inputs_offset=1):
     return inputs, outputs, nan_mask
 
 
-def numeric_loss(inputs: torch.Tensor, outputs: torch.Tensor) -> torch.Tensor:
-    """
-    Compute the MSE loss for numeric outputs, ignoring NaN values.
+def numeric_loss(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
+    """Calculate numeric loss between true and predicted values."""
+    # Ensure float32 dtype
+    y_true = y_true.to(torch.float32)
+    y_pred = y_pred.to(torch.float32)
 
-    Args:
-        inputs: Input numeric values [batch_size, n_cols, seq_len]
-        outputs: Predicted numeric values [batch_size, n_cols, seq_len]
-
-    Returns:
-        torch.Tensor: Scalar MSE loss
-    """
-    # Create mask for non-NaN values in inputs
-    mask = ~torch.isnan(inputs)
-
-    # Replace NaN with zeros for computation
-    inputs_clean = torch.nan_to_num(inputs, nan=0.0)
-
-    # Apply mask to both inputs and outputs
-    masked_inputs = inputs_clean * mask.float()
-    masked_outputs = outputs * mask.float()
-
-    # Calculate MSE on non-NaN elements only
-    mse = F.mse_loss(masked_outputs, masked_inputs, reduction="sum")
-
-    # Normalize by the number of non-NaN values
-    n_valid = mask.sum()
-    if n_valid > 0:
-        mse = mse / n_valid
-
-    return mse
+    # Remove NaN values from the loss calculation
+    mask = ~torch.isnan(y_true)
+    if mask.any():
+        return F.mse_loss(y_pred[mask], y_true[mask], reduction="mean")
+    return torch.tensor(0.0, device=y_true.device, dtype=torch.float32)
 
 
-def categorical_loss(inputs: torch.Tensor, outputs: torch.Tensor) -> torch.Tensor:
-    """
-    Compute the cross entropy loss for categorical outputs, ignoring padding.
+def categorical_loss(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
+    """Calculate categorical loss between true and predicted values."""
+    # Ensure float32 dtype
+    y_true = y_true.to(torch.float32)
+    y_pred = y_pred.to(torch.float32)
 
-    Args:
-        inputs: Input categorical indices [batch_size, n_cat_cols, seq_len]
-        outputs: Model logits [batch_size, n_cat_cols, seq_len, n_tokens]
-
-    Returns:
-        torch.Tensor: Scalar cross entropy loss
-    """
-    # Get dimensions
-    batch_size, n_cols, seq_len = inputs.shape
-    n_tokens = outputs.shape[-1]
-
-    # Create mask for non-NaN values in inputs
-    mask = ~torch.isnan(inputs)
-
-    # Replace NaN with zeros for computation
-    inputs_clean = torch.nan_to_num(inputs, nan=0.0).long()
-
-    # Reshape for cross entropy loss
-    inputs_flat = inputs_clean.reshape(-1)
-    outputs_flat = outputs.reshape(-1, n_tokens)
-    mask_flat = mask.reshape(-1)
-
-    # Only compute loss on non-NaN elements
-    valid_indices = mask_flat.nonzero(as_tuple=True)[0]
-
-    if len(valid_indices) == 0:
-        return torch.tensor(0.0, device=inputs.device)
-
-    valid_inputs = inputs_flat[valid_indices]
-    valid_outputs = outputs_flat[valid_indices]
-
-    # Compute cross entropy loss
-    loss = F.cross_entropy(valid_outputs, valid_inputs, reduction="sum")
-
-    # Normalize by number of valid entries
-    loss = loss / len(valid_indices)
-
-    return loss
+    # Remove NaN values from the loss calculation
+    mask = ~torch.isnan(y_true)
+    if mask.any():
+        return F.cross_entropy(
+            y_pred[mask].reshape(-1, y_pred.size(-1)),
+            y_true[mask].reshape(-1).long(),
+            reduction="mean",
+        )
+    return torch.tensor(0.0, device=y_true.device, dtype=torch.float32)
 
 
 def create_optimizer(
@@ -194,33 +148,36 @@ def create_optimizer(
 
 
 def train_step(model, inputs, optimizer):
-    """Perform a single training step.
-
-    Args:
-        model (TimeSeriesDecoder): The model to train.
-        inputs (dict): Dictionary of inputs.
-        optimizer: The optimizer to use.
-
-    Returns:
-        dict: Dictionary of loss values.
-    """
-    model.train()
+    """Single training step."""
     optimizer.zero_grad()
 
-    res = model(
+    # Ensure all inputs are float32
+    for key in inputs:
+        inputs[key] = inputs[key].to(torch.float32)
+
+    # Forward pass
+    outputs = model(
         numeric_inputs=inputs["numeric"], categorical_inputs=inputs["categorical"]
     )
 
-    # Add debug prints before loss calculation
-    print(f"Numeric inputs shape: {inputs['numeric'].shape}")
-    print(f"Numeric outputs shape: {res['numeric'].shape}")
+    # Calculate losses
+    numeric_loss_val = numeric_loss(inputs["numeric"], outputs["numeric"])
+    categorical_loss_val = (
+        categorical_loss(inputs["categorical"], outputs["categorical"])
+        if outputs["categorical"] is not None
+        else 0.0
+    )
 
-    numeric_loss_value = numeric_loss(inputs["numeric"], res["numeric"])
-    categorical_loss_value = categorical_loss(inputs["categorical"], res["categorical"])
-    loss = numeric_loss_value + categorical_loss_value
+    # Ensure loss is float32
+    if isinstance(categorical_loss_val, (int, float)):
+        categorical_loss_val = torch.tensor(
+            categorical_loss_val, dtype=torch.float32, device=numeric_loss_val.device
+        )
 
-    # Check for NaN values before backprop
-    if torch.isnan(loss).any():
+    loss = numeric_loss_val + categorical_loss_val
+
+    # Check for NaN values
+    if torch.isnan(loss):
         print("Warning: NaN detected in loss. Skipping backpropagation.")
         return {
             "loss": float("nan"),
@@ -232,13 +189,12 @@ def train_step(model, inputs, optimizer):
 
     # Gradient clipping to prevent exploding gradients
     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-
     optimizer.step()
 
     return {
         "loss": loss.item(),
-        "numeric_loss": numeric_loss_value.item(),
-        "categorical_loss": categorical_loss_value.item(),
+        "numeric_loss": numeric_loss_val.item(),
+        "categorical_loss": categorical_loss_val.item(),
     }
 
 
