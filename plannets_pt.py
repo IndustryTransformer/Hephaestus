@@ -279,7 +279,7 @@ def run_training():
 
     # Set up training parameters
     learning_rate = 1e-4
-    num_epochs = 50
+    num_epochs = 2
     timestamp = dt.now().strftime("%Y-t%m-%dT%H-%M-%S")
     log_dir = f"runs/{timestamp}_planets_experiment1"
     save_dir = "models/planets"
