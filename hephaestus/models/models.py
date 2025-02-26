@@ -13,6 +13,8 @@ from icecream import ic
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
 
+from hephaestus.models.multihead_attention import MultiHeadAttention4D
+
 
 def split_complex_word(word):
     """
@@ -312,11 +314,21 @@ class FeedForwardNetwork(nn.Module):
 
     def forward(self, x, deterministic: bool = False):
         """Forward pass of the feed-forward network."""
+        # Save original shape
+        orig_shape = x.shape
+
+        # Reshape for linear layer
+        x = x.view(-1, self.d_model)
+
         x = self.dense1(x)
         x = F.relu(x)
         x = self.dropout(x) if not deterministic else x
         x = self.dense2(x)
         x = self.dropout(x) if not deterministic else x
+
+        # Reshape back to original shape
+        x = x.view(*orig_shape)
+
         return x
 
 
@@ -338,12 +350,11 @@ class TransformerBlock(nn.Module):
         self.d_ff = d_ff
         self.dropout_rate = dropout_rate
 
-        self.multi_head_attention = nn.MultiheadAttention(
-            embed_dim=d_model,
-            num_heads=num_heads,
-            dropout=dropout_rate,
-            batch_first=True,
+        # Replace standard MultiheadAttention with our custom 4D version
+        self.multi_head_attention = MultiHeadAttention4D(
+            embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate
         )
+
         self.layer_norm1 = nn.LayerNorm(d_model)
         self.feed_forward_network = FeedForwardNetwork(
             d_model=self.d_model, d_ff=self.d_ff, dropout_rate=self.dropout_rate
@@ -365,18 +376,28 @@ class TransformerBlock(nn.Module):
             mask_shape = None
         ic("Transformer Block", q.shape, k.shape, v.shape, mask_shape)
 
-        # PyTorch's MultiheadAttention has a different signature than Flax
+        # Use our custom 4D MultiHeadAttention
         attention_output, _ = self.multi_head_attention(
-            query=q, key=k, value=v, attn_mask=mask, need_weights=False
+            query=q, key=k, value=v, mask=mask
         )
 
         out = q + attention_output
+
+        # Apply layer norm to last dimension - handles 4D tensor
+        batch_size, n_columns, seq_len, _ = out.shape
+        out = out.view(-1, self.d_model)
         out = self.layer_norm1(out)
+        out = out.view(batch_size, n_columns, seq_len, self.d_model)
 
         # Feed Forward Network
         ffn = self.feed_forward_network(out, deterministic=deterministic)
         out = out + ffn
+
+        # Apply layer norm to last dimension
+        out = out.view(-1, self.d_model)
         out = self.layer_norm2(out)
+        out = out.view(batch_size, n_columns, seq_len, self.d_model)
+
         return out
 
 
@@ -476,15 +497,26 @@ class TimeSeriesTransformer(nn.Module):
             ]
         )
 
+        # Initialize weights properly
+        self._init_weights()
+
+    def _init_weights(self):
+        """Initialize model weights to prevent NaN issues"""
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0)
+            elif isinstance(module, nn.Embedding):
+                nn.init.normal_(module.weight, mean=0, std=0.02)
+
     def process_numeric(self, numeric_inputs: torch.Tensor) -> ProcessedEmbeddings:
         """Processes the numeric inputs for the transformer model."""
-        # Create a nan mask for the numeric inputs
+        # More robust NaN handling
         nan_mask = torch.isnan(numeric_inputs).detach()
 
         # Replace NaN values with zeros
-        numeric_inputs = torch.where(
-            nan_mask, torch.zeros_like(numeric_inputs), numeric_inputs
-        )
+        numeric_inputs = torch.nan_to_num(numeric_inputs, nan=0.0)
 
         # Process numeric indices
         if not isinstance(self.config.numeric_indices, torch.Tensor):
@@ -763,9 +795,22 @@ class TimeSeriesDecoder(nn.Module):
             self.d_model, len(self.config.token_decoder_dict.items())
         )
 
+        # Fix the input dimension for categorical_dense2
         self.categorical_dense2 = nn.Linear(
-            self.config.n_columns, len(self.config.categorical_col_tokens)
+            len(self.config.token_decoder_dict.items()),
+            len(self.config.categorical_col_tokens),
         )
+
+        # Initialize weights to prevent NaN issues
+        self._init_weights()
+
+    def _init_weights(self):
+        """Initialize model weights to prevent NaN issues"""
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0)
 
     def forward(
         self,
@@ -792,6 +837,11 @@ class TimeSeriesDecoder(nn.Module):
                 device=next(self.parameters()).device,
             )
 
+        # Check for NaNs in input data
+        if torch.isnan(numeric_inputs).any():
+            # Handle NaNs in input more explicitly
+            numeric_inputs = torch.nan_to_num(numeric_inputs, nan=0.0)
+
         out = self.time_series_transformer(
             numeric_inputs=numeric_inputs,
             categorical_inputs=categorical_inputs,
@@ -799,18 +849,48 @@ class TimeSeriesDecoder(nn.Module):
             causal_mask=causal_mask,
         )
 
+        # Check for NaNs after transformer
+        if torch.isnan(out).any():
+            print("Warning: NaNs detected in transformer output")
+            out = torch.nan_to_num(out, nan=0.0)
+
+        # Process numeric output
         numeric_out = out.transpose(1, 2)
         numeric_out = numeric_out.reshape(
             numeric_out.shape[0], numeric_out.shape[1], -1
         )
-
-        ic("Starting numeric output processing")
-        ic(numeric_out.shape, self.config.ds_length)
         numeric_out = self.numeric_linear1(numeric_out)
+        numeric_out = F.relu(numeric_out)  # Add activation function
         numeric_out = self.numeric_linear2(numeric_out)
 
+        # Check for NaNs after numeric processing
+        if torch.isnan(numeric_out).any():
+            print("Warning: NaNs detected in numeric output")
+            numeric_out = torch.nan_to_num(numeric_out, nan=0.0)
+
+        # Process categorical output
+        batch_size, n_columns, seq_len, d_model = out.shape
+
+        # Apply dense1 to last dimension
         categorical_out = self.categorical_dense1(out)
+        categorical_out = F.relu(categorical_out)  # Add activation function
+
+        # Reshape to [batch_size*n_columns*seq_len, n_tokens]
+        categorical_out = categorical_out.reshape(-1, categorical_out.size(-1))
+
+        # Apply dense2 to each token set
         categorical_out = self.categorical_dense2(categorical_out)
+
+        # Reshape back
+        categorical_out = categorical_out.reshape(batch_size, n_columns, seq_len, -1)
+        categorical_out = categorical_out.permute(0, 2, 1, 3).reshape(
+            batch_size, seq_len, -1
+        )
+
+        # Check for NaNs after categorical processing
+        if torch.isnan(categorical_out).any():
+            print("Warning: NaNs detected in categorical output")
+            categorical_out = torch.nan_to_num(categorical_out, nan=0.0)
 
         return {
             "numeric": numeric_out,
