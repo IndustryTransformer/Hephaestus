@@ -23,17 +23,15 @@ from hephaestus.analysis.analysis import (
     create_test_inputs_df,
     plot_column_variants,
 )
-from hephaestus.models.models import (
+from hephaestus.models import (
     TimeSeriesConfig,
     TimeSeriesDecoder,
     TimeSeriesDS,
-    TimeSeriesOutput,
 )
 from hephaestus.training.training_loop import train_model  # Fixed import path
 
 # %%
 torch.set_default_dtype(torch.float32)
-print("Hello")
 # %%
 icecream.install()
 ic_disable = False  # Global variable to disable ic
@@ -151,48 +149,9 @@ len(train_ds), len(test_ds)
 train_ds[0]
 
 
-# def make_batch(ds: TimeSeriesDS, start: int, length: int):
-#     """Create a batch of data from the dataset.
-
-#     Args:
-#         ds (hp.TimeSeriesDS): The dataset to create a batch from.
-#         start (int): The starting index of the batch.
-#         length (int): The length of the batch.
-
-#     Returns:
-#         dict: Dictionary containing numeric and categorical data.
-#     """
-#     batch = []
-#     for i in range(start, length + start):
-#         batch.append(ds[i])
-#     # Convert to numpy arrays first to avoid the warning
-#     numeric_array = np.array(numeric)
-#     categorical_array = np.array(categorical)
-
-#     return {
-#         "numeric": torch.tensor(
-#             numeric_array, dtype=torch.float32
-#         ),  # Explicitly use float32
-#         "categorical": torch.tensor(
-#             categorical_array, dtype=torch.float32
-#         ),  # Explicitly use float32
-#     }
-
-
 # %%
 N_HEADS = 8 * 4
 tabular_decoder = TimeSeriesDecoder(time_series_config, d_model=512, n_heads=N_HEADS)
-
-
-# After creating the model, add debugging function
-def check_model_for_nans(model):
-    """Check for NaNs in model parameters"""
-    has_nan = False
-    for name, param in model.named_parameters():
-        if torch.isnan(param).any():
-            print(f"NaN found in parameter {name}")
-            has_nan = True
-    return has_nan
 
 
 # %%
@@ -237,14 +196,6 @@ example_batch = train_ds[0:6]
 numeric_data = example_batch.numeric.to(device)
 categorical_data = example_batch.categorical.to(device)
 # %%
-# Add this just before the prediction
-print("Checking model parameters for NaNs:")
-has_nan_params = check_model_for_nans(tabular_decoder)
-if has_nan_params:
-    print("NaNs found in model parameters. Reinitializing...")
-    # Reinitialize the model to try to resolve NaN issues
-    tabular_decoder = TimeSeriesDecoder(time_series_config, d_model=512, n_heads=8)
-    tabular_decoder.to(device)
 
 # Before making a prediction, do a sanity check on inputs
 print("Input shapes:", numeric_data.shape, categorical_data.shape)
@@ -253,35 +204,14 @@ print("Input contains NaN (categorical):", torch.isnan(categorical_data).any().i
 
 # Make a prediction using the model
 with torch.no_grad():
-    # Use try/except to catch and debug any runtime errors
-    try:
-        prediction = tabular_decoder(numeric_data, categorical_data)
+    prediction = tabular_decoder(numeric_data, categorical_data)
 
-        # Move predictions back to CPU for numpy operations if needed
-        prediction = prediction.to("cpu")
+    # Move predictions back to CPU for numpy operations if needed
+    prediction = prediction.to("cpu")
 
-        prediction.numeric = prediction.numeric.transpose(1, 2)
-        prediction.categorical = prediction.categorical.permute(0, 2, 1, 3)
+    prediction.numeric = prediction.numeric.transpose(1, 2)
+    prediction.categorical = prediction.categorical.permute(0, 2, 1, 3)
 
-        # Handle error case differently
-    except RuntimeError as e:
-        print(f"Error during prediction: {e}")
-        prediction = TimeSeriesOutput(
-            numeric=torch.zeros_like(numeric_data),
-            categorical=torch.zeros_like(categorical_data[:, :, 0]).unsqueeze(-1),
-        )
-
-        # Check if prediction contains NaNs
-        if torch.isnan(prediction.numeric).any() or (
-            prediction.categorical is not None
-            and torch.isnan(prediction.categorical).any()
-        ):
-            print("Warning: NaNs in prediction. Applying nan_to_num...")
-            prediction.numeric = torch.nan_to_num(prediction.numeric, nan=0.0)
-            if prediction.categorical is not None:
-                prediction.categorical = torch.nan_to_num(
-                    prediction.categorical, nan=0.0
-                )
 
 # Print prediction summary instead of all values
 print("Prediction numeric shape:", prediction.numeric.shape)

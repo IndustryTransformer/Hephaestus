@@ -1,2 +1,2 @@
 # ruff: noqa: F401
-from .helpers import get_git_commit_hash, make_batch
+from .helpers import get_git_commit_hash
