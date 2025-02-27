@@ -300,7 +300,7 @@ def run_training():
     max_explosion_count = 5  # Allow this many explosions before reducing LR permanently
 
     timestamp = dt.now().strftime("%Y-%m-%dT%H-%M-%S")
-    log_dir = f"runs/{timestamp}_planets_stable"
+    log_dir = f"runs/{timestamp}_WTF_IS_GOING_ON"
     save_dir = "models/planets"
 
     # Ensure log directory exists
