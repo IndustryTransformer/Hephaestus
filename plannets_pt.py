@@ -17,7 +17,12 @@ from torch.utils.data import DataLoader
 from tqdm.notebook import tqdm
 from transformers import BertTokenizerFast, FlaxBertModel
 
-from hephaestus.models.models import TimeSeriesConfig, TimeSeriesDecoder, TimeSeriesDS
+from hephaestus.models.models import (
+    TimeSeriesConfig,
+    TimeSeriesDecoder,
+    TimeSeriesDS,
+    TimeSeriesOutput,
+)
 from hephaestus.training.training_loop import train_model  # Fixed import path
 
 # %%
@@ -247,35 +252,41 @@ with torch.no_grad():
         prediction = tabular_decoder(numeric_data, categorical_data)
 
         # Move predictions back to CPU for numpy operations if needed
-        prediction = {k: v.cpu() for k, v in prediction.items()}
+        prediction = prediction.to("cpu")
 
-        prediction["numeric"] = prediction["numeric"].transpose(1, 2)
-        prediction["categorical"] = prediction["categorical"].permute(0, 2, 1, 3)
+        prediction.numeric = prediction.numeric.transpose(1, 2)
+        prediction.categorical = prediction.categorical.permute(0, 2, 1, 3)
 
         # Handle error case differently
     except RuntimeError as e:
         print(f"Error during prediction: {e}")
-        prediction = {
-            "numeric": torch.zeros_like(numeric_data),
-            "categorical": torch.zeros_like(categorical_data[:, :, 0]).unsqueeze(-1),
-        }
+        prediction = TimeSeriesOutput(
+            numeric=torch.zeros_like(numeric_data),
+            categorical=torch.zeros_like(categorical_data[:, :, 0]).unsqueeze(-1),
+        )
 
         # Check if prediction contains NaNs
-        if any(torch.isnan(tensor).any() for tensor in prediction.values()):
+        if torch.isnan(prediction.numeric).any() or (
+            prediction.categorical is not None
+            and torch.isnan(prediction.categorical).any()
+        ):
             print("Warning: NaNs in prediction. Applying nan_to_num...")
-            for key in prediction:
-                prediction[key] = torch.nan_to_num(prediction[key], nan=0.0)
+            prediction.numeric = torch.nan_to_num(prediction.numeric, nan=0.0)
+            if prediction.categorical is not None:
+                prediction.categorical = torch.nan_to_num(
+                    prediction.categorical, nan=0.0
+                )
 
 # Print prediction summary instead of all values
-print("Prediction numeric shape:", prediction["numeric"].shape)
-print("Prediction categorical shape:", prediction["categorical"].shape)
+print("Prediction numeric shape:", prediction.numeric.shape)
+print("Prediction categorical shape:", prediction.categorical.shape)
 print(
     "Prediction contains NaN (numeric):",
-    torch.isnan(prediction["numeric"]).any().item(),
+    torch.isnan(prediction.numeric).any().item(),
 )
 print(
     "Prediction contains NaN (categorical):",
-    torch.isnan(prediction["categorical"]).any().item(),
+    torch.isnan(prediction.categorical).any().item(),
 )
 
 # %%

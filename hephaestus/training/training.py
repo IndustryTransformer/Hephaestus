@@ -145,11 +145,11 @@ def train_step(
 
     # Calculate losses with better error reporting
     try:
-        numeric_loss_val = numeric_loss(inputs.numeric, outputs["numeric"])
+        numeric_loss_val = numeric_loss(inputs.numeric, outputs.numeric)
         categorical_loss_val = (
-            categorical_loss(inputs.categorical, outputs["categorical"])
-            if outputs["categorical"] is not None
-            else torch.tensor(0.0, device=inputs["numeric"].device)
+            categorical_loss(inputs.categorical, outputs.categorical)
+            if outputs.categorical is not None
+            else torch.tensor(0.0, device=inputs.numeric.device)
         )
     except Exception as e:
         print(f"Error calculating loss: {e}")
@@ -269,10 +269,8 @@ def eval_step(model, inputs):
             numeric_inputs=inputs.numeric, categorical_inputs=inputs.categorical
         )
 
-        numeric_loss_value = numeric_loss(inputs.numeric, res["numeric"])
-        categorical_loss_value = categorical_loss(
-            inputs.categorical, res["categorical"]
-        )
+        numeric_loss_value = numeric_loss(inputs.numeric, res.numeric)
+        categorical_loss_value = categorical_loss(inputs.categorical, res.categorical)
         loss = numeric_loss_value + categorical_loss_value
 
     return {
@@ -299,14 +297,14 @@ def create_metric_history():
 
 
 def compute_batch_loss(
-    model_output: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
+    model_output, batch
 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
     """
     Compute the combined loss for a batch.
 
     Args:
-        model_output: Dictionary with 'numeric' and 'categorical' tensors
-        batch: Dictionary with input 'numeric' and 'categorical' tensors
+        model_output: TimeSeriesOutput with 'numeric' and 'categorical' tensors
+        batch: TimeSeriesInputs with input 'numeric' and 'categorical' tensors
 
     Returns:
         total_loss: Combined loss value
@@ -315,13 +313,17 @@ def compute_batch_loss(
     losses = {}
 
     # Numeric loss
-    if "numeric" in model_output and "numeric" in batch:
-        num_loss = numeric_loss(batch["numeric"], model_output["numeric"])
+    if hasattr(model_output, "numeric") and hasattr(batch, "numeric"):
+        num_loss = numeric_loss(batch.numeric, model_output.numeric)
         losses["numeric_loss"] = num_loss
 
     # Categorical loss
-    if "categorical" in model_output and "categorical" in batch:
-        cat_loss = categorical_loss(batch["categorical"], model_output["categorical"])
+    if (
+        hasattr(model_output, "categorical")
+        and hasattr(batch, "categorical")
+        and model_output.categorical is not None
+    ):
+        cat_loss = categorical_loss(batch.categorical, model_output.categorical)
         losses["categorical_loss"] = cat_loss
 
     # Total loss is the sum of component losses

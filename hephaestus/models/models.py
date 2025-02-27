@@ -2,7 +2,7 @@
 import math
 import re
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -254,6 +254,79 @@ class TimeSeriesInputs:
         if self.categorical is not None:
             self.categorical = self.categorical.to(device)
         return self
+
+
+@dataclass
+class TimeSeriesOutput:
+    """
+    Data class to store time series model outputs.
+
+    Attributes:
+        numeric: Numeric outputs from the model.
+        categorical: Categorical outputs from the model, may be None if no categorical data exists.
+    """
+
+    numeric: torch.Tensor
+    categorical: Optional[torch.Tensor] = None
+
+    def to(self, device: torch.device):
+        """
+        Move tensors to the specified device.
+
+        Args:
+            device: The device to move tensors to (e.g., 'cuda', 'cpu', or torch.device)
+
+        Returns:
+            TimeSeriesOutput: Self with tensors moved to the specified device
+        """
+        self.numeric = self.numeric.to(device)
+        if self.categorical is not None:
+            self.categorical = self.categorical.to(device)
+        return self
+
+    def items(self):
+        """
+        Return a dictionary-like items view for backward compatibility.
+
+        Returns:
+            An items iterator similar to dict.items()
+        """
+        result = {"numeric": self.numeric}
+        if self.categorical is not None:
+            result["categorical"] = self.categorical
+        return result.items()
+
+    def __getitem__(self, key):
+        """
+        Support dictionary-style access for backward compatibility.
+
+        Args:
+            key: The key to access ('numeric' or 'categorical')
+
+        Returns:
+            The corresponding tensor
+
+        Raises:
+            KeyError: If key is not 'numeric' or 'categorical'
+        """
+        if key == "numeric":
+            return self.numeric
+        elif key == "categorical":
+            return self.categorical
+        else:
+            raise KeyError(f"Invalid key: {key}")
+
+    def values(self):
+        """
+        Return values for backward compatibility with dictionary.
+
+        Returns:
+            List of tensor values
+        """
+        result = [self.numeric]
+        if self.categorical is not None:
+            result.append(self.categorical)
+        return result
 
 
 class TimeSeriesDS(Dataset):
@@ -1018,7 +1091,7 @@ class TimeSeriesDecoder(nn.Module):
         categorical_inputs: Optional[torch.Tensor] = None,
         deterministic: bool = False,
         causal_mask: bool = True,
-    ) -> Dict[str, torch.Tensor]:
+    ) -> TimeSeriesOutput:
         """Forward pass of the decoder."""
         # Convert inputs to PyTorch tensors if they aren't already
         if not isinstance(numeric_inputs, torch.Tensor):
@@ -1113,10 +1186,10 @@ class TimeSeriesDecoder(nn.Module):
             print("Warning: NaNs detected in categorical output")
             categorical_out = torch.nan_to_num(categorical_out, nan=0.0)
 
-        return {
-            "numeric": numeric_out,
-            "categorical": categorical_out,
-        }
+        return TimeSeriesOutput(
+            numeric=numeric_out,
+            categorical=categorical_out,
+        )
 
 
 class PositionalEncoding(nn.Module):
