@@ -7,7 +7,7 @@ import seaborn as sns
 import torch
 from matplotlib import pyplot as plt
 
-from ..models.models_torch import TimeSeriesConfig, TimeSeriesDecoder
+from ..models.models import TimeSeriesConfig, TimeSeriesDecoder
 
 
 @dataclass

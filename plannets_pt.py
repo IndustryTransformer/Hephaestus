@@ -125,7 +125,7 @@ df.select_dtypes(include="object").groupby(
 
 # %%
 df = df.reset_index(drop=True)
-df = df.head()
+df = df.head(500_000)
 # %%
 time_series_config = TimeSeriesConfig.generate(df=df)
 train_idx = int(df.idx.max() * 0.8)
@@ -297,7 +297,7 @@ def run_training():
     max_explosion_count = 5  # Allow this many explosions before reducing LR permanently
 
     timestamp = dt.now().strftime("%Y-%m-%dT%H-%M-%S")
-    log_dir = f"runs/{timestamp}_WTF_IS_GOING_ON"
+    log_dir = f"runs/{timestamp}_Planets_Does_This_Work"
     save_dir = "models/planets"
 
     # Ensure log directory exists
@@ -311,7 +311,7 @@ def run_training():
         model=tabular_decoder,
         train_dataset=train_ds,
         val_dataset=test_ds,
-        batch_size=4,  # Reduced batch size for stability
+        batch_size=batch_size,  # Reduced batch size for stability
         epochs=num_epochs,
         learning_rate=learning_rate,
         log_dir=log_dir,
@@ -357,12 +357,25 @@ def run_training():
             f"Loaded best model from epoch {checkpoint['epoch']} with validation loss {checkpoint['val_loss']:.4f}"
         )
 
-        # Create test loader for evaluation
+        # Create test loader for evaluation with collate_fn to handle batch formation properly
+        def collate_fn(batch):
+            numeric = []
+            categorical = []
+            for item in batch:
+                numeric.append(item[0])
+                categorical.append(item[1])
+
+            return {
+                "numeric": torch.tensor(np.array(numeric), dtype=torch.float32),
+                "categorical": torch.tensor(np.array(categorical), dtype=torch.float32),
+            }
+
         test_loader = DataLoader(
             test_ds,
             batch_size=batch_size,
             shuffle=False,
             num_workers=0,
+            collate_fn=collate_fn,
             pin_memory=True if torch.cuda.is_available() else False,
         )
 
@@ -417,115 +430,265 @@ def run_training():
         # Select a test sample
         test_sample_idx = 0
 
-        # Create auto-regressive inputs from the first 10 time steps
-        print("\nCreating auto-regressive predictions...")
-        test_inputs = AutoRegressiveResults.from_ds(
-            test_ds, test_sample_idx, stop_idx=10
-        )
-
-        # Generate predictions for next 20 steps
-        print("Generating predictions for next 20 steps...")
-        model_predictions = test_inputs
-        for i in range(20):
-            model_predictions = auto_regressive_predictions(
-                tabular_decoder, model_predictions
+        try:
+            # Create auto-regressive inputs from the first 10 time steps
+            print("\nCreating auto-regressive predictions...")
+            test_inputs = AutoRegressiveResults.from_ds(
+                test_ds, test_sample_idx, stop_idx=10
             )
-            if i % 5 == 0:
-                print(f"  Step {i + 1} completed")
 
-        # Create DataFrames for predicted and actual data
-        print("\nProcessing results...")
-        pred_df = create_test_inputs_df(model_predictions, time_series_config)
+            # Ensure the inputs are on the correct device
+            test_inputs.numeric_inputs = test_inputs.numeric_inputs.to(device)
+            test_inputs.categorical_inputs = test_inputs.categorical_inputs.to(device)
 
-        # Get actual data for comparison
-        actual_numeric, actual_categorical = test_ds[test_sample_idx]
-        actual_inputs = AutoRegressiveResults(
-            torch.tensor(actual_numeric), torch.tensor(actual_categorical)
-        )
-        actual_df = create_test_inputs_df(actual_inputs, time_series_config)
+            # Generate predictions for next 20 steps
+            print("Generating predictions for next 20 steps...")
+            model_predictions = test_inputs
+            for i in range(20):
+                model_predictions = auto_regressive_predictions(
+                    tabular_decoder, model_predictions
+                )
+                if i % 5 == 0:
+                    print(f"  Step {i + 1} completed")
 
-        # Compare predictions with actual data for key numeric columns
-        print("\n=== Comparison of Predicted vs Actual Values ===")
+            # Move predictions back to CPU for analysis
+            model_predictions.numeric_inputs = model_predictions.numeric_inputs.cpu()
+            model_predictions.categorical_inputs = (
+                model_predictions.categorical_inputs.cpu()
+            )
 
-        # Find planets position columns (numeric columns with 'planet' and 'x' or 'y')
-        planet_cols = [
-            col
-            for col in time_series_config.numeric_col_tokens
-            if "planet" in col and ("_x" in col or "_y" in col)
-        ]
+            # Create DataFrames for predicted and actual data
+            print("\nProcessing results...")
+            pred_df = create_test_inputs_df(model_predictions, time_series_config)
 
-        # Calculate Mean Absolute Error for each planet position
-        mae_results = {}
-        for col in planet_cols:
-            # Calculate MAE for the predicted steps
-            overlap_len = min(len(pred_df), len(actual_df))
-            if overlap_len > 10:  # Skip the first 10 steps used as input
-                mae = np.abs(
-                    pred_df[col][10:overlap_len].values
-                    - actual_df[col][10:overlap_len].values
-                ).mean()
-                mae_results[col] = mae
+            # Get actual data for comparison
+            actual_numeric, actual_categorical = test_ds[test_sample_idx]
+            actual_inputs = AutoRegressiveResults(
+                torch.tensor(actual_numeric), torch.tensor(actual_categorical)
+            )
+            actual_df = create_test_inputs_df(actual_inputs, time_series_config)
 
-        # Print MAE results for planet positions
-        print("\nMean Absolute Error for Planet Positions:")
-        for col, mae in mae_results.items():
-            print(f"{col}: {mae:.6f}")
+            # Compare predictions with actual data for key numeric columns
+            print("\n=== Comparison of Predicted vs Actual Values ===")
 
-        # Plot comparisons for the first 4 planet positions
-        cols_to_plot = planet_cols[: min(4, len(planet_cols))]
-        print("\nGenerating plots for planet positions...")
+            # Find planets position columns (numeric columns with 'planet' and 'x' or 'y')
+            planet_cols = [
+                col
+                for col in time_series_config.numeric_col_tokens
+                if "planet" in col and ("_x" in col or "_y" in col)
+            ]
 
-        for col in cols_to_plot:
-            plot_column_variants(pred_df, actual_df, col)
-            plt.savefig(os.path.join(save_dir, f"prediction_{col}.png"))
-
-        # Calculate position error over time
-        if len(planet_cols) >= 2:
-            print("\nCalculating position error over time...")
-            planet_ids = set()
-
-            # Extract planet IDs from column names
+            # Calculate Mean Absolute Error for each planet position
+            mae_results = {}
             for col in planet_cols:
-                if "_x" in col:
-                    planet_id = col.split("_")[0]  # Extract "planet0", "planet1", etc.
-                    planet_ids.add(planet_id)
+                # Calculate MAE for the predicted steps
+                overlap_len = min(len(pred_df), len(actual_df))
+                if overlap_len > 10:  # Skip the first 10 steps used as input
+                    mae = np.abs(
+                        pred_df[col][10:overlap_len].values
+                        - actual_df[col][10:overlap_len].values
+                    ).mean()
+                    mae_results[col] = mae
 
-            # For each planet, calculate Euclidean distance error
-            planet_errors = {}
-            for planet_id in planet_ids:
-                x_col = f"{planet_id}_x"
-                y_col = f"{planet_id}_y"
+            # Print MAE results for planet positions
+            print("\nMean Absolute Error for Planet Positions:")
+            for col, mae in mae_results.items():
+                print(f"{col}: {mae:.6f}")
 
-                if x_col in pred_df.columns and y_col in pred_df.columns:
-                    # Calculate Euclidean distance error for each time step
-                    errors = np.sqrt(
-                        (pred_df[x_col] - actual_df[x_col]) ** 2
-                        + (pred_df[y_col] - actual_df[y_col]) ** 2
+            # Plot comparisons for the first 4 planet positions
+            cols_to_plot = planet_cols[: min(4, len(planet_cols))]
+            print("\nGenerating plots for planet positions...")
+
+            for col in cols_to_plot:
+                plot_column_variants(pred_df, actual_df, col)
+                plt.savefig(os.path.join(save_dir, f"prediction_{col}.png"))
+
+            # Calculate position error over time
+            if len(planet_cols) >= 2:
+                print("\nCalculating position error over time...")
+                planet_ids = set()
+
+                # Extract planet IDs from column names
+                for col in planet_cols:
+                    if "_x" in col:
+                        planet_id = col.split("_")[
+                            0
+                        ]  # Extract "planet0", "planet1", etc.
+                        planet_ids.add(planet_id)
+
+                # For each planet, calculate Euclidean distance error
+                planet_errors = {}
+                for planet_id in planet_ids:
+                    x_col = f"{planet_id}_x"
+                    y_col = f"{planet_id}_y"
+
+                    if x_col in pred_df.columns and y_col in pred_df.columns:
+                        # Calculate Euclidean distance error for each time step
+                        errors = np.sqrt(
+                            (pred_df[x_col] - actual_df[x_col]) ** 2
+                            + (pred_df[y_col] - actual_df[y_col]) ** 2
+                        )
+
+                        planet_errors[planet_id] = errors
+
+                # Plot position error over time for each planet
+                plt.figure(figsize=(15, 8))
+                for planet_id, errors in planet_errors.items():
+                    plt.plot(errors, label=f"{planet_id}")
+
+                plt.title("Position Error Over Time")
+                plt.xlabel("Time Step")
+                plt.ylabel("Euclidean Distance Error")
+                plt.axvline(x=10, color="r", linestyle="--", label="Prediction Start")
+                plt.legend()
+                plt.grid(True)
+                plt.tight_layout()
+                plt.savefig(os.path.join(save_dir, "position_error_over_time.png"))
+                plt.show()
+
+                # Print average position error for each planet (excluding input period)
+                print("\nAverage Position Error (excluding input period):")
+                for planet_id, errors in planet_errors.items():
+                    if len(errors) > 10:
+                        avg_error = errors[10:].mean()
+                        print(f"{planet_id}: {avg_error:.6f}")
+
+                # Additional evaluation: Plot trajectory comparison
+                print("\nGenerating planetary trajectory comparison plots...")
+                for planet_id in list(planet_ids)[
+                    :2
+                ]:  # Limit to first 2 planets for clarity
+                    x_col = f"{planet_id}_x"
+                    y_col = f"{planet_id}_y"
+
+                    plt.figure(figsize=(10, 10))
+
+                    # Plot predicted trajectory
+                    plt.plot(
+                        pred_df[x_col],
+                        pred_df[y_col],
+                        "b-",
+                        label="Predicted Trajectory",
                     )
 
-                    planet_errors[planet_id] = errors
+                    # Mark prediction start point
+                    plt.plot(
+                        pred_df[x_col][10],
+                        pred_df[y_col][10],
+                        "bo",
+                        markersize=8,
+                        label="Prediction Start",
+                    )
 
-            # Plot position error over time for each planet
-            plt.figure(figsize=(15, 8))
-            for planet_id, errors in planet_errors.items():
-                plt.plot(errors, label=f"{planet_id}")
+                    # Plot actual trajectory
+                    plt.plot(
+                        actual_df[x_col],
+                        actual_df[y_col],
+                        "r--",
+                        label="Actual Trajectory",
+                    )
 
-            plt.title("Position Error Over Time")
-            plt.xlabel("Time Step")
-            plt.ylabel("Euclidean Distance Error")
-            plt.axvline(x=10, color="r", linestyle="--", label="Prediction Start")
-            plt.legend()
-            plt.grid(True)
-            plt.tight_layout()
-            plt.savefig(os.path.join(save_dir, "position_error_over_time.png"))
-            plt.show()
+                    plt.title(f"{planet_id} Trajectory Comparison")
+                    plt.xlabel("X Position")
+                    plt.ylabel("Y Position")
+                    plt.grid(True)
+                    plt.legend()
+                    plt.axis("equal")  # Equal scaling for x and y
+                    plt.tight_layout()
+                    plt.savefig(os.path.join(save_dir, f"{planet_id}_trajectory.png"))
+                    plt.show()
 
-            # Print average position error for each planet (excluding input period)
-            print("\nAverage Position Error (excluding input period):")
-            for planet_id, errors in planet_errors.items():
-                if len(errors) > 10:
-                    avg_error = errors[10:].mean()
-                    print(f"{planet_id}: {avg_error:.6f}")
+                # Plot overall system state comparison at final step
+                if len(pred_df) > 0 and len(actual_df) > 0:
+                    plt.figure(figsize=(12, 10))
+
+                    # Get the final position of each planet
+                    final_idx = min(len(pred_df) - 1, len(actual_df) - 1)
+
+                    for planet_id in planet_ids:
+                        x_col = f"{planet_id}_x"
+                        y_col = f"{planet_id}_y"
+
+                        if x_col in pred_df.columns and y_col in pred_df.columns:
+                            # Plot predicted final position
+                            plt.plot(
+                                pred_df[x_col][final_idx],
+                                pred_df[y_col][final_idx],
+                                "bo",
+                                markersize=8,
+                            )
+
+                            # Plot actual final position
+                            plt.plot(
+                                actual_df[x_col][final_idx],
+                                actual_df[y_col][final_idx],
+                                "ro",
+                                markersize=8,
+                            )
+
+                            # Connect predicted and actual with a line
+                            plt.plot(
+                                [
+                                    pred_df[x_col][final_idx],
+                                    actual_df[x_col][final_idx],
+                                ],
+                                [
+                                    pred_df[y_col][final_idx],
+                                    actual_df[y_col][final_idx],
+                                ],
+                                "k--",
+                                alpha=0.5,
+                            )
+
+                            # Add planet label
+                            plt.text(
+                                pred_df[x_col][final_idx],
+                                pred_df[y_col][final_idx],
+                                planet_id,
+                                fontsize=10,
+                            )
+
+                    plt.title("Final System State Comparison")
+                    plt.xlabel("X Position")
+                    plt.ylabel("Y Position")
+                    plt.grid(True)
+
+                    # Add legend for the colors
+                    from matplotlib.lines import Line2D
+
+                    legend_elements = [
+                        Line2D(
+                            [0],
+                            [0],
+                            marker="o",
+                            color="w",
+                            markerfacecolor="b",
+                            markersize=8,
+                            label="Predicted Position",
+                        ),
+                        Line2D(
+                            [0],
+                            [0],
+                            marker="o",
+                            color="w",
+                            markerfacecolor="r",
+                            markersize=8,
+                            label="Actual Position",
+                        ),
+                    ]
+                    plt.legend(handles=legend_elements)
+
+                    plt.axis("equal")  # Equal scaling for x and y
+                    plt.tight_layout()
+                    plt.savefig(os.path.join(save_dir, "final_system_state.png"))
+                    plt.show()
+
+        except Exception as e:
+            print(f"\nError during evaluation: {e}")
+            import traceback
+
+            traceback.print_exc()
+            print("\nSkipping detailed evaluation due to error.")
 
     return history
 
