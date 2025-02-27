@@ -247,16 +247,55 @@ def plot_column_variants(
         offset (int, optional): Offset for the plot. Defaults to 0.
     """
     plt.figure(figsize=(15, 10))
-    plt.plot(df_pred[column], label="Autogregressive")
-    plt.plot(df_actual[column], label="Actual")
-    plt.title(f"{column} Predictions")
-    plt.legend()
-    # Show ticks and grid lines every 1 step
-    plt.xticks(np.arange(0, len(df_pred), 1))
-    plt.grid()
-    # add black line at 0 on the y axis to show the difference
-    plt.axhline(0, color="black")
-    plt.show()
+
+    # Plot prediction and actual data
+    plt.plot(df_pred[column], label="Autogregressive", linewidth=2)
+    plt.plot(df_actual[column], label="Actual", linewidth=2, linestyle="--")
+
+    # Add title and legend with larger font
+    plt.title(f"{column} Predictions", fontsize=16)
+    plt.legend(fontsize=14)
+
+    # Determine the proper x and y limits
+    x_max = max(len(df_pred), len(df_actual))
+    y_min = min(df_pred[column].min(), df_actual[column].min())
+    y_max = max(df_pred[column].max(), df_actual[column].max())
+
+    # Add some padding to y-axis for better visualization
+    y_padding = (y_max - y_min) * 0.1
+    plt.ylim(y_min - y_padding, y_max + y_padding)
+    plt.xlim(0, x_max)
+
+    # Show ticks and grid lines for the entire plot range
+    plt.xticks(np.arange(0, x_max + 1, max(1, x_max // 10)))
+    plt.grid(True, which="both", linestyle="--", alpha=0.7)
+
+    # Add black line at 0 on the y-axis to show the reference
+    if y_min < 0 < y_max:
+        plt.axhline(0, color="black", linewidth=1)
+
+    # Add vertical line at the prediction start point (usually at index 10)
+    if offset > 0 or 10 < x_max:
+        split_idx = offset if offset > 0 else 10
+        plt.axvline(x=split_idx, color="red", linestyle="--", label="Prediction Start")
+        plt.text(
+            split_idx + 0.1,
+            y_max - y_padding,
+            "Prediction Start",
+            color="red",
+            fontsize=12,
+        )
+
+    # Add axis labels with larger font
+    plt.xlabel("Time Step", fontsize=14)
+    plt.ylabel(column, fontsize=14)
+
+    # Increase tick label font size
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=12)
+
+    # Ensure layout is tight
+    plt.tight_layout()
 
 
 def create_test_inputs_df(test_inputs, time_series_config):
