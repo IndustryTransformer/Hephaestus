@@ -407,6 +407,9 @@ def evaluate_planetary_predictions(
 
         # Calculate Mean Absolute Error for each planet position
         mae_results = {}
+        valid_mae_count = 0
+        invalid_cols = []
+
         for col in planet_cols:
             # Calculate MAE for the predicted steps
             overlap_len = min(len(pred_df), len(actual_df))
@@ -419,21 +422,51 @@ def evaluate_planetary_predictions(
                 if np.any(mask):
                     mae = np.abs(pred_values[mask] - actual_values[mask]).mean()
                     mae_results[col] = mae
+                    valid_mae_count += 1
                 else:
                     print(
                         f"Warning: No valid data points for MAE calculation in column {col}"
                     )
                     mae_results[col] = np.nan
+                    invalid_cols.append(col)
 
         # Print MAE results for planet positions
         print("\nMean Absolute Error for Planet Positions:")
+        print(f"Valid MAE calculations: {valid_mae_count}/{len(planet_cols)} columns")
+
+        if invalid_cols:
+            print(f"Columns with invalid values: {', '.join(invalid_cols)}")
+
         for col, mae in mae_results.items():
             if np.isfinite(mae):
                 print(f"{col}: {mae:.6f}")
             else:
                 print(f"{col}: N/A (non-finite values)")
 
-        results["mae_results"] = mae_results
+        # Add more detailed MAE statistics
+        valid_maes = [v for v in mae_results.values() if np.isfinite(v)]
+        if valid_maes:
+            results["mae_results"] = mae_results
+            results["mae_stats"] = {
+                "mean": np.mean(valid_maes),
+                "median": np.median(valid_maes),
+                "min": np.min(valid_maes),
+                "max": np.max(valid_maes),
+                "std": np.std(valid_maes),
+                "valid_count": len(valid_maes),
+                "total_count": len(mae_results),
+            }
+
+            print("\nMAE Statistics:")
+            print(f"Mean: {results['mae_stats']['mean']:.6f}")
+            print(f"Median: {results['mae_stats']['median']:.6f}")
+            print(f"Min: {results['mae_stats']['min']:.6f}")
+            print(f"Max: {results['mae_stats']['max']:.6f}")
+            print(f"Std: {results['mae_stats']['std']:.6f}")
+        else:
+            print("\nNo valid MAE values available for statistics.")
+            results["mae_results"] = {}
+            results["mae_stats"] = {"valid_count": 0, "total_count": len(mae_results)}
 
         # Plot comparisons for the first 4 planet positions
         cols_to_plot = planet_cols[: min(4, len(planet_cols))]

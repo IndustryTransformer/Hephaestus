@@ -323,12 +323,27 @@ def run_training():
                 device=device,
             )
 
-            # Print summary of evaluation results
+            # Print summary of evaluation results with better NaN handling
             if results and "mae_results" in results:
-                print(
-                    "\nEvaluation complete. Average MAE across all positions:",
-                    sum(results["mae_results"].values()) / len(results["mae_results"]),
-                )
+                # Filter out NaN values before calculating average
+                valid_maes = [
+                    v for v in results["mae_results"].values() if np.isfinite(v)
+                ]
+
+                if valid_maes:
+                    avg_mae = sum(valid_maes) / len(valid_maes)
+                    print(
+                        "\nEvaluation complete. Average MAE across all positions:",
+                        f"{avg_mae:.6f}",
+                    )
+                    print(
+                        f"Valid MAE values: {len(valid_maes)}/{len(results['mae_results'])}"
+                    )
+                else:
+                    print("\nEvaluation complete, but no valid MAE values were found.")
+                    print(
+                        "Check for numerical stability issues in your model predictions."
+                    )
 
         except Exception as e:
             print(f"Error during evaluation: {e}")
