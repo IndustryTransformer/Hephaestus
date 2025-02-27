@@ -298,7 +298,7 @@ def run_training():
 
     timestamp = dt.now().strftime("%Y-%m-%dT%H-%M-%S")
     log_dir = f"runs/{timestamp}_Planets_Does_This_Work"
-    save_dir = "models/planets"
+    save_dir = "images/planets"
 
     # Ensure log directory exists
     os.makedirs(log_dir, exist_ok=True)
