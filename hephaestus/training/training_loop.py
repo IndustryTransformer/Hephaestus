@@ -25,6 +25,10 @@ def train_model(
     save_dir="models",
     device=None,
     num_workers=0,  # Changed default to 0 to avoid multiprocessing issues
+    gradient_accumulation_steps=1,  # Added to reduce memory pressure
+    max_grad_norm=1.0,  # Added for controlling gradient norms
+    explosion_threshold=10.0,  # New param: threshold for gradient explosion
+    max_explosions_per_epoch=5,  # New param: max explosions before lr reduction
 ):
     """Train a time series model with tensorboard logging.
 
@@ -39,6 +43,10 @@ def train_model(
         save_dir: Directory to save model checkpoints
         device: Device to use for training (None for auto-detection)
         num_workers: Number of worker processes for data loading
+        gradient_accumulation_steps: Number of steps to accumulate gradients
+        max_grad_norm: Maximum norm for gradients
+        explosion_threshold: Threshold above which a gradient is considered exploding
+        max_explosions_per_epoch: Maximum gradient explosions allowed per epoch
 
     Returns:
         dict: Training history
@@ -74,6 +82,14 @@ def train_model(
     # Create optimizer and scheduler
     optimizer, scheduler = create_optimizer(model, learning_rate)
 
+    # Add patience for early stopping and learning rate reduction
+    patience = 5
+    plateau_counter = 0
+    best_val_loss = float("inf")
+
+    # Add tracking for gradient issues
+    gradient_issues_counter = 0
+
     # Create TensorBoard writer with flush_secs=10 to ensure more frequent writes
     writer = SummaryWriter(log_dir, flush_secs=10)
     print(f"TensorBoard log directory: {log_dir}")
@@ -93,6 +109,9 @@ def train_model(
         # Training phase
         model.train()
         train_losses = {"loss": 0.0, "numeric_loss": 0.0, "categorical_loss": 0.0}
+        skipped_batches = 0
+        gradient_issues = 0
+        explosion_count = 0  # Track gradient explosions per epoch
 
         train_iterator = tqdm(train_loader, desc="Training")
         for batch_idx, batch_data in enumerate(train_iterator):
@@ -119,8 +138,39 @@ def train_model(
             for key in batch:
                 batch[key] = batch[key].to(device).to(torch.float32)
 
-            # Train step
-            batch_losses = train_step(model, batch, optimizer)
+            # Implement gradient accumulation steps
+            # Only zero gradients at the start of accumulation
+            if batch_idx % gradient_accumulation_steps == 0:
+                optimizer.zero_grad()
+
+            # Train step with scheduler
+            batch_losses = train_step(model, batch, optimizer, scheduler)
+
+            # Track gradient issues
+            if "gradient_status" in batch_losses:
+                if batch_losses["gradient_status"] == "exploded":
+                    gradient_issues += 1
+                    writer.add_scalar("Gradient_Issues/Exploded", 1, global_step)
+
+                    # Log the gradient norm
+                    if "gradient_norm" in batch_losses:
+                        writer.add_scalar(
+                            "Gradient_Issues/Norm",
+                            batch_losses["gradient_norm"],
+                            global_step,
+                        )
+
+                # Skip problematic batches in metrics if needed
+                if batch_losses["gradient_status"] in ["bad_loss", "error"]:
+                    skipped_batches += 1
+                    continue
+
+            # Check for NaN in loss
+            if torch.isnan(torch.tensor(batch_losses["loss"])).item():
+                print(f"NaN loss detected in batch {batch_idx}, skipping")
+                skipped_batches += 1
+                optimizer.zero_grad()  # Reset gradients
+                continue
 
             # Log batch-level metrics
             writer.add_scalars(
@@ -137,12 +187,62 @@ def train_model(
             for key in train_losses:
                 train_losses[key] += batch_losses[key]
 
-            # Update progress bar
+            # Only update optimizer after accumulating gradients
+            if (batch_idx + 1) % gradient_accumulation_steps == 0 or (
+                batch_idx + 1
+            ) == len(train_loader):
+                # Check for gradient explosion before clipping
+                grad_norm = torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), float("inf"), error_if_nonfinite=False
+                )
+
+                if grad_norm > explosion_threshold:
+                    explosion_count += 1
+                    gradient_issues += 1
+                    print(f"Exploding gradients detected! Norm: {grad_norm}")
+
+                    # Skip batch if gradient is extremely large
+                    if grad_norm > explosion_threshold * 10:  # Extreme case
+                        print(
+                            f"Extreme gradient explosion: {grad_norm}, skipping update"
+                        )
+                        optimizer.zero_grad()  # Reset gradients
+                        skipped_batches += 1
+                        continue
+
+                    # Temporary reduce learning rate for this update
+                    orig_lr = optimizer.param_groups[0]["lr"]
+                    for param_group in optimizer.param_groups:
+                        param_group["lr"] = orig_lr * 0.1
+                    print("Reducing learning rate temporarily due to gradient issues")
+
+                # Apply regular gradient clipping with max_grad_norm
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+
+                # Attempt the optimizer step within a try-except block
+                try:
+                    optimizer.step()
+                    # If we temporarily reduced the LR, restore it
+                    if grad_norm > explosion_threshold:
+                        for param_group in optimizer.param_groups:
+                            param_group["lr"] = orig_lr
+                except RuntimeError as e:
+                    print(f"Optimizer step failed: {e}")
+                    skipped_batches += 1
+                    optimizer.zero_grad()  # Reset gradients
+
+                # Record step in tracking
+                if batch_idx % 10 == 0:  # Log every 10 batches
+                    writer.add_scalar("Grad_Norm", grad_norm, global_step)
+
+            # Update progress bar with more info
             train_iterator.set_postfix(
                 {
                     "loss": batch_losses["loss"],
                     "num_loss": batch_losses["numeric_loss"],
                     "cat_loss": batch_losses["categorical_loss"],
+                    "grad_issues": gradient_issues,
+                    "lr": optimizer.param_groups[0]["lr"],
                 }
             )
 
@@ -150,11 +250,45 @@ def train_model(
             if batch_idx % 100 == 0:
                 writer.flush()
 
-        # Calculate average training losses
+        # Calculate average training losses accounting for skipped batches
+        effective_batches = max(1, len(train_loader) - skipped_batches)
         for key in train_losses:
-            train_losses[key] /= len(train_loader)
+            train_losses[key] /= effective_batches
 
-        # Update scheduler after each epoch
+        # Log gradient issues for the epoch
+        writer.add_scalar("Epoch/Gradient_Issues", gradient_issues, epoch)
+        gradient_issues_counter += gradient_issues
+
+        # Add learning rate monitoring and reduction
+        current_lr = scheduler.get_last_lr()[0]
+
+        # If we have too many gradient issues, reduce learning rate more aggressively
+        if (
+            gradient_issues > len(train_loader) * 0.1
+        ):  # More than 10% of batches had issues
+            print(
+                f"Too many gradient issues ({gradient_issues}), reducing learning rate"
+            )
+            for param_group in optimizer.param_groups:
+                param_group["lr"] = current_lr * 0.5
+
+        # Check if we need to permanently reduce LR due to many explosions
+        if explosion_count >= max_explosions_per_epoch:
+            print(
+                f"Too many gradient explosions ({explosion_count}), permanently reducing learning rate"
+            )
+            for param_group in optimizer.param_groups:
+                param_group["lr"] = param_group["lr"] * 0.5
+                print(f"New learning rate: {param_group['lr']}")
+
+            # Early stop if training is too unstable
+            if param_group["lr"] < 1e-7 or (
+                epoch > 0 and explosion_count > max_explosions_per_epoch * 2
+            ):
+                print("Training too unstable, stopping early")
+                break
+
+        # Update scheduler after each epoch (normal schedule)
         scheduler.step()
 
         # Validation phase
@@ -234,9 +368,11 @@ def train_model(
         history["val_numeric_loss"].append(val_losses["numeric_loss"])
         history["val_categorical_loss"].append(val_losses["categorical_loss"])
 
-        # Save best model
+        # Early stopping and LR reduction logic
         if val_losses["loss"] < best_val_loss:
             best_val_loss = val_losses["loss"]
+            plateau_counter = 0
+            # Save best model
             torch.save(
                 {
                     "epoch": epoch,
@@ -247,6 +383,21 @@ def train_model(
                 },
                 os.path.join(save_dir, "best_model.pt"),
             )
+        else:
+            plateau_counter += 1
+
+        # Reduce learning rate on plateau
+        if plateau_counter >= patience:
+            plateau_counter = 0
+            for param_group in optimizer.param_groups:
+                param_group["lr"] = param_group["lr"] * 0.5
+                new_lr = param_group["lr"]
+                print(f"Reducing learning rate to {new_lr} due to plateau")
+
+            # Early stop if learning rate gets too small
+            if new_lr < 1e-7:
+                print("Learning rate too small, stopping training")
+                break
 
         # Save checkpoint every 10 epochs
         if (epoch + 1) % 10 == 0:
@@ -273,6 +424,10 @@ def train_model(
         print(
             f"Train Cat Loss: {train_losses['categorical_loss']:.4f}, Val Cat Loss: {val_losses['categorical_loss']:.4f}"
         )
+        print(
+            f"Gradient issues this epoch: {gradient_issues}/{len(train_loader)} batches"
+        )
+        print(f"Current learning rate: {scheduler.get_last_lr()[0]:.2e}")
         print("-" * 50)
 
     # Ensure final metrics are written

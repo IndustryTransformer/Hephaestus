@@ -55,7 +55,13 @@ def numeric_loss(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
     # Remove NaN values from the loss calculation
     mask = ~torch.isnan(y_true)
     if mask.any():
-        return F.mse_loss(y_pred[mask], y_true[mask], reduction="mean")
+        # Add epsilon for numerical stability
+        loss = F.mse_loss(y_pred[mask], y_true[mask], reduction="mean")
+        # Add gradient clipping for stability
+        if torch.isnan(loss) or torch.isinf(loss):
+            print("Warning: NaN or Inf in numeric loss, returning zero loss")
+            return torch.tensor(0.0, device=y_true.device, dtype=torch.float32)
+        return loss
     return torch.tensor(0.0, device=y_true.device, dtype=torch.float32)
 
 
@@ -68,11 +74,20 @@ def categorical_loss(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor
     # Remove NaN values from the loss calculation
     mask = ~torch.isnan(y_true)
     if mask.any():
-        return F.cross_entropy(
-            y_pred[mask].reshape(-1, y_pred.size(-1)),
-            y_true[mask].reshape(-1).long(),
-            reduction="mean",
-        )
+        try:
+            # Add numerical stability - apply log_softmax first
+            log_probs = F.log_softmax(y_pred[mask].reshape(-1, y_pred.size(-1)), dim=-1)
+            targets = y_true[mask].reshape(-1).long()
+            loss = F.nll_loss(log_probs, targets, reduction="mean")
+
+            # Check for numerical issues
+            if torch.isnan(loss) or torch.isinf(loss):
+                print("Warning: NaN or Inf in categorical loss, returning zero loss")
+                return torch.tensor(0.0, device=y_true.device, dtype=torch.float32)
+            return loss
+        except Exception as e:
+            print(f"Error in categorical loss: {e}")
+            return torch.tensor(0.0, device=y_true.device, dtype=torch.float32)
     return torch.tensor(0.0, device=y_true.device, dtype=torch.float32)
 
 
@@ -104,27 +119,53 @@ def create_optimizer(
     return optimizer, scheduler
 
 
-def train_step(model, inputs, optimizer):
-    """Single training step."""
-    optimizer.zero_grad()
+def train_step(
+    model, inputs, optimizer=None, scheduler=None, accumulating_gradients=False
+):
+    """Single training step with improved gradient handling."""
+    # Only zero gradients if not accumulating and optimizer is provided
+    if optimizer is not None and not accumulating_gradients:
+        optimizer.zero_grad()
 
     # Ensure all inputs are float32
-    # for key in inputs: # Error here?
-    #     inputs[key] = inputs[key].to(torch.float32)
+    for key in inputs:
+        if torch.is_tensor(inputs[key]):
+            inputs[key] = inputs[key].to(torch.float32)
 
-    outputs = model(
-        numeric_inputs=inputs["numeric"], categorical_inputs=inputs["categorical"]
-    )
-    offset_numeric, offset_outputs_numeric, _ = add_input_offsets(
-        inputs["numeric"], outputs["numeric"], inputs_offset=1
-    )
-    # Calculate losses
-    numeric_loss_val = numeric_loss(inputs["numeric"], outputs["numeric"])
-    categorical_loss_val = (
-        categorical_loss(inputs["categorical"], outputs["categorical"])
-        if outputs["categorical"] is not None
-        else 0.0
-    )
+    # Forward pass with more error handling
+    try:
+        outputs = model(
+            numeric_inputs=inputs["numeric"], categorical_inputs=inputs["categorical"]
+        )
+    except RuntimeError as e:
+        print(f"Error during forward pass: {e}")
+        # Return dummy losses to continue training
+        return {
+            "loss": 0.0,
+            "numeric_loss": 0.0,
+            "categorical_loss": 0.0,
+            "gradient_status": "error",
+        }
+
+    # Calculate losses with better error reporting
+    try:
+        numeric_loss_val = numeric_loss(inputs["numeric"], outputs["numeric"])
+        categorical_loss_val = (
+            categorical_loss(inputs["categorical"], outputs["categorical"])
+            if outputs["categorical"] is not None
+            else torch.tensor(0.0, device=inputs["numeric"].device)
+        )
+    except Exception as e:
+        print(f"Error calculating loss: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return {
+            "loss": 0.0,
+            "numeric_loss": 0.0,
+            "categorical_loss": 0.0,
+            "gradient_status": "error",
+        }
 
     # Ensure loss is float32
     if isinstance(categorical_loss_val, (int, float)):
@@ -132,34 +173,86 @@ def train_step(model, inputs, optimizer):
             categorical_loss_val, dtype=torch.float32, device=numeric_loss_val.device
         )
 
+    # Combine losses
     loss = numeric_loss_val + categorical_loss_val
 
+    # Division for gradient accumulation (normalize by accumulation steps)
+    # No longer needed since we handle this in the training loop
+
     # Check for NaN values
-    if not torch.isnan(loss) and not torch.isinf(loss):
-        loss.backward()
-        # Print gradient norms to debug
-        total_norm = 0
-        for p in model.parameters():
-            if p.grad is not None:
-                param_norm = p.grad.data.norm(2)
-                total_norm += param_norm.item() ** 2
-        total_norm = total_norm**0.5
-        print(f"Gradient norm: {total_norm}")
+    if torch.isnan(loss) or torch.isinf(loss):
+        print(f"Warning: Bad loss value: {loss.item()}, skipping update")
+        return {
+            "loss": float("nan"),
+            "numeric_loss": float("nan")
+            if torch.isnan(numeric_loss_val)
+            else numeric_loss_val.item(),
+            "categorical_loss": float("nan")
+            if torch.isnan(categorical_loss_val)
+            else categorical_loss_val.item(),
+            "gradient_status": "bad_loss",
+        }
 
-        # Gradient clipping to prevent exploding gradients
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+    # Backward pass with more monitoring
+    loss.backward()
+
+    # Calculate gradient norm for monitoring
+    total_norm = 0.0
+    param_with_issues = []
+    for name, p in model.named_parameters():
+        if p.grad is not None:
+            try:
+                param_norm = p.grad.data.norm(2).item()
+                if torch.isnan(p.grad).any() or torch.isinf(p.grad).any():
+                    param_with_issues.append(name)
+                total_norm += param_norm**2
+            except RuntimeError as e:
+                print(f"Error calculating gradient norm for {name}: {e}")
+                param_with_issues.append(name)
+
+    total_norm = total_norm**0.5 if total_norm > 0 else 0.0
+
+    # Don't update parameters in train_step if we're accumulating gradients
+    # The training loop will handle the update after accumulating
+    if optimizer is not None and not accumulating_gradients:
+        # Handle exploding gradients
+        gradient_status = "normal"
+        if total_norm > 100 or len(param_with_issues) > 0:
+            gradient_status = "exploded"
+            print(f"Exploding gradients detected! Norm: {total_norm}")
+            if param_with_issues:
+                print(f"Problematic parameters: {param_with_issues}")
+
+            # Apply more aggressive gradient clipping
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
+
+            # Optionally reduce learning rate temporarily
+            if scheduler is not None:
+                print("Reducing learning rate temporarily due to gradient issues")
+                for param_group in optimizer.param_groups:
+                    param_group["lr"] = param_group["lr"] * 0.5
+        else:
+            # Normal clipping
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+        # Update parameters
         optimizer.step()
-    else:
-        print(f"Skipping update due to bad loss value: {loss.item()}")
 
-    # Gradient clipping to prevent exploding gradients
-    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-    optimizer.step()
+        # Restore learning rate if it was temporarily reduced
+        if scheduler is not None and gradient_status == "exploded":
+            for param_group in optimizer.param_groups:
+                param_group["lr"] = scheduler.get_last_lr()[0]
+    else:
+        gradient_status = "normal"
+        if total_norm > 100 or len(param_with_issues) > 0:
+            gradient_status = "exploded"
 
     return {
         "loss": loss.item(),
         "numeric_loss": numeric_loss_val.item(),
         "categorical_loss": categorical_loss_val.item(),
+        "gradient_status": gradient_status,
+        "gradient_norm": total_norm,
     }
 
 

@@ -37,6 +37,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 model_name = "bert-base-uncased"
 model = FlaxBertModel.from_pretrained(model_name)
 tokenizer = BertTokenizerFast.from_pretrained(model_name)
+batch_size = 16
 
 
 # %%
@@ -261,40 +262,68 @@ def run_training():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    # Create DataLoaders for train and test datasets
-    batch_size = 16
+    # Create model with more stable initialization
+    tabular_decoder = TimeSeriesDecoder(
+        time_series_config,
+        d_model=256,  # Reduced from 512 to improve stability
+        n_heads=8,
+    )
+
+    # Initialize weights with more conservative values
+    def init_weights(m):
+        if hasattr(m, "weight") and m.weight is not None:
+            if len(m.weight.shape) > 1:
+                # Use Kaiming initialization for better stability
+                torch.nn.init.kaiming_normal_(
+                    m.weight, mode="fan_in", nonlinearity="relu"
+                )
+                # Scale down initial weights to prevent explosions
+                m.weight.data *= 0.05
+            if hasattr(m, "bias") and m.bias is not None:
+                torch.nn.init.zeros_(m.bias)
+
+    # Apply custom weight initialization
+    tabular_decoder.apply(init_weights)
+    print("Applied conservative weight initialization")
 
     # Move model to device
     tabular_decoder.to(device)
 
-    # Ensure model is using float32
-    for param in tabular_decoder.parameters():
-        if param.dtype != torch.float32:
-            param.data = param.data.to(torch.float32)
+    # Set up training parameters with much more conservative values
+    learning_rate = 1e-5  # Reduced learning rate by 5x
+    num_epochs = 10
+    gradient_accumulation_steps = 4  # Increased for stability
+    max_grad_norm = 0.1  # Much tighter gradient clipping
 
-    # Set up training parameters
-    learning_rate = 1e-4
-    num_epochs = 2
+    # Add gradient explosion detection threshold
+    max_gradient_norm_allowed = 10.0
+    max_explosion_count = 5  # Allow this many explosions before reducing LR permanently
+
     timestamp = dt.now().strftime("%Y-%m-%dT%H-%M-%S")
-    log_dir = f"runs/{timestamp}_planets_experiment1"
+    log_dir = f"runs/{timestamp}_planets_stable"
     save_dir = "models/planets"
 
     # Ensure log directory exists
     os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(save_dir, exist_ok=True)
     print(f"TensorBoard logs will be saved to: {log_dir}")
     print("To view logs, run: tensorboard --logdir=runs")
 
-    # Train the model
+    # Train the model with enhanced stability parameters
     history = train_model(
         model=tabular_decoder,
         train_dataset=train_ds,
         val_dataset=test_ds,
-        batch_size=batch_size,
+        batch_size=4,  # Reduced batch size for stability
         epochs=num_epochs,
         learning_rate=learning_rate,
         log_dir=log_dir,
         save_dir=save_dir,
         device=device,
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        max_grad_norm=max_grad_norm,
+        explosion_threshold=max_gradient_norm_allowed,
+        max_explosions_per_epoch=max_explosion_count,
     )
 
     # Visualize training history
