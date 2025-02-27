@@ -48,16 +48,15 @@ def add_input_offsets(inputs, outputs, inputs_offset=1):
 
 def numeric_loss(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
     """Calculate numeric loss between true and predicted values."""
-    # Ensure float32 dtype
     y_true = y_true.to(torch.float32)
     y_pred = y_pred.to(torch.float32)
+    # Apply offset adjustment to inputs and outputs
+    y_true, y_pred, _ = add_input_offsets(y_true, y_pred, inputs_offset=1)
 
     # Remove NaN values from the loss calculation
     mask = ~torch.isnan(y_true)
     if mask.any():
-        # Add epsilon for numerical stability
         loss = F.mse_loss(y_pred[mask], y_true[mask], reduction="mean")
-        # Add gradient clipping for stability
         if torch.isnan(loss) or torch.isinf(loss):
             print("Warning: NaN or Inf in numeric loss, returning zero loss")
             return torch.tensor(0.0, device=y_true.device, dtype=torch.float32)
@@ -67,20 +66,17 @@ def numeric_loss(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
 
 def categorical_loss(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
     """Calculate categorical loss between true and predicted values."""
-    # Ensure float32 dtype
     y_true = y_true.to(torch.float32)
     y_pred = y_pred.to(torch.float32)
+    # Apply offset adjustment to inputs and outputs
+    y_true, y_pred, _ = add_input_offsets(y_true, y_pred, inputs_offset=1)
 
-    # Remove NaN values from the loss calculation
     mask = ~torch.isnan(y_true)
     if mask.any():
         try:
-            # Add numerical stability - apply log_softmax first
             log_probs = F.log_softmax(y_pred[mask].reshape(-1, y_pred.size(-1)), dim=-1)
             targets = y_true[mask].reshape(-1).long()
             loss = F.nll_loss(log_probs, targets, reduction="mean")
-
-            # Check for numerical issues
             if torch.isnan(loss) or torch.isinf(loss):
                 print("Warning: NaN or Inf in categorical loss, returning zero loss")
                 return torch.tensor(0.0, device=y_true.device, dtype=torch.float32)
@@ -219,7 +215,7 @@ def train_step(
         gradient_status = "normal"
         if total_norm > 100 or len(param_with_issues) > 0:
             gradient_status = "exploded"
-            print(f"Exploding gradients detected! Norm: {total_norm}")
+            print(f"Exploding gradients detected! Norm in Train File: {total_norm}")
             if param_with_issues:
                 print(f"Problematic parameters: {param_with_issues}")
 
@@ -228,6 +224,7 @@ def train_step(
 
             # Optionally reduce learning rate temporarily
             if scheduler is not None:
+                print("Training File Train Step Gradient Norm")
                 print("Reducing learning rate temporarily due to gradient issues")
                 for param_group in optimizer.param_groups:
                     param_group["lr"] = param_group["lr"] * 0.5

@@ -125,10 +125,7 @@ df.select_dtypes(include="object").groupby(
 
 # %%
 df = df.reset_index(drop=True)
-
-# %%
-time_series_config = TimeSeriesConfig.generate(df=df)
-
+df = df.head()
 # %%
 time_series_config = TimeSeriesConfig.generate(df=df)
 train_idx = int(df.idx.max() * 0.8)
@@ -348,6 +345,7 @@ def run_training():
     plt.ylabel("Loss")
     plt.legend()
     plt.tight_layout()
+    plt.savefig(os.path.join(save_dir, "training_history.png"))
     plt.show()
 
     # When evaluating the best model, create the test_loader here
@@ -404,6 +402,131 @@ def run_training():
         print(f"Test Loss: {test_losses['loss']:.4f}")
         print(f"Test Numeric Loss: {test_losses['numeric_loss']:.4f}")
         print(f"Test Categorical Loss: {test_losses['categorical_loss']:.4f}")
+
+        # NEW CODE: Add evaluations for comparing numeric columns
+        print("\n=== Evaluating Model Predictions on Sample Data ===")
+
+        # Import necessary modules for analysis
+        from hephaestus.analysis.analysis_torch import (
+            AutoRegressiveResults,
+            auto_regressive_predictions,
+            create_test_inputs_df,
+            plot_column_variants,
+        )
+
+        # Select a test sample
+        test_sample_idx = 0
+
+        # Create auto-regressive inputs from the first 10 time steps
+        print("\nCreating auto-regressive predictions...")
+        test_inputs = AutoRegressiveResults.from_ds(
+            test_ds, test_sample_idx, stop_idx=10
+        )
+
+        # Generate predictions for next 20 steps
+        print("Generating predictions for next 20 steps...")
+        model_predictions = test_inputs
+        for i in range(20):
+            model_predictions = auto_regressive_predictions(
+                tabular_decoder, model_predictions
+            )
+            if i % 5 == 0:
+                print(f"  Step {i + 1} completed")
+
+        # Create DataFrames for predicted and actual data
+        print("\nProcessing results...")
+        pred_df = create_test_inputs_df(model_predictions, time_series_config)
+
+        # Get actual data for comparison
+        actual_numeric, actual_categorical = test_ds[test_sample_idx]
+        actual_inputs = AutoRegressiveResults(
+            torch.tensor(actual_numeric), torch.tensor(actual_categorical)
+        )
+        actual_df = create_test_inputs_df(actual_inputs, time_series_config)
+
+        # Compare predictions with actual data for key numeric columns
+        print("\n=== Comparison of Predicted vs Actual Values ===")
+
+        # Find planets position columns (numeric columns with 'planet' and 'x' or 'y')
+        planet_cols = [
+            col
+            for col in time_series_config.numeric_col_tokens
+            if "planet" in col and ("_x" in col or "_y" in col)
+        ]
+
+        # Calculate Mean Absolute Error for each planet position
+        mae_results = {}
+        for col in planet_cols:
+            # Calculate MAE for the predicted steps
+            overlap_len = min(len(pred_df), len(actual_df))
+            if overlap_len > 10:  # Skip the first 10 steps used as input
+                mae = np.abs(
+                    pred_df[col][10:overlap_len].values
+                    - actual_df[col][10:overlap_len].values
+                ).mean()
+                mae_results[col] = mae
+
+        # Print MAE results for planet positions
+        print("\nMean Absolute Error for Planet Positions:")
+        for col, mae in mae_results.items():
+            print(f"{col}: {mae:.6f}")
+
+        # Plot comparisons for the first 4 planet positions
+        cols_to_plot = planet_cols[: min(4, len(planet_cols))]
+        print("\nGenerating plots for planet positions...")
+
+        for col in cols_to_plot:
+            plot_column_variants(pred_df, actual_df, col)
+            plt.savefig(os.path.join(save_dir, f"prediction_{col}.png"))
+
+        # Calculate position error over time
+        if len(planet_cols) >= 2:
+            print("\nCalculating position error over time...")
+            planet_ids = set()
+
+            # Extract planet IDs from column names
+            for col in planet_cols:
+                if "_x" in col:
+                    planet_id = col.split("_")[0]  # Extract "planet0", "planet1", etc.
+                    planet_ids.add(planet_id)
+
+            # For each planet, calculate Euclidean distance error
+            planet_errors = {}
+            for planet_id in planet_ids:
+                x_col = f"{planet_id}_x"
+                y_col = f"{planet_id}_y"
+
+                if x_col in pred_df.columns and y_col in pred_df.columns:
+                    # Calculate Euclidean distance error for each time step
+                    errors = np.sqrt(
+                        (pred_df[x_col] - actual_df[x_col]) ** 2
+                        + (pred_df[y_col] - actual_df[y_col]) ** 2
+                    )
+
+                    planet_errors[planet_id] = errors
+
+            # Plot position error over time for each planet
+            plt.figure(figsize=(15, 8))
+            for planet_id, errors in planet_errors.items():
+                plt.plot(errors, label=f"{planet_id}")
+
+            plt.title("Position Error Over Time")
+            plt.xlabel("Time Step")
+            plt.ylabel("Euclidean Distance Error")
+            plt.axvline(x=10, color="r", linestyle="--", label="Prediction Start")
+            plt.legend()
+            plt.grid(True)
+            plt.tight_layout()
+            plt.savefig(os.path.join(save_dir, "position_error_over_time.png"))
+            plt.show()
+
+            # Print average position error for each planet (excluding input period)
+            print("\nAverage Position Error (excluding input period):")
+            for planet_id, errors in planet_errors.items():
+                if len(errors) > 10:
+                    avg_error = errors[10:].mean()
+                    print(f"{planet_id}: {avg_error:.6f}")
+
     return history
 
 
