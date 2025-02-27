@@ -17,6 +17,12 @@ from torch.utils.data import DataLoader
 from tqdm.notebook import tqdm
 from transformers import BertTokenizerFast, FlaxBertModel
 
+from hephaestus.analysis.analysis import (
+    AutoRegressiveResults,
+    auto_regressive_predictions,
+    create_test_inputs_df,
+    plot_column_variants,
+)
 from hephaestus.models.models import (
     TimeSeriesConfig,
     TimeSeriesDecoder,
@@ -467,12 +473,6 @@ def run_training():
         print("\n=== Evaluating Model Predictions on Sample Data ===")
 
         # Import necessary modules for analysis
-        from hephaestus.analysis.analysis_torch import (
-            AutoRegressiveResults,
-            auto_regressive_predictions,
-            create_test_inputs_df,
-            plot_column_variants,
-        )
 
         # Select a test sample
         test_sample_idx = 0
