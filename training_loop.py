@@ -81,7 +81,7 @@ def train_model(
 
     # Training loop
     for epoch in range(epochs):
-        print(f"Epoch {epoch+1}/{epochs}")
+        print(f"Epoch {epoch + 1}/{epochs}")
         start_time = time.time()
 
         # Training phase
@@ -186,11 +186,11 @@ def train_model(
                     "train_loss": train_losses["loss"],
                     "val_loss": val_losses["loss"],
                 },
-                os.path.join(save_dir, f"checkpoint_epoch_{epoch+1}.pt"),
+                os.path.join(save_dir, f"checkpoint_epoch_{epoch + 1}.pt"),
             )
 
         epoch_time = time.time() - start_time
-        print(f"Epoch {epoch+1}/{epochs} completed in {epoch_time:.2f}s")
+        print(f"Epoch {epoch + 1}/{epochs} completed in {epoch_time:.2f}s")
         print(
             f"Train Loss: {train_losses['loss']:.4f}, Val Loss: {val_losses['loss']:.4f}"
         )

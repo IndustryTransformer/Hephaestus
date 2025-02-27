@@ -455,27 +455,42 @@ class ReservoirEmbedding(nn.Module):
         self.features = features
         self.frozen_index = frozen_index
 
+        # Register token_reservoir_lookup as a buffer so it moves with the model
+        self.register_buffer(
+            "token_reservoir_lookup", self.config.reservoir_encoded, persistent=True
+        )
+
         self.embedding = nn.Embedding(
             num_embeddings=self.config.vocab_size, embedding_dim=self.features
         )
+
+    def to(self, device):
+        """Ensures all tensors move to the specified device"""
+        super().to(device)
+        # Move buffers to device
+        for name, buffer in self.named_buffers():
+            if buffer is not None:
+                buffer.to(device)
+        return self
 
     def forward(self, base_indices: torch.Tensor):
         """
         Perform reservoir embedding on the given input.
         """
-        # Get the encoded tokens from config
-        token_reservoir_lookup = self.config.reservoir_encoded
+        device = base_indices.device
 
-        # Convert base_indices to PyTorch device
+        # Ensure indices are on the correct device
         if not isinstance(base_indices, torch.Tensor):
-            base_indices = torch.tensor(
-                base_indices, device=self.embedding.weight.device
-            )
+            base_indices = torch.tensor(base_indices, device=device)
         else:
-            base_indices = base_indices.to(self.embedding.weight.device)
+            base_indices = base_indices.to(device)
+
+        # Ensure token_reservoir_lookup is on the correct device
+        if self.token_reservoir_lookup.device != device:
+            self.token_reservoir_lookup = self.token_reservoir_lookup.to(device)
 
         # Get reservoir indices for the provided base_indices
-        reservoir_indices = token_reservoir_lookup[base_indices.long()]
+        reservoir_indices = self.token_reservoir_lookup[base_indices.long()]
 
         # Embed the reservoir indices
         return_embed = self.embedding(reservoir_indices)
@@ -549,8 +564,22 @@ class TimeSeriesTransformer(nn.Module):
                 module.weight.data = module.weight.data.to(torch.float32)
                 module.bias.data = module.bias.data.to(torch.float32)
 
+    def to(self, device):
+        super().to(device)
+        # Ensure buffers are moved to the correct device
+        for name, buffer in self.named_buffers():
+            buffer.to(device)
+        return self
+
     def process_numeric(self, numeric_inputs: torch.Tensor) -> ProcessedEmbeddings:
         """Processes the numeric inputs for the transformer model."""
+        device = numeric_inputs.device
+        batch_size, num_cols, seq_len = numeric_inputs.shape
+        base_indices = torch.arange(num_cols, device=device)
+        repeated_numeric_indices = base_indices.repeat(batch_size, seq_len, 1).permute(
+            0, 2, 1
+        )
+
         # Ensure consistent data type
         numeric_inputs = numeric_inputs.to(torch.float32)
 
@@ -770,6 +799,11 @@ class TimeSeriesTransformer(nn.Module):
         encoder_mask: bool = False,
     ):
         """Forward pass of the transformer model."""
+        device = numeric_inputs.device
+        # Ensure all inputs are on the same device
+        if categorical_inputs is not None:
+            categorical_inputs = categorical_inputs.to(device)
+
         # Convert inputs to PyTorch tensors if they aren't already
         if numeric_inputs is not None and not isinstance(numeric_inputs, torch.Tensor):
             numeric_inputs = torch.tensor(

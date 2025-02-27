@@ -190,15 +190,13 @@ def check_model_for_nans(model):
 
 # %%
 # Create a sample batch from the training dataset (batch size = 1)
-example_batch = make_batch(train_ds, 0, 6)
-numeric_data = example_batch["numeric"]
-categorical_data = example_batch["categorical"]
-
-# Optionally move tensors to the same device as the model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-numeric_data = numeric_data.to(device)
-categorical_data = categorical_data.to(device)
-tabular_decoder.to(device)
+tabular_decoder = tabular_decoder.to(device)  # Move model to device first
+
+# Create a sample batch from the training dataset
+example_batch = make_batch(train_ds, 0, 6)
+numeric_data = example_batch["numeric"].to(device)
+categorical_data = example_batch["categorical"].to(device)
 
 # Add this just before the prediction
 print("Checking model parameters for NaNs:")
@@ -220,28 +218,25 @@ with torch.no_grad():
     try:
         prediction = tabular_decoder(numeric_data, categorical_data)
 
-        # Adjust the output dimensions to match the input dimensions
+        # Move predictions back to CPU for numpy operations if needed
+        prediction = {k: v.cpu() for k, v in prediction.items()}
+
         prediction["numeric"] = prediction["numeric"].transpose(1, 2)
         prediction["categorical"] = prediction["categorical"].permute(0, 2, 1, 3)
 
-        # Ensure the output dimensions match the expected input dimensions
-        prediction["categorical"] = prediction["categorical"][
-            :, :, : categorical_data.shape[1], :
-        ]
+        # Handle error case differently
+    except RuntimeError as e:
+        print(f"Error during prediction: {e}")
+        prediction = {
+            "numeric": torch.zeros_like(numeric_data),
+            "categorical": torch.zeros_like(categorical_data[:, :, 0]).unsqueeze(-1),
+        }
 
         # Check if prediction contains NaNs
         if any(torch.isnan(tensor).any() for tensor in prediction.values()):
             print("Warning: NaNs in prediction. Applying nan_to_num...")
             for key in prediction:
                 prediction[key] = torch.nan_to_num(prediction[key], nan=0.0)
-    except RuntimeError as e:
-        print(f"Error during prediction: {e}")
-        # Try with smaller batch or simpler model configuration
-        # For debugging only
-        prediction = {
-            "numeric": torch.zeros_like(numeric_data[:, :, 0]),
-            "categorical": torch.zeros_like(categorical_data[:, :, 0, 0]),
-        }
 
 # Print prediction summary instead of all values
 print("Prediction numeric shape:", prediction["numeric"].shape)
@@ -267,7 +262,7 @@ def run_training():
     print(f"Using device: {device}")
 
     # Create DataLoaders for train and test datasets
-    batch_size = 64
+    batch_size = 16
 
     # Move model to device
     tabular_decoder.to(device)
@@ -280,7 +275,7 @@ def run_training():
     # Set up training parameters
     learning_rate = 1e-4
     num_epochs = 2
-    timestamp = dt.now().strftime("%Y-t%m-%dT%H-%M-%S")
+    timestamp = dt.now().strftime("%Y-%m-%dT%H-%M-%S")
     log_dir = f"runs/{timestamp}_planets_experiment1"
     save_dir = "models/planets"
 
