@@ -227,6 +227,20 @@ class TimeSeriesConfig:
         return cls(**cls_dict)
 
 
+@dataclass
+class TimeSeriesInputs:
+    """
+    Data class to store time series batch data.
+
+    Attributes:
+        numeric: Numeric inputs for the model.
+        categorical: Categorical inputs for the model, may be None if no categorical data exists.
+    """
+
+    numeric: torch.Tensor
+    categorical: Optional[torch.Tensor] = None
+
+
 class TimeSeriesDS(Dataset):
     """
     Dataset class for time series data.
@@ -262,10 +276,11 @@ class TimeSeriesDS(Dataset):
         )
         self.df_numeric = df.select_dtypes(include="number")
         self.batch_size = self.max_seq_len
+        self.unique_indices = sorted(df.index.unique())
 
     def __len__(self):
         """Return the length of the dataset."""
-        return self.df_numeric.index.nunique()
+        return len(self.unique_indices)
 
     def get_data(self, df_name, set_idx):
         """Gets self.df_<df_name> for a given index."""
@@ -280,17 +295,81 @@ class TimeSeriesDS(Dataset):
         padding = np.full((pad_len, n_cols), np.nan)
         batch = np.concatenate([batch, padding], axis=0)
         batch = np.swapaxes(batch, 0, 1)
+        batch = torch.tensor(batch, dtype=torch.float32)
         return batch
 
-    def __getitem__(self, set_idx):
-        """Get item from the dataset."""
+    def __getitem__(self, idx):
+        """
+        Get item(s) from the dataset.
+        Supports both integer indexing and slice indexing.
+
+        Args:
+            idx: Integer index or slice object
+
+        Returns:
+            For integer index: A TimeSeriesInputs object
+            For slice: A collated batch of TimeSeriesInputs formatted like DataLoader output
+        """
+        # Handle slice indexing
+        if isinstance(idx, slice):
+            # Get the actual indices from the slice
+            indices = self.unique_indices[idx]
+
+            # Create a list of TimeSeriesInputs
+            items = [self._get_single_item(i) for i in indices]
+
+            # Collate the items into a batch
+            return self._collate_batch(items)
+
+        # Handle integer indexing
+        return self._get_single_item(self.unique_indices[idx])
+
+    def _get_single_item(self, set_idx):
+        """Get a single item from the dataset by actual index value."""
         if self.df_categorical.empty:
             categorical_inputs = None
         else:
             categorical_inputs = self.get_data("df_categorical", set_idx)
         numeric_inputs = self.get_data("df_numeric", set_idx)
 
-        return numeric_inputs, categorical_inputs
+        return TimeSeriesInputs(numeric=numeric_inputs, categorical=categorical_inputs)
+
+    def _collate_batch(self, items):
+        """
+        Collate a list of TimeSeriesInputs into a batch.
+
+        Args:
+            items: List of TimeSeriesInputs objects
+
+        Returns:
+            A TimeSeriesInputs object with batched tensors
+        """
+        # All items should have numeric inputs
+        numeric_batch = np.stack([item.numeric for item in items])
+
+        # Not all items might have categorical inputs
+        categorical_batch = None
+        if items[0].categorical is not None:
+            categorical_batch = np.stack([item.categorical for item in items])
+
+        return TimeSeriesInputs(numeric=numeric_batch, categorical=categorical_batch)
+
+    def get_batch(self, batch_size=None, start_idx=0):
+        """
+        Get a batch of specified size starting from a specific index.
+
+        Args:
+            batch_size: Size of the batch to retrieve
+            start_idx: Starting index position
+
+        Returns:
+            TimeSeriesInputs object with batched data
+        """
+        if batch_size is None:
+            batch_size = self.batch_size
+
+        end_idx = min(start_idx + batch_size, len(self))
+        return self[start_idx:end_idx]
 
 
 class FeedForwardNetwork(nn.Module):

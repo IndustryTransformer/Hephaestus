@@ -125,7 +125,7 @@ df.select_dtypes(include="object").groupby(
 
 # %%
 df = df.reset_index(drop=True)
-df = df.head(500_000)
+df = df.head(50_000)
 # %%
 time_series_config = TimeSeriesConfig.generate(df=df)
 train_idx = int(df.idx.max() * 0.8)
@@ -140,39 +140,37 @@ len(train_ds), len(test_ds)
 train_ds[0]
 
 
-def make_batch(ds: TimeSeriesDS, start: int, length: int):
-    """Create a batch of data from the dataset.
+# def make_batch(ds: TimeSeriesDS, start: int, length: int):
+#     """Create a batch of data from the dataset.
 
-    Args:
-        ds (hp.TimeSeriesDS): The dataset to create a batch from.
-        start (int): The starting index of the batch.
-        length (int): The length of the batch.
+#     Args:
+#         ds (hp.TimeSeriesDS): The dataset to create a batch from.
+#         start (int): The starting index of the batch.
+#         length (int): The length of the batch.
 
-    Returns:
-        dict: Dictionary containing numeric and categorical data.
-    """
-    numeric = []
-    categorical = []
-    for i in range(start, length + start):
-        numeric.append(ds[i][0])
-        categorical.append(ds[i][1])
+#     Returns:
+#         dict: Dictionary containing numeric and categorical data.
+#     """
+#     batch = []
+#     for i in range(start, length + start):
+#         batch.append(ds[i])
+#     # Convert to numpy arrays first to avoid the warning
+#     numeric_array = np.array(numeric)
+#     categorical_array = np.array(categorical)
 
-    # Convert to numpy arrays first to avoid the warning
-    numeric_array = np.array(numeric)
-    categorical_array = np.array(categorical)
-
-    return {
-        "numeric": torch.tensor(
-            numeric_array, dtype=torch.float32
-        ),  # Explicitly use float32
-        "categorical": torch.tensor(
-            categorical_array, dtype=torch.float32
-        ),  # Explicitly use float32
-    }
+#     return {
+#         "numeric": torch.tensor(
+#             numeric_array, dtype=torch.float32
+#         ),  # Explicitly use float32
+#         "categorical": torch.tensor(
+#             categorical_array, dtype=torch.float32
+#         ),  # Explicitly use float32
+#     }
 
 
 # %%
-tabular_decoder = TimeSeriesDecoder(time_series_config, d_model=512, n_heads=8)
+N_HEADS = 8 * 4
+tabular_decoder = TimeSeriesDecoder(time_series_config, d_model=512, n_heads=N_HEADS)
 
 
 # After creating the model, add debugging function
@@ -188,14 +186,46 @@ def check_model_for_nans(model):
 
 # %%
 # Create a sample batch from the training dataset (batch size = 1)
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# Check for available devices including MPS (Metal Performance Shaders) for Macs with Apple Silicon
+device = torch.device(
+    "cuda"
+    if torch.cuda.is_available()
+    else "mps"
+    if torch.backends.mps.is_available()
+    else "cpu"
+)
+print(f"Using device: {device}")
+
+
+# Create DataLoader for more efficient batch processing
+def collate_fn(batch):
+    numeric = []
+    categorical = []
+    for item in batch:
+        numeric.append(item.numeric)
+        categorical.append(item.categorical)
+
+    return {
+        "numeric": torch.tensor(np.array(numeric), dtype=torch.float32),
+        "categorical": torch.tensor(np.array(categorical), dtype=torch.float32),
+    }
+
+
+train_loader = DataLoader(
+    train_ds,
+    batch_size=batch_size,
+    shuffle=True,
+    num_workers=0,  # Set to 0 to avoid multiprocessing issues
+    collate_fn=collate_fn,
+    pin_memory=True if torch.cuda.is_available() else False,
+)
 tabular_decoder = tabular_decoder.to(device)  # Move model to device first
 
 # Create a sample batch from the training dataset
-example_batch = make_batch(train_ds, 0, 6)
-numeric_data = example_batch["numeric"].to(device)
-categorical_data = example_batch["categorical"].to(device)
-
+example_batch = train_ds[0:6]
+numeric_data = example_batch.numeric.to(device)
+categorical_data = example_batch.categorical.to(device)
+# %%
 # Add this just before the prediction
 print("Checking model parameters for NaNs:")
 has_nan_params = check_model_for_nans(tabular_decoder)
@@ -256,7 +286,13 @@ ic.disable()
 # Add this near the end, replacing your current training setup
 def run_training():
     # Set up the training loop
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(
+        "cuda"
+        if torch.cuda.is_available()
+        else "mps"
+        if torch.backends.mps.is_available()
+        else "cpu"
+    )
     print(f"Using device: {device}")
 
     # Create model with more stable initialization
@@ -362,8 +398,8 @@ def run_training():
             numeric = []
             categorical = []
             for item in batch:
-                numeric.append(item[0])
-                categorical.append(item[1])
+                numeric.append(item.numeric)
+                categorical.append(item.categorical)
 
             return {
                 "numeric": torch.tensor(np.array(numeric), dtype=torch.float32),

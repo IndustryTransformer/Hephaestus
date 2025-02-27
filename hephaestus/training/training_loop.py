@@ -53,7 +53,13 @@ def train_model(
     """
     # Set up device
     if device is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        torch.device(
+            "cuda"
+            if torch.cuda.is_available()
+            else "mps"
+            if torch.backends.mps.is_available()
+            else "cpu"
+        )
     print(f"Using device: {device}")
 
     # Move model to device
