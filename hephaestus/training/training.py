@@ -124,14 +124,14 @@ def train_step(
         optimizer.zero_grad()
 
     # Ensure all inputs are float32
-    for key in inputs:
-        if torch.is_tensor(inputs[key]):
-            inputs[key] = inputs[key].to(torch.float32)
+    # for key in inputs:
+    #     if torch.is_tensor(inputs[key]):
+    #         inputs[key] = inputs[key].to(torch.float32)
 
     # Forward pass with more error handling
     try:
         outputs = model(
-            numeric_inputs=inputs["numeric"], categorical_inputs=inputs["categorical"]
+            numeric_inputs=inputs.numeric, categorical_inputs=inputs.categorical
         )
     except RuntimeError as e:
         print(f"Error during forward pass: {e}")
@@ -145,9 +145,9 @@ def train_step(
 
     # Calculate losses with better error reporting
     try:
-        numeric_loss_val = numeric_loss(inputs["numeric"], outputs["numeric"])
+        numeric_loss_val = numeric_loss(inputs.numeric, outputs["numeric"])
         categorical_loss_val = (
-            categorical_loss(inputs["categorical"], outputs["categorical"])
+            categorical_loss(inputs.categorical, outputs["categorical"])
             if outputs["categorical"] is not None
             else torch.tensor(0.0, device=inputs["numeric"].device)
         )
@@ -266,12 +266,12 @@ def eval_step(model, inputs):
     model.eval()
     with torch.no_grad():
         res = model(
-            numeric_inputs=inputs["numeric"], categorical_inputs=inputs["categorical"]
+            numeric_inputs=inputs.numeric, categorical_inputs=inputs.categorical
         )
 
-        numeric_loss_value = numeric_loss(inputs["numeric"], res["numeric"])
+        numeric_loss_value = numeric_loss(inputs.numeric, res["numeric"])
         categorical_loss_value = categorical_loss(
-            inputs["categorical"], res["categorical"]
+            inputs.categorical, res["categorical"]
         )
         loss = numeric_loss_value + categorical_loss_value
 

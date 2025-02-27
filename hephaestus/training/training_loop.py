@@ -6,12 +6,26 @@ from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from hephaestus.models.models import TimeSeriesInputs
 from hephaestus.training.training import (
     create_metric_history,
     create_optimizer,
     eval_step,
     train_step,
 )
+
+
+def custom_collate_fn(batch):
+    """Custom collate function for TimeSeriesInputs objects."""
+    numeric_tensors = torch.stack([item.numeric for item in batch])
+
+    if batch[0].categorical is not None:
+        categorical_tensors = torch.stack([item.categorical for item in batch])
+        return TimeSeriesInputs(
+            numeric=numeric_tensors, categorical=categorical_tensors
+        )
+    else:
+        return TimeSeriesInputs(numeric=numeric_tensors, categorical=None)
 
 
 def train_model(
@@ -75,6 +89,7 @@ def train_model(
         shuffle=True,
         num_workers=num_workers,
         pin_memory=True if torch.cuda.is_available() else False,
+        collate_fn=custom_collate_fn,
     )
 
     val_loader = DataLoader(
@@ -83,6 +98,7 @@ def train_model(
         shuffle=False,
         num_workers=num_workers,
         pin_memory=True if torch.cuda.is_available() else False,
+        collate_fn=custom_collate_fn,
     )
 
     # Create optimizer and scheduler
@@ -123,26 +139,27 @@ def train_model(
         for batch_idx, batch_data in enumerate(train_iterator):
             # Calculate global step for logging
             global_step = epoch * len(train_loader) + batch_idx
-
+            batch = batch_data
+            batch.to(device)
             # Check batch structure and convert to expected format
             # TimeSeriesDS likely returns a tuple of (numeric, categorical)
-            if isinstance(batch_data, (list, tuple)) and len(batch_data) == 2:
-                numeric_data, categorical_data = batch_data
-                # Move to device
-                numeric_data = numeric_data.to(device)
-                categorical_data = categorical_data.to(device)
-                batch = {"numeric": numeric_data, "categorical": categorical_data}
-            else:
-                # Handle if it's already a dict
-                batch = batch_data
-                for key in batch:
-                    batch[key] = batch[key].to(device)
-                    # Ensure data type consistency
-                    batch[key] = batch[key].to(torch.float32)
+            # if isinstance(batch_data, (list, tuple)) and len(batch_data) == 2:
+            #     numeric_data, categorical_data = batch_data
+            #     # Move to device
+            #     numeric_data = numeric_data.to(device)
+            #     categorical_data = categorical_data.to(device)
+            #     batch = {"numeric": numeric_data, "categorical": categorical_data}
+            # else:
+            #     # Handle if it's already a dict
+            #     batch = batch_data
+            #     for key in batch:
+            #         batch[key] = batch[key].to(device)
+            #         # Ensure data type consistency
+            #         batch[key] = batch[key].to(torch.float32)
 
-            # Convert batch to float32
-            for key in batch:
-                batch[key] = batch[key].to(device).to(torch.float32)
+            # # Convert batch to float32
+            # for key in batch:
+            #     batch[key] = batch[key].to(device).to(torch.float32)
 
             # Implement gradient accumulation steps
             # Only zero gradients at the start of accumulation
@@ -306,21 +323,23 @@ def train_model(
         with torch.no_grad():
             for batch_idx, batch_data in enumerate(val_iterator):
                 # Check batch structure and convert to expected format
-                if isinstance(batch_data, (list, tuple)) and len(batch_data) == 2:
-                    numeric_data, categorical_data = batch_data
-                    # Move to device
-                    numeric_data = numeric_data.to(device)
-                    categorical_data = categorical_data.to(device)
-                    batch = {"numeric": numeric_data, "categorical": categorical_data}
-                else:
-                    # Handle if it's already a dict
-                    batch = batch_data
-                    for key in batch:
-                        batch[key] = batch[key].to(device)
-                        # Ensure data type consistency
-                        batch[key] = batch[key].to(torch.float32)
+                # if isinstance(batch_data, (list, tuple)) and len(batch_data) == 2:
+                #     numeric_data, categorical_data = batch_data
+                #     # Move to device
+                #     numeric_data = numeric_data.to(device)
+                #     categorical_data = categorical_data.to(device)
+                #     batch = {"numeric": numeric_data, "categorical": categorical_data}
+                # else:
+                #     # Handle if it's already a dict
+                #     batch = batch_data
+                #     for key in batch:
+                #         batch[key] = batch[key].to(device)
+                #         # Ensure data type consistency
+                #         batch[key] = batch[key].to(torch.float32)
 
                 # Eval step
+                batch = batch_data
+                batch.to(device)
                 batch_losses = eval_step(model, batch)
 
                 # Update running loss

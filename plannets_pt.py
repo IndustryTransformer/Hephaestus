@@ -125,7 +125,7 @@ df.select_dtypes(include="object").groupby(
 
 # %%
 df = df.reset_index(drop=True)
-df = df.head(50_000)
+df = df.head(5_000)
 # %%
 time_series_config = TimeSeriesConfig.generate(df=df)
 train_idx = int(df.idx.max() * 0.8)
@@ -498,9 +498,9 @@ def run_training():
             pred_df = create_test_inputs_df(model_predictions, time_series_config)
 
             # Get actual data for comparison
-            actual_numeric, actual_categorical = test_ds[test_sample_idx]
+            actuals = test_ds[test_sample_idx]
             actual_inputs = AutoRegressiveResults(
-                torch.tensor(actual_numeric), torch.tensor(actual_categorical)
+                torch.tensor(actuals.numeric), torch.tensor(actuals.categorical)
             )
             actual_df = create_test_inputs_df(actual_inputs, time_series_config)
 

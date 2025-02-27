@@ -158,8 +158,8 @@ class AutoRegressiveResults:
             AutoRegressiveResults: The auto-regressive results.
         """
         inputs = ds[idx]
-        numeric_inputs = inputs[0][:, :stop_idx]
-        categorical_inputs = inputs[1][:, :stop_idx]
+        numeric_inputs = inputs.numeric[:, :stop_idx]
+        categorical_inputs = inputs.categorical[:, :stop_idx]
         numeric_inputs = (
             torch.tensor(numeric_inputs)
             if not isinstance(numeric_inputs, torch.Tensor)

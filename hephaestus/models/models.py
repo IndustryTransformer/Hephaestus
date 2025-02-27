@@ -240,6 +240,21 @@ class TimeSeriesInputs:
     numeric: torch.Tensor
     categorical: Optional[torch.Tensor] = None
 
+    def to(self, device: torch.device):
+        """
+        Move tensors to the specified device.
+
+        Args:
+            device: The device to move tensors to (e.g., 'cuda', 'cpu', or torch.device)
+
+        Returns:
+            TimeSeriesInputs: Self with tensors moved to the specified device
+        """
+        self.numeric = self.numeric.to(device)
+        if self.categorical is not None:
+            self.categorical = self.categorical.to(device)
+        return self
+
 
 class TimeSeriesDS(Dataset):
     """
@@ -287,15 +302,18 @@ class TimeSeriesDS(Dataset):
         df = getattr(self, df_name)
 
         batch = df.loc[df.index == set_idx, :]
-        batch = np.array(batch.values)
+        # Convert DataFrame to torch.Tensor directly
+        batch = torch.tensor(batch.values, dtype=torch.float32)
 
         # Add padding
         batch_len, n_cols = batch.shape
         pad_len = self.max_seq_len - batch_len
-        padding = np.full((pad_len, n_cols), np.nan)
-        batch = np.concatenate([batch, padding], axis=0)
-        batch = np.swapaxes(batch, 0, 1)
-        batch = torch.tensor(batch, dtype=torch.float32)
+        # Use torch.full instead of np.full
+        padding = torch.full((pad_len, n_cols), float("nan"), dtype=torch.float32)
+        # Use torch.cat instead of np.concatenate
+        batch = torch.cat([batch, padding], dim=0)
+        # Use torch.permute instead of np.swapaxes
+        batch = batch.permute(1, 0)
         return batch
 
     def __getitem__(self, idx):
@@ -345,12 +363,13 @@ class TimeSeriesDS(Dataset):
             A TimeSeriesInputs object with batched tensors
         """
         # All items should have numeric inputs
-        numeric_batch = np.stack([item.numeric for item in items])
+        # Use torch.stack instead of np.stack
+        numeric_batch = torch.stack([item.numeric for item in items])
 
         # Not all items might have categorical inputs
         categorical_batch = None
         if items[0].categorical is not None:
-            categorical_batch = np.stack([item.categorical for item in items])
+            categorical_batch = torch.stack([item.categorical for item in items])
 
         return TimeSeriesInputs(numeric=numeric_batch, categorical=categorical_batch)
 
