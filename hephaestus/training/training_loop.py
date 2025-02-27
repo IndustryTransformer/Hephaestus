@@ -30,6 +30,7 @@ def train_model(
     max_grad_norm=1.0,  # Added for controlling gradient norms
     explosion_threshold=10.0,  # New param: threshold for gradient explosion
     max_explosions_per_epoch=5,  # New param: max explosions before lr reduction
+    writer: SummaryWriter = None,  # Added for external writer
 ):
     """Train a time series model with tensorboard logging.
 
@@ -48,6 +49,7 @@ def train_model(
         max_grad_norm: Maximum norm for gradients
         explosion_threshold: Threshold above which a gradient is considered exploding
         max_explosions_per_epoch: Maximum gradient explosions allowed per epoch
+        writer: Optional tensorboard writer for logging
 
     Returns:
         dict: Training history
@@ -100,7 +102,8 @@ def train_model(
     gradient_issues_counter = 0
 
     # Create TensorBoard writer with flush_secs=10 to ensure more frequent writes
-    writer = SummaryWriter(log_dir, flush_secs=10)
+    if writer is None:
+        writer = SummaryWriter(log_dir, flush_secs=10)
     print(f"TensorBoard log directory: {log_dir}")
 
     # Create directories if they don't exist
