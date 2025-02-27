@@ -800,9 +800,11 @@ class TimeSeriesTransformer(nn.Module):
     ):
         """Forward pass of the transformer model."""
         device = numeric_inputs.device
+        device = next(self.parameters()).device
+        numeric_inputs = numeric_inputs.to(device, dtype=torch.float32)
         # Ensure all inputs are on the same device
         if categorical_inputs is not None:
-            categorical_inputs = categorical_inputs.to(device)
+            categorical_inputs = categorical_inputs.to(device, dtype=torch.float32)
 
         # Convert inputs to PyTorch tensors if they aren't already
         if numeric_inputs is not None and not isinstance(numeric_inputs, torch.Tensor):

@@ -17,76 +17,33 @@ def add_input_offsets(inputs, outputs, inputs_offset=1):
     Returns:
         tuple: Tuple containing modified inputs, outputs, and nan mask.
     """
-    # Print debug info before processing
-    print(f"Original input shape: {inputs.shape}")
-    print(f"Original output shape: {outputs.shape}")
-
-    # Check for sequence length mismatch
-    if inputs.shape[1] != outputs.shape[1]:
-        print(
-            f"Sequence length mismatch: inputs={inputs.shape[1]}, outputs={outputs.shape[1]}"
-        )
-        # Use the minimum sequence length
-        min_seq_len = min(inputs.shape[1], outputs.shape[1])
-        inputs = inputs[:, :min_seq_len, :]
-        outputs = outputs[:, :min_seq_len, ...]
-        print(
-            f"After sequence adjustment - inputs: {inputs.shape}, outputs: {outputs.shape}"
-        )
 
     # Process inputs with offset
-    inputs = inputs[:, :, inputs_offset:]
     batch_size, seq_len, feat_dim = inputs.shape
+
+    # Process inputs with offset
+    inputs_shifted = inputs[:, :, inputs_offset:]
     tmp_null = torch.full(
         (batch_size, seq_len, inputs_offset), float("nan"), device=inputs.device
     )
-    inputs = torch.cat([inputs, tmp_null], dim=2)
-    nan_mask = torch.isnan(inputs)
-    inputs = torch.where(nan_mask, torch.zeros_like(inputs), inputs)
+    inputs_padded = torch.cat([inputs_shifted, tmp_null], dim=2)
 
-    # Debug shapes after processing
-    print(f"Processed input shape: {inputs.shape}")
-    print(f"Output shape: {outputs.shape}")
-    print(f"NaN mask shape: {nan_mask.shape}")
+    # Create mask and handle NaNs consistently
+    nan_mask = torch.isnan(inputs_padded)
+    inputs_clean = torch.where(nan_mask, torch.zeros_like(inputs_padded), inputs_padded)
 
-    # Handle feature dimension mismatch
-    if outputs.dim() == inputs.dim() and outputs.shape[2] != inputs.shape[2]:
-        print(
-            f"Feature dimension mismatch: inputs={inputs.shape[2]}, outputs={outputs.shape[2]}"
+    # Mask outputs consistently with the JAX version
+    if outputs.dim() > inputs_clean.dim():
+        # Handle categorical outputs
+        nan_mask_expanded = nan_mask.unsqueeze(-1).expand(-1, -1, -1, outputs.shape[-1])
+        outputs_masked = torch.where(
+            nan_mask_expanded, torch.zeros_like(outputs), outputs
         )
-        min_features = min(outputs.shape[2], inputs.shape[2])
-        nan_mask_adjusted = nan_mask[:, :, :min_features]
-        masked_outputs = outputs.clone()
-        masked_outputs[:, :, :min_features] = torch.where(
-            nan_mask_adjusted,
-            torch.zeros_like(outputs[:, :, :min_features]),
-            outputs[:, :, :min_features],
-        )
-        return inputs, masked_outputs, nan_mask
-
-    # Handle categorical outputs (different dimensionality)
-    elif outputs.dim() == inputs.dim() + 1:
-        nan_mask_expanded = nan_mask.unsqueeze(-1).expand_as(outputs)
-        outputs = torch.where(nan_mask_expanded, torch.zeros_like(outputs), outputs)
     else:
-        # Ensure mask size matches output features
-        if nan_mask.shape[2] > outputs.shape[2]:
-            nan_mask = nan_mask[:, :, : outputs.shape[2]]
-        elif nan_mask.shape[2] < outputs.shape[2]:
-            padding = torch.zeros(
-                (
-                    nan_mask.shape[0],
-                    nan_mask.shape[1],
-                    outputs.shape[2] - nan_mask.shape[2],
-                ),
-                dtype=torch.bool,
-                device=nan_mask.device,
-            )
-            nan_mask = torch.cat([nan_mask, padding], dim=2)
+        # Handle numeric outputs
+        outputs_masked = torch.where(nan_mask, torch.zeros_like(outputs), outputs)
 
-        outputs = torch.where(nan_mask, torch.zeros_like(outputs), outputs)
-
-    return inputs, outputs, nan_mask
+    return inputs_clean, outputs_masked, nan_mask
 
 
 def numeric_loss(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
@@ -152,14 +109,15 @@ def train_step(model, inputs, optimizer):
     optimizer.zero_grad()
 
     # Ensure all inputs are float32
-    for key in inputs:
-        inputs[key] = inputs[key].to(torch.float32)
+    # for key in inputs: # Error here?
+    #     inputs[key] = inputs[key].to(torch.float32)
 
-    # Forward pass
     outputs = model(
         numeric_inputs=inputs["numeric"], categorical_inputs=inputs["categorical"]
     )
-
+    offset_numeric, offset_outputs_numeric, _ = add_input_offsets(
+        inputs["numeric"], outputs["numeric"], inputs_offset=1
+    )
     # Calculate losses
     numeric_loss_val = numeric_loss(inputs["numeric"], outputs["numeric"])
     categorical_loss_val = (
@@ -177,15 +135,22 @@ def train_step(model, inputs, optimizer):
     loss = numeric_loss_val + categorical_loss_val
 
     # Check for NaN values
-    if torch.isnan(loss):
-        print("Warning: NaN detected in loss. Skipping backpropagation.")
-        return {
-            "loss": float("nan"),
-            "numeric_loss": float("nan"),
-            "categorical_loss": float("nan"),
-        }
+    if not torch.isnan(loss) and not torch.isinf(loss):
+        loss.backward()
+        # Print gradient norms to debug
+        total_norm = 0
+        for p in model.parameters():
+            if p.grad is not None:
+                param_norm = p.grad.data.norm(2)
+                total_norm += param_norm.item() ** 2
+        total_norm = total_norm**0.5
+        print(f"Gradient norm: {total_norm}")
 
-    loss.backward()
+        # Gradient clipping to prevent exploding gradients
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        optimizer.step()
+    else:
+        print(f"Skipping update due to bad loss value: {loss.item()}")
 
     # Gradient clipping to prevent exploding gradients
     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)

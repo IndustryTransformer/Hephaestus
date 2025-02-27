@@ -90,11 +90,14 @@ class MultiHeadAttention4D(nn.Module):
 
         # Apply mask if provided
         if mask is not None:
-            # Expand mask to match the attention scores dimensions
-            expanded_mask = mask.unsqueeze(1).unsqueeze(
-                1
-            )  # Add dims for heads and n_columns
-            scores = scores.masked_fill(expanded_mask, float("-inf"))
+            # Check if mask is a boolean tensor
+            if mask.dtype == torch.bool:
+                expanded_mask = mask.unsqueeze(1).unsqueeze(1)
+                scores = scores.masked_fill(expanded_mask, float("-inf"))
+            else:
+                # Handle float mask case
+                expanded_mask = mask.unsqueeze(1).unsqueeze(1)
+                scores = scores + expanded_mask
 
         # Apply softmax to get attention weights
         attn_weights = F.softmax(scores, dim=-1)
