@@ -5,6 +5,7 @@ from .model_data_classes import (
     TimeSeriesDS,
     TimeSeriesInputs,
     TimeSeriesOutput,
+    tabular_collate_fn,
 )
 from .models import (
     FeedForwardNetwork,

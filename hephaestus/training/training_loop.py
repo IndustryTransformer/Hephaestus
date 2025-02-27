@@ -6,26 +6,13 @@ from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from hephaestus.models import TimeSeriesInputs
+from hephaestus.models import tabular_collate_fn
 from hephaestus.training.training import (
     create_metric_history,
     create_optimizer,
     eval_step,
     train_step,
 )
-
-
-def custom_collate_fn(batch):
-    """Custom collate function for TimeSeriesInputs objects."""
-    numeric_tensors = torch.stack([item.numeric for item in batch])
-
-    if batch[0].categorical is not None:
-        categorical_tensors = torch.stack([item.categorical for item in batch])
-        return TimeSeriesInputs(
-            numeric=numeric_tensors, categorical=categorical_tensors
-        )
-    else:
-        return TimeSeriesInputs(numeric=numeric_tensors, categorical=None)
 
 
 def train_model(
@@ -89,7 +76,7 @@ def train_model(
         shuffle=True,
         num_workers=num_workers,
         pin_memory=True if torch.cuda.is_available() else False,
-        collate_fn=custom_collate_fn,
+        collate_fn=tabular_collate_fn,
     )
 
     val_loader = DataLoader(
@@ -98,7 +85,7 @@ def train_model(
         shuffle=False,
         num_workers=num_workers,
         pin_memory=True if torch.cuda.is_available() else False,
-        collate_fn=custom_collate_fn,
+        collate_fn=tabular_collate_fn,
     )
 
     # Create optimizer and scheduler

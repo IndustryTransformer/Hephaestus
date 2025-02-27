@@ -402,3 +402,16 @@ class ProcessedEmbeddings:
 
     column_embeddings: Optional[torch.Tensor] = None
     value_embeddings: Optional[torch.Tensor] = None
+
+
+def tabular_collate_fn(batch):
+    """Custom collate function for TimeSeriesInputs objects."""
+    numeric_tensors = torch.stack([item.numeric for item in batch])
+
+    if batch[0].categorical is not None:
+        categorical_tensors = torch.stack([item.categorical for item in batch])
+        return TimeSeriesInputs(
+            numeric=numeric_tensors, categorical=categorical_tensors
+        )
+    else:
+        return TimeSeriesInputs(numeric=numeric_tensors, categorical=None)
