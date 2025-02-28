@@ -99,7 +99,7 @@ def create_optimizer(
     )
 
     # Create a cosine learning rate scheduler
-    scheduler = CosineAnnealingLR(optimizer, T_max=10000, eta_min=1e-6)
+    scheduler = CosineAnnealingLR(optimizer, T_max=2000, eta_min=1e-6)
 
     return optimizer, scheduler
 

@@ -2,8 +2,8 @@ import os
 import time
 
 import torch
-from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 from tqdm.auto import tqdm
 
 from hephaestus.models import tabular_collate_fn
@@ -166,13 +166,13 @@ def train_model(
             # Force a write to disk every 100 batches
             if batch_idx % 100 == 0:
                 writer.flush()
+            scheduler.step()
 
         # Calculate average training losses
         for key in train_losses:
             train_losses[key] /= len(train_loader)
 
         # Update scheduler after each epoch
-        scheduler.step()
 
         # Validation phase
         model.eval()

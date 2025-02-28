@@ -18,9 +18,9 @@ import pandas as pd
 from flax import nnx
 from icecream import ic
 
-# from torch.utils.tensorboard import SummaryWriter
-from tensorboardX import SummaryWriter
+# from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 from tqdm.notebook import tqdm, trange
 from transformers import BertTokenizerFast, FlaxBertModel
 
