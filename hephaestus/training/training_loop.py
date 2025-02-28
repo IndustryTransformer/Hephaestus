@@ -4,7 +4,6 @@ import time
 import torch
 from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
-from tqdm import tqdm
 
 from hephaestus.models import tabular_collate_fn
 from hephaestus.training.training import (
@@ -13,6 +12,8 @@ from hephaestus.training.training import (
     eval_step,
     train_step,
 )
+
+from .auto import tqdm
 
 
 def train_model(
@@ -416,4 +417,5 @@ def train_model(
     print("To view training metrics, run:")
     print(f"tensorboard --logdir={os.path.dirname(log_dir)}")
 
+    return history
     return history

@@ -58,7 +58,7 @@ def numeric_loss(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
     if mask.any():
         loss = F.mse_loss(y_pred[mask], y_true[mask], reduction="mean")
         if torch.isnan(loss) or torch.isinf(loss):
-            print("Warning: NaN or Inf in numeric loss, returning zero loss")
+            # Silent handling without print
             return torch.tensor(0.0, device=y_true.device, dtype=torch.float32)
         return loss
     return torch.tensor(0.0, device=y_true.device, dtype=torch.float32)
@@ -78,11 +78,11 @@ def categorical_loss(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor
             targets = y_true[mask].reshape(-1).long()
             loss = F.nll_loss(log_probs, targets, reduction="mean")
             if torch.isnan(loss) or torch.isinf(loss):
-                print("Warning: NaN or Inf in categorical loss, returning zero loss")
+                # Silent handling without print
                 return torch.tensor(0.0, device=y_true.device, dtype=torch.float32)
             return loss
-        except Exception as e:
-            print(f"Error in categorical loss: {e}")
+        except Exception:
+            # Return zero without print
             return torch.tensor(0.0, device=y_true.device, dtype=torch.float32)
     return torch.tensor(0.0, device=y_true.device, dtype=torch.float32)
 
@@ -133,14 +133,14 @@ def train_step(
         outputs = model(
             numeric_inputs=inputs.numeric, categorical_inputs=inputs.categorical
         )
-    except RuntimeError as e:
-        print(f"Error during forward pass: {e}")
-        # Return dummy losses to continue training
+    except RuntimeError:
+        # Return dummy losses silently
         return {
             "loss": 0.0,
             "numeric_loss": 0.0,
             "categorical_loss": 0.0,
             "gradient_status": "error",
+            "gradient_norm": 0.0,
         }
 
     # Calculate losses with better error reporting
@@ -151,16 +151,14 @@ def train_step(
             if outputs.categorical is not None
             else torch.tensor(0.0, device=inputs.numeric.device)
         )
-    except Exception as e:
-        print(f"Error calculating loss: {e}")
-        import traceback
-
-        traceback.print_exc()
+    except Exception:
+        # Handle silently without print
         return {
             "loss": 0.0,
             "numeric_loss": 0.0,
             "categorical_loss": 0.0,
             "gradient_status": "error",
+            "gradient_norm": 0.0,
         }
 
     # Ensure loss is float32
@@ -177,7 +175,6 @@ def train_step(
 
     # Check for NaN values
     if torch.isnan(loss) or torch.isinf(loss):
-        print(f"Warning: Bad loss value: {loss.item()}, skipping update")
         return {
             "loss": float("nan"),
             "numeric_loss": float("nan")
@@ -187,6 +184,7 @@ def train_step(
             if torch.isnan(categorical_loss_val)
             else categorical_loss_val.item(),
             "gradient_status": "bad_loss",
+            "gradient_norm": 0.0,
         }
 
     # Backward pass with more monitoring
@@ -202,8 +200,7 @@ def train_step(
                 if torch.isnan(p.grad).any() or torch.isinf(p.grad).any():
                     param_with_issues.append(name)
                 total_norm += param_norm**2
-            except RuntimeError as e:
-                print(f"Error calculating gradient norm for {name}: {e}")
+            except RuntimeError:
                 param_with_issues.append(name)
 
     total_norm = total_norm**0.5 if total_norm > 0 else 0.0
@@ -215,17 +212,11 @@ def train_step(
         gradient_status = "normal"
         if total_norm > 100 or len(param_with_issues) > 0:
             gradient_status = "exploded"
-            print(f"Exploding gradients detected! Norm in Train File: {total_norm}")
-            if param_with_issues:
-                print(f"Problematic parameters: {param_with_issues}")
-
-            # Apply more aggressive gradient clipping
+            # Apply more aggressive gradient clipping, silently
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
 
             # Optionally reduce learning rate temporarily
             if scheduler is not None:
-                print("Training File Train Step Gradient Norm")
-                print("Reducing learning rate temporarily due to gradient issues")
                 for param_group in optimizer.param_groups:
                     param_group["lr"] = param_group["lr"] * 0.5
         else:
@@ -250,6 +241,7 @@ def train_step(
         "categorical_loss": categorical_loss_val.item(),
         "gradient_status": gradient_status,
         "gradient_norm": total_norm,
+        "param_issues_count": len(param_with_issues),
     }
 
 

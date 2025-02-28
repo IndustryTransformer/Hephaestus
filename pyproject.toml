@@ -20,6 +20,8 @@ dependencies = [
     "tensorboardx>=2.6.2.2",
     "torch-tb-profiler>=0.4.3",
     "torch>=2.5.1",
+    "torchvision>=0.20.1",
+    "torchviz>=0.0.3",
     "tqdm>=4.67.1",
     "transformers>=4.46.3",
 ]
