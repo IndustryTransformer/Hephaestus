@@ -56,10 +56,6 @@ class MultiHeadAttention4D(nn.Module):
         Returns:
             tuple: Output tensor and attention weights
         """
-        # Ensure all inputs have the same data type (float32)
-        query = query.to(torch.float32)
-        key = key.to(torch.float32)
-        value = value.to(torch.float32)
 
         batch_size, n_columns, seq_len, _ = query.shape
 
