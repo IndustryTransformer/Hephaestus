@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, List
 
 import numpy as np
 import pandas as pd
@@ -160,26 +160,13 @@ class TimeSeriesConfig:
 @dataclass
 class TimeSeriesInputs:
     """
-    Data class to store time series batch data.
-
-    Attributes:
-        numeric: Numeric inputs for the model.
-        categorical: Categorical inputs for the model, may be None if no categorical data exists.
+    Class to hold time series inputs.
     """
-
     numeric: torch.Tensor
     categorical: Optional[torch.Tensor] = None
-
-    def to(self, device: torch.device):
-        """
-        Move tensors to the specified device.
-
-        Args:
-            device: The device to move tensors to (e.g., 'cuda', 'cpu', or torch.device)
-
-        Returns:
-            TimeSeriesInputs: Self with tensors moved to the specified device
-        """
+    
+    def to(self, device):
+        """Move tensors to the specified device"""
         self.numeric = self.numeric.to(device)
         if self.categorical is not None:
             self.categorical = self.categorical.to(device)
@@ -404,14 +391,28 @@ class ProcessedEmbeddings:
     value_embeddings: Optional[torch.Tensor] = None
 
 
-def tabular_collate_fn(batch):
-    """Custom collate function for TimeSeriesInputs objects."""
-    numeric_tensors = torch.stack([item.numeric for item in batch])
-
+def tabular_collate_fn(batch: List[TimeSeriesInputs]) -> TimeSeriesInputs:
+    """
+    Custom collate function for TimeSeriesInputs.
+    
+    Args:
+        batch: A list of TimeSeriesInputs objects
+        
+    Returns:
+        A batched TimeSeriesInputs object
+    """
+    # Collect numeric and categorical tensors separately
+    numeric_tensors = [item.numeric for item in batch]
+    
+    # Stack numeric tensors along a new batch dimension
+    numeric_batch = torch.stack(numeric_tensors, dim=0)
+    
+    # Handle categorical data if present
     if batch[0].categorical is not None:
-        categorical_tensors = torch.stack([item.categorical for item in batch])
-        return TimeSeriesInputs(
-            numeric=numeric_tensors, categorical=categorical_tensors
-        )
+        categorical_tensors = [item.categorical for item in batch]
+        categorical_batch = torch.stack(categorical_tensors, dim=0)
     else:
-        return TimeSeriesInputs(numeric=numeric_tensors, categorical=None)
+        categorical_batch = None
+    
+    # Create and return a new TimeSeriesInputs with batched data
+    return TimeSeriesInputs(numeric=numeric_batch, categorical=categorical_batch)

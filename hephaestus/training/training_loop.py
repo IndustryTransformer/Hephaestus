@@ -1,17 +1,19 @@
 import os
 import time
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.auto import tqdm
 
 from hephaestus.models import tabular_collate_fn
 from hephaestus.training.training import (
+    compute_batch_loss,
     create_metric_history,
     create_optimizer,
     eval_step,
-    train_step,
 )
 
 
@@ -56,7 +58,7 @@ def train_model(
     """
     # Set up device
     if device is None:
-        torch.device(
+        device = torch.device(
             "cuda"
             if torch.cuda.is_available()
             else "mps"
@@ -71,14 +73,14 @@ def train_model(
     for param in model.parameters():
         param.data = param.data.to(torch.float32)
 
-    # Create data loaders
+    # Create data loaders - ALWAYS use tabular_collate_fn for TimeSeriesDS
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
         pin_memory=True if torch.cuda.is_available() else False,
-        collate_fn=tabular_collate_fn,
+        collate_fn=tabular_collate_fn,  # Always use our custom collation
     )
 
     val_loader = DataLoader(
@@ -87,16 +89,44 @@ def train_model(
         shuffle=False,
         num_workers=num_workers,
         pin_memory=True if torch.cuda.is_available() else False,
-        collate_fn=tabular_collate_fn,
+        collate_fn=tabular_collate_fn,  # Always use our custom collation
     )
 
-    # Create optimizer and scheduler
+    # Get all model parameters
+    all_params = list(model.parameters())
+    categorical_params = []
+
+    # Separate the categorical parameters
+    for name, module in model.named_modules():
+        if (
+            "categorical" in name.lower()
+            and isinstance(module, nn.Module)
+            and not isinstance(module, nn.ModuleList)
+            and not isinstance(module, nn.Sequential)
+            and not isinstance(module, nn.ModuleDict)
+            and not isinstance(module, nn.Parameter)
+        ):
+            for param_name, param in module.named_parameters():
+                # Only add if directly owned by this module (avoid duplicates)
+                if "." not in param_name:
+                    categorical_params.append(param)
+
+    # Use parameter id() to filter instead of direct tensor comparison
+    categorical_param_ids = {id(p) for p in categorical_params}
+    numeric_params = [p for p in all_params if id(p) not in categorical_param_ids]
+
+    # Create optimizers with different learning rates
+    numeric_optimizer = torch.optim.AdamW(numeric_params, lr=learning_rate)
+    categorical_optimizer = torch.optim.AdamW(categorical_params, lr=learning_rate * 1.5)
+    
+    # Add standard optimizer/scheduler as fallback
     optimizer, scheduler = create_optimizer(model, learning_rate)
 
     # Add patience for early stopping
     patience = 5
     plateau_counter = 0
     best_val_loss = float("inf")
+    explosion_count = 0
 
     # Create TensorBoard writer
     if writer is None:
@@ -116,110 +146,152 @@ def train_model(
 
         # Training phase
         model.train()
-        train_losses = {"loss": 0.0, "numeric_loss": 0.0, "categorical_loss": 0.0}
+        train_loss = 0.0
+        train_numeric_loss = 0.0
+        train_categorical_loss = 0.0
+        batch_count = 0
 
-        train_iterator = tqdm(train_loader, desc="Training")
-        for batch_idx, batch in enumerate(train_iterator):
-            # Calculate global step for logging
-            global_step = epoch * len(train_loader) + batch_idx
-            batch.to(device)
-
-            if batch_idx % gradient_accumulation_steps == 0:
-                optimizer.zero_grad()
-
-            # Train step
-            batch_losses = train_step(model, batch)
-
-            # Log batch-level metrics
-            writer.add_scalars(
-                "Batch/Loss",
-                {
-                    "train": batch_losses["loss"],
-                    "numeric": batch_losses["numeric_loss"],
-                    "categorical": batch_losses["categorical_loss"],
-                },
-                global_step,
+        train_iterator = tqdm(train_loader, desc=f"Training Epoch {epoch + 1}")
+        for i, batch in enumerate(train_iterator):
+            # Move batch to device
+            batch = batch.to(device)
+            
+            # Forward pass
+            outputs = model(
+                numeric_inputs=batch.numeric, 
+                categorical_inputs=batch.categorical
             )
-
-            # Update running loss
-            for key in train_losses:
-                train_losses[key] += batch_losses[key]
-
-            # Only update optimizer after accumulating gradients
-            if (batch_idx + 1) % gradient_accumulation_steps == 0 or (
-                batch_idx + 1
-            ) == len(train_loader):
-                # Apply regular gradient clipping
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
-                optimizer.step()
-
+            
+            # Compute losses
+            total_loss, component_losses = compute_batch_loss(outputs, batch)
+            
+            # Scale loss for gradient accumulation
+            scaled_loss = total_loss / gradient_accumulation_steps
+            scaled_loss.backward()
+            
+            # Update training metrics
+            train_loss += total_loss.item()
+            train_numeric_loss += component_losses.get("numeric_loss", 0.0)
+            train_categorical_loss += component_losses.get("categorical_loss", 0.0)
+            batch_count += 1
+            
             # Update progress bar
-            train_iterator.set_postfix(
-                {
-                    "loss": batch_losses["loss"],
-                    "num_loss": batch_losses["numeric_loss"],
-                    "cat_loss": batch_losses["categorical_loss"],
-                    "lr": optimizer.param_groups[0]["lr"],
-                }
-            )
+            train_iterator.set_postfix({
+                "loss": f"{train_loss/batch_count:.4f}",
+                "num_loss": f"{train_numeric_loss/batch_count:.4f}",
+                "cat_loss": f"{train_categorical_loss/batch_count:.4f}"
+            })
+            
+            # Perform optimizer step after accumulating gradients
+            if (i + 1) % gradient_accumulation_steps == 0:
+                # Check for exploding gradients
+                numeric_grad_norm = torch.nn.utils.clip_grad_norm_(
+                    numeric_params, max_grad_norm
+                )
+                categorical_grad_norm = torch.nn.utils.clip_grad_norm_(
+                    categorical_params, max_grad_norm
+                )
+                
+                # Detect gradient explosion
+                if (numeric_grad_norm > explosion_threshold or 
+                    categorical_grad_norm > explosion_threshold):
+                    explosion_count += 1
+                    if explosion_count > max_explosions_per_epoch:
+                        print(f"Too many gradient explosions ({explosion_count}), reducing learning rate")
+                        for param_group in numeric_optimizer.param_groups:
+                            param_group["lr"] *= 0.5
+                        for param_group in categorical_optimizer.param_groups:
+                            param_group["lr"] *= 0.5
+                        explosion_count = 0
+                
+                # Optimizer step
+                numeric_optimizer.step()
+                categorical_optimizer.step()
+                numeric_optimizer.zero_grad()
+                categorical_optimizer.zero_grad()
 
-            # Force a write to disk every 100 batches
-            if batch_idx % 100 == 0:
-                writer.flush()
-            scheduler.step()
+                # Log batch-level metrics every 50 batches
+                if (i + 1) % 50 == 0:
+                    global_step = epoch * len(train_loader) + i
+                    writer.add_scalars(
+                        "Batch/Loss",
+                        {
+                            "train": total_loss.item(),
+                            "numeric": component_losses.get("numeric_loss", 0.0),
+                            "categorical": component_losses.get("categorical_loss", 0.0),
+                        },
+                        global_step,
+                    )
+                    writer.flush()  # Force writing to disk
 
-        # Calculate average training losses
-        for key in train_losses:
-            train_losses[key] /= len(train_loader)
-
-        # Update scheduler after each epoch
+        # Calculate average training metrics
+        avg_train_loss = train_loss / batch_count
+        avg_train_numeric_loss = train_numeric_loss / batch_count
+        avg_train_categorical_loss = train_categorical_loss / batch_count
 
         # Validation phase
         model.eval()
-        val_losses = {"loss": 0.0, "numeric_loss": 0.0, "categorical_loss": 0.0}
+        val_loss = 0.0
+        val_numeric_loss = 0.0
+        val_categorical_loss = 0.0
+        val_batch_count = 0
 
-        val_iterator = tqdm(val_loader, desc="Validation")
+        val_iterator = tqdm(val_loader, desc=f"Validation Epoch {epoch + 1}")
         with torch.no_grad():
-            for batch_idx, batch in enumerate(val_iterator):
-                batch.to(device)
-                batch_losses = eval_step(model, batch)
-
-                # Update running loss
-                for key in val_losses:
-                    val_losses[key] += batch_losses[key]
-
+            for batch in val_iterator:
+                # Move batch to device
+                batch = batch.to(device)
+                
+                # Forward pass
+                outputs = model(
+                    numeric_inputs=batch.numeric, 
+                    categorical_inputs=batch.categorical
+                )
+                
+                # Compute losses
+                total_loss, component_losses = compute_batch_loss(outputs, batch)
+                
+                # Update validation metrics
+                val_loss += total_loss.item()
+                val_numeric_loss += component_losses.get("numeric_loss", 0.0)
+                val_categorical_loss += component_losses.get("categorical_loss", 0.0)
+                val_batch_count += 1
+                
                 # Update progress bar
-                val_iterator.set_postfix({"val_loss": batch_losses["loss"]})
+                val_iterator.set_postfix({
+                    "val_loss": f"{val_loss/val_batch_count:.4f}",
+                    "val_num_loss": f"{val_numeric_loss/val_batch_count:.4f}",
+                    "val_cat_loss": f"{val_categorical_loss/val_batch_count:.4f}"
+                })
 
-        # Calculate average validation losses
-        for key in val_losses:
-            val_losses[key] /= len(val_loader)
+        # Calculate average validation metrics
+        avg_val_loss = val_loss / val_batch_count
+        avg_val_numeric_loss = val_numeric_loss / val_batch_count
+        avg_val_categorical_loss = val_categorical_loss / val_batch_count
 
         # Calculate epoch time before logging
         epoch_time = time.time() - start_time
 
         # TensorBoard logging
         writer.add_scalars(
-            "Loss", {"train": train_losses["loss"], "val": val_losses["loss"]}, epoch
+            "Loss", {"train": avg_train_loss, "val": avg_val_loss}, epoch
         )
 
         writer.add_scalars(
             "Numeric_Loss",
-            {"train": train_losses["numeric_loss"], "val": val_losses["numeric_loss"]},
+            {"train": avg_train_numeric_loss, "val": avg_val_numeric_loss},
             epoch,
         )
 
         writer.add_scalars(
             "Categorical_Loss",
-            {
-                "train": train_losses["categorical_loss"],
-                "val": val_losses["categorical_loss"],
-            },
+            {"train": avg_train_categorical_loss, "val": avg_val_categorical_loss},
             epoch,
         )
 
-        # Log learning rate
-        writer.add_scalar("Learning_Rate", scheduler.get_last_lr()[0], epoch)
+        # Log learning rates
+        writer.add_scalar("Learning_Rate/numeric", numeric_optimizer.param_groups[0]["lr"], epoch)
+        writer.add_scalar("Learning_Rate/categorical", categorical_optimizer.param_groups[0]["lr"], epoch)
 
         # Log epoch metrics
         writer.add_scalar("Epoch_Time", epoch_time, epoch)
@@ -228,41 +300,47 @@ def train_model(
         writer.flush()
 
         # Update history
-        history["train_loss"].append(train_losses["loss"])
-        history["train_numeric_loss"].append(train_losses["numeric_loss"])
-        history["train_categorical_loss"].append(train_losses["categorical_loss"])
-        history["val_loss"].append(val_losses["loss"])
-        history["val_numeric_loss"].append(val_losses["numeric_loss"])
-        history["val_categorical_loss"].append(val_losses["categorical_loss"])
+        history["train_loss"].append(avg_train_loss)
+        history["train_numeric_loss"].append(avg_train_numeric_loss)
+        history["train_categorical_loss"].append(avg_train_categorical_loss)
+        history["val_loss"].append(avg_val_loss)
+        history["val_numeric_loss"].append(avg_val_numeric_loss)
+        history["val_categorical_loss"].append(avg_val_categorical_loss)
 
         # Early stopping logic
-        if val_losses["loss"] < best_val_loss:
-            best_val_loss = val_losses["loss"]
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
             plateau_counter = 0
-            # Save best model
+            # Save best model with both optimizers
             torch.save(
                 {
                     "epoch": epoch,
                     "model_state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "scheduler_state_dict": scheduler.state_dict(),
+                    "numeric_optimizer_state_dict": numeric_optimizer.state_dict(),
+                    "categorical_optimizer_state_dict": categorical_optimizer.state_dict(),
                     "val_loss": best_val_loss,
                 },
                 os.path.join(save_dir, "best_model.pt"),
             )
+            print(f"Saved best model with validation loss: {avg_val_loss:.4f}")
         else:
             plateau_counter += 1
 
         # Reduce learning rate on plateau
         if plateau_counter >= patience:
             plateau_counter = 0
-            for param_group in optimizer.param_groups:
+            for param_group in numeric_optimizer.param_groups:
                 param_group["lr"] = param_group["lr"] * 0.5
-                new_lr = param_group["lr"]
-                print(f"Reducing learning rate to {new_lr} due to plateau")
+                
+            for param_group in categorical_optimizer.param_groups:
+                param_group["lr"] = param_group["lr"] * 0.5
+                
+            new_lr_numeric = numeric_optimizer.param_groups[0]["lr"]
+            new_lr_categorical = categorical_optimizer.param_groups[0]["lr"]
+            print(f"Reducing learning rates to {new_lr_numeric:.2e}/{new_lr_categorical:.2e} due to plateau")
 
             # Early stop if learning rate gets too small
-            if new_lr < 1e-7:
+            if new_lr_numeric < 1e-7:
                 print("Learning rate too small, stopping training")
                 break
 
@@ -272,10 +350,10 @@ def train_model(
                 {
                     "epoch": epoch,
                     "model_state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "scheduler_state_dict": scheduler.state_dict(),
-                    "train_loss": train_losses["loss"],
-                    "val_loss": val_losses["loss"],
+                    "numeric_optimizer_state_dict": numeric_optimizer.state_dict(),
+                    "categorical_optimizer_state_dict": categorical_optimizer.state_dict(),
+                    "train_loss": avg_train_loss,
+                    "val_loss": avg_val_loss,
                 },
                 os.path.join(save_dir, f"checkpoint_epoch_{epoch + 1}.pt"),
             )
@@ -284,15 +362,16 @@ def train_model(
         epoch_time = time.time() - start_time
         print(f"Epoch {epoch + 1}/{epochs} completed in {epoch_time:.2f}s")
         print(
-            f"Train Loss: {train_losses['loss']:.4f}, Val Loss: {val_losses['loss']:.4f}"
+            f"Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}"
         )
         print(
-            f"Train Numeric Loss: {train_losses['numeric_loss']:.4f}, Val Numeric Loss: {val_losses['numeric_loss']:.4f}"
+            f"Train Numeric Loss: {avg_train_numeric_loss:.4f}, Val Numeric Loss: {avg_val_numeric_loss:.4f}"
         )
         print(
-            f"Train Cat Loss: {train_losses['categorical_loss']:.4f}, Val Cat Loss: {val_losses['categorical_loss']:.4f}"
+            f"Train Cat Loss: {avg_train_categorical_loss:.4f}, Val Cat Loss: {avg_val_categorical_loss:.4f}"
         )
-        print(f"Current learning rate: {scheduler.get_last_lr()[0]:.2e}")
+        print(f"Current numeric learning rate: {numeric_optimizer.param_groups[0]['lr']:.2e}")
+        print(f"Current categorical learning rate: {categorical_optimizer.param_groups[0]['lr']:.2e}")
         print("-" * 50)
 
     # Ensure final metrics are written
