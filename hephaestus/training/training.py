@@ -62,19 +62,38 @@ def numeric_loss(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
 
 def categorical_loss(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
     """Calculate categorical loss between true and predicted values."""
-    y_true = y_true.to(torch.float32)
+    # Keep predictions as float32 for softmax operation
     y_pred = y_pred.to(torch.float32)
+    
+    # Convert target to long type but handle it carefully
+    y_true = y_true.to(torch.long)  # Convert to long (int64) for class indices
+    
     # Apply offset adjustment to inputs and outputs
     y_true, y_pred, _ = add_input_offsets(y_true, y_pred, inputs_offset=1)
 
     mask = ~torch.isnan(y_true)
     if mask.any():
+        # Apply log_softmax to predictions
         log_probs = F.log_softmax(y_pred[mask].reshape(-1, y_pred.size(-1)), dim=-1)
+        
+        # Get targets and make sure they're valid indices
         targets = y_true[mask].reshape(-1).long()
-        loss = F.nll_loss(log_probs, targets, reduction="mean")
-        return loss
-    return torch.tensor(0.0, device=y_true.device, dtype=torch.float32)
-
+        
+        # Important! Verify targets are in valid range for nll_loss
+        num_classes = y_pred.size(-1)
+        valid_targets_mask = (targets >= 0) & (targets < num_classes)
+        
+        # Only use valid targets
+        if valid_targets_mask.any():
+            valid_log_probs = log_probs[valid_targets_mask]
+            valid_targets = targets[valid_targets_mask]
+            loss = F.nll_loss(valid_log_probs, valid_targets, reduction="mean")
+            return loss
+        else:
+            # Return zero loss if no valid targets found
+            return torch.tensor(0.0, device=y_pred.device, dtype=torch.float32)
+            
+    return torch.tensor(0.0, device=y_pred.device, dtype=torch.float32)
 
 def create_optimizer(
     model, learning_rate, momentum=0.9, weight_decay=1e-5, warmup_steps=500
