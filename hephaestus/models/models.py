@@ -602,14 +602,17 @@ class TimeSeriesDecoder(nn.Module):
             d_model * 2, len(self.config.numeric_col_tokens)
         )
 
-        # For categorical output, we want to produce logits for all possible tokens
+        # Enhanced categorical network with more capacity
         self.categorical_dense1 = nn.Linear(self.d_model, self.d_model * 2)
-
-        # Update the categorical_dense2 to output full token distribution
-        # for cross-entropy loss
-        self.categorical_dense2 = nn.Linear(
+        self.categorical_ln1 = nn.LayerNorm(self.d_model * 2)
+        self.categorical_dense2 = nn.Linear(self.d_model * 2, self.d_model * 2)
+        self.categorical_ln2 = nn.LayerNorm(self.d_model * 2)
+        self.categorical_dense3 = nn.Linear(
             self.d_model * 2, len(self.config.token_decoder_dict.items())
         )
+        
+        # Dropout for regularization
+        self.cat_dropout = nn.Dropout(0.2)
 
         # Initialize weights to prevent NaN issues
         self._init_weights()
@@ -689,7 +692,7 @@ class TimeSeriesDecoder(nn.Module):
             print("Warning: NaNs detected in numeric output")
             numeric_out = torch.nan_to_num(numeric_out, nan=0.0)
 
-        # Process categorical output - FIXED VERSION
+        # Process categorical output - ENHANCED VERSION
         batch_size, n_columns, seq_len, d_model = out.shape
 
         # We only want to process the categorical columns
@@ -705,12 +708,19 @@ class TimeSeriesDecoder(nn.Module):
             # Reshape to [batch_size * n_cat_columns * seq_len, d_model]
             categorical_flat = categorical_out.reshape(-1, d_model)
 
-            # Apply dense1 to the flattened tensor
+            # Apply enhanced categorical network with more layers and normalization
             categorical_flat = self.categorical_dense1(categorical_flat)
+            categorical_flat = self.categorical_ln1(categorical_flat)
             categorical_flat = F.relu(categorical_flat)
-
-            # Apply dense2 to get logits for all possible tokens
-            categorical_logits = self.categorical_dense2(categorical_flat)
+            categorical_flat = self.cat_dropout(categorical_flat)
+            
+            categorical_flat = self.categorical_dense2(categorical_flat)
+            categorical_flat = self.categorical_ln2(categorical_flat)
+            categorical_flat = F.relu(categorical_flat)
+            categorical_flat = self.cat_dropout(categorical_flat)
+            
+            # Apply final layer to get logits for all possible tokens
+            categorical_logits = self.categorical_dense3(categorical_flat)
 
             # Reshape back to [batch_size, n_cat_columns, seq_len, n_tokens]
             n_tokens = len(self.config.token_decoder_dict.items())

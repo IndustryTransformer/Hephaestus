@@ -13,3 +13,6 @@ from .analysis import *
 from .models import *
 from .training import *
 from .utils import *
+
+# Add the new training function
+from hephaestus.training.train_model import train_model

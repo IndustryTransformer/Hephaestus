@@ -60,18 +60,37 @@ def numeric_loss(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
     return torch.tensor(0.0, device=y_true.device, dtype=torch.float32)
 
 
-def categorical_loss(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
-    """Calculate categorical loss between true and predicted values."""
+def categorical_loss(y_true: torch.Tensor, y_pred: torch.Tensor, label_smoothing=0.1) -> torch.Tensor:
+    """Calculate categorical loss between true and predicted values with label smoothing.
+    
+    Args:
+        y_true: True categorical values
+        y_pred: Predicted categorical values
+        label_smoothing: Label smoothing factor (0.0 to 1.0)
+        
+    Returns:
+        Calculated loss value
+    """
     y_true = y_true.to(torch.float32)
     y_pred = y_pred.to(torch.float32)
+    
     # Apply offset adjustment to inputs and outputs
     y_true, y_pred, _ = add_input_offsets(y_true, y_pred, inputs_offset=1)
 
     mask = ~torch.isnan(y_true)
     if mask.any():
-        log_probs = F.log_softmax(y_pred[mask].reshape(-1, y_pred.size(-1)), dim=-1)
-        targets = y_true[mask].reshape(-1).long()
-        loss = F.nll_loss(log_probs, targets, reduction="mean")
+        # Reshape for cross entropy loss
+        y_pred_reshaped = y_pred[mask].reshape(-1, y_pred.size(-1))
+        y_true_reshaped = y_true[mask].reshape(-1).long()
+        
+        # Use CrossEntropyLoss with label smoothing
+        loss_fn = torch.nn.CrossEntropyLoss(
+            label_smoothing=label_smoothing,
+            reduction="mean"
+        )
+        
+        # Apply loss function
+        loss = loss_fn(y_pred_reshaped, y_true_reshaped)
         return loss
     return torch.tensor(0.0, device=y_true.device, dtype=torch.float32)
 
@@ -206,14 +225,18 @@ def compute_batch_loss(
         num_loss = numeric_loss(batch.numeric, model_output.numeric)
         losses["numeric_loss"] = num_loss
 
-    # Categorical loss
+    # Categorical loss with label smoothing
     if (
         hasattr(model_output, "categorical")
         and hasattr(batch, "categorical")
         and model_output.categorical is not None
     ):
-        cat_loss = categorical_loss(batch.categorical, model_output.categorical)
-        losses["categorical_loss"] = cat_loss
+        cat_loss = categorical_loss(
+            batch.categorical, 
+            model_output.categorical,
+            label_smoothing=0.1  # Add label smoothing
+        )
+        losses["categorical_loss"] = cat_loss * 1.2  # Weight categorical loss higher
 
     # Total loss is the sum of component losses
     total_loss = sum(losses.values())
