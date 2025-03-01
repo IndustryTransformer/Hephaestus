@@ -86,13 +86,23 @@ class MultiHeadAttention4D(nn.Module):
 
         # Apply mask if provided
         if mask is not None:
-            # Check if mask is a boolean tensor
-            if mask.dtype == torch.bool:
+            # Reshape mask to broadcast correctly across attention dimensions
+            # mask shape: [seq_len, seq_len] or [batch_size, seq_len, seq_len]
+            if mask.dim() == 2:
+                # Expand mask for batch size and heads
+                expanded_mask = mask.unsqueeze(0).unsqueeze(0).unsqueeze(0)
+            elif mask.dim() == 3:
+                # Expand mask for heads
                 expanded_mask = mask.unsqueeze(1).unsqueeze(1)
+            
+            # Expand mask for broadcasting to attention scores
+            # scores shape: [batch_size, num_heads, n_columns, seq_len, seq_len]
+            expanded_mask = expanded_mask.expand(-1, -1, n_columns, -1, -1)
+            
+            # Apply mask based on type
+            if mask.dtype == torch.bool:
                 scores = scores.masked_fill(expanded_mask, float("-inf"))
             else:
-                # Handle float mask case
-                expanded_mask = mask.unsqueeze(1).unsqueeze(1)
                 scores = scores + expanded_mask
 
         # Apply softmax to get attention weights
