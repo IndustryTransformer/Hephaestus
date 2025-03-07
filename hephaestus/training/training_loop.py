@@ -54,6 +54,7 @@ def train_model(
     Returns:
         dict: Training history
     """
+    print("Starting loop in hephaestus.training.training_loop.py")
     # Set up device
     if device is None:
         torch.device(
@@ -152,6 +153,7 @@ def train_model(
                 # Apply regular gradient clipping
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
                 optimizer.step()
+                scheduler.step()
 
             # Update progress bar
             train_iterator.set_postfix(
@@ -166,7 +168,6 @@ def train_model(
             # Force a write to disk every 100 batches
             if batch_idx % 100 == 0:
                 writer.flush()
-            scheduler.step()
 
         # Calculate average training losses
         for key in train_losses:
