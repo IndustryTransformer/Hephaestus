@@ -54,7 +54,7 @@ def return_results(model, dataset, idx=0, mask_start: int = None):
             numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
         )
 
-    numeric_out, categorical_out = out["numeric"], out["categorical"]
+    numeric_out, categorical_out = out.numeric, out.categorical
     return Results(numeric_out, categorical_out, numeric_inputs, categorical_inputs)
 
 
