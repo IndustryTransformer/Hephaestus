@@ -42,7 +42,11 @@ def return_results(model, dataset, idx=0, mask_start: int = None):
         Results: The results from the model.
     """
     model.eval()
-    numeric_inputs, categorical_inputs = dataset[idx]
+    date_set_base = dataset[idx]
+    numeric_inputs, categorical_inputs = (
+        date_set_base.numeric,
+        date_set_base.categorical,
+    )
     if mask_start:
         numeric_inputs = numeric_inputs[:, :mask_start]
         categorical_inputs = categorical_inputs[:, :mask_start]
