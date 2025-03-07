@@ -50,8 +50,9 @@ def return_results(model, dataset, idx=0, mask_start: int = None):
     if mask_start:
         numeric_inputs = numeric_inputs[:, :mask_start]
         categorical_inputs = categorical_inputs[:, :mask_start]
-    numeric_inputs = torch.tensor([numeric_inputs])
-    categorical_inputs = torch.tensor([categorical_inputs])
+
+    numeric_inputs = numeric_inputs.unsqueeze(0)
+    categorical_inputs = categorical_inputs.unsqueeze(0)
 
     with torch.no_grad():
         out = model(
