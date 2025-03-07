@@ -1,6 +1,5 @@
 import os
 import time
-from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -13,7 +12,6 @@ from hephaestus.training.training import (
     compute_batch_loss,
     create_metric_history,
     create_optimizer,
-    eval_step,
 )
 
 
@@ -117,8 +115,10 @@ def train_model(
 
     # Create optimizers with different learning rates
     numeric_optimizer = torch.optim.AdamW(numeric_params, lr=learning_rate)
-    categorical_optimizer = torch.optim.AdamW(categorical_params, lr=learning_rate * 1.5)
-    
+    categorical_optimizer = torch.optim.AdamW(
+        categorical_params, lr=learning_rate * 1.5
+    )
+
     # Add standard optimizer/scheduler as fallback
     optimizer, scheduler = create_optimizer(model, learning_rate)
 
@@ -155,33 +155,34 @@ def train_model(
         for i, batch in enumerate(train_iterator):
             # Move batch to device
             batch = batch.to(device)
-            
+
             # Forward pass
             outputs = model(
-                numeric_inputs=batch.numeric, 
-                categorical_inputs=batch.categorical
+                numeric_inputs=batch.numeric, categorical_inputs=batch.categorical
             )
-            
+
             # Compute losses
             total_loss, component_losses = compute_batch_loss(outputs, batch)
-            
+
             # Scale loss for gradient accumulation
             scaled_loss = total_loss / gradient_accumulation_steps
             scaled_loss.backward()
-            
+
             # Update training metrics
             train_loss += total_loss.item()
             train_numeric_loss += component_losses.get("numeric_loss", 0.0)
             train_categorical_loss += component_losses.get("categorical_loss", 0.0)
             batch_count += 1
-            
+
             # Update progress bar
-            train_iterator.set_postfix({
-                "loss": f"{train_loss/batch_count:.4f}",
-                "num_loss": f"{train_numeric_loss/batch_count:.4f}",
-                "cat_loss": f"{train_categorical_loss/batch_count:.4f}"
-            })
-            
+            train_iterator.set_postfix(
+                {
+                    "loss": f"{train_loss/batch_count:.4f}",
+                    "num_loss": f"{train_numeric_loss/batch_count:.4f}",
+                    "cat_loss": f"{train_categorical_loss/batch_count:.4f}",
+                }
+            )
+
             # Perform optimizer step after accumulating gradients
             if (i + 1) % gradient_accumulation_steps == 0:
                 # Check for exploding gradients
@@ -191,19 +192,23 @@ def train_model(
                 categorical_grad_norm = torch.nn.utils.clip_grad_norm_(
                     categorical_params, max_grad_norm
                 )
-                
+
                 # Detect gradient explosion
-                if (numeric_grad_norm > explosion_threshold or 
-                    categorical_grad_norm > explosion_threshold):
+                if (
+                    numeric_grad_norm > explosion_threshold
+                    or categorical_grad_norm > explosion_threshold
+                ):
                     explosion_count += 1
                     if explosion_count > max_explosions_per_epoch:
-                        print(f"Too many gradient explosions ({explosion_count}), reducing learning rate")
+                        print(
+                            f"Too many gradient explosions ({explosion_count}), reducing learning rate"
+                        )
                         for param_group in numeric_optimizer.param_groups:
                             param_group["lr"] *= 0.5
                         for param_group in categorical_optimizer.param_groups:
                             param_group["lr"] *= 0.5
                         explosion_count = 0
-                
+
                 # Optimizer step
                 numeric_optimizer.step()
                 categorical_optimizer.step()
@@ -218,7 +223,9 @@ def train_model(
                         {
                             "train": total_loss.item(),
                             "numeric": component_losses.get("numeric_loss", 0.0),
-                            "categorical": component_losses.get("categorical_loss", 0.0),
+                            "categorical": component_losses.get(
+                                "categorical_loss", 0.0
+                            ),
                         },
                         global_step,
                     )
@@ -241,28 +248,29 @@ def train_model(
             for batch in val_iterator:
                 # Move batch to device
                 batch = batch.to(device)
-                
+
                 # Forward pass
                 outputs = model(
-                    numeric_inputs=batch.numeric, 
-                    categorical_inputs=batch.categorical
+                    numeric_inputs=batch.numeric, categorical_inputs=batch.categorical
                 )
-                
+
                 # Compute losses
                 total_loss, component_losses = compute_batch_loss(outputs, batch)
-                
+
                 # Update validation metrics
                 val_loss += total_loss.item()
                 val_numeric_loss += component_losses.get("numeric_loss", 0.0)
                 val_categorical_loss += component_losses.get("categorical_loss", 0.0)
                 val_batch_count += 1
-                
+
                 # Update progress bar
-                val_iterator.set_postfix({
-                    "val_loss": f"{val_loss/val_batch_count:.4f}",
-                    "val_num_loss": f"{val_numeric_loss/val_batch_count:.4f}",
-                    "val_cat_loss": f"{val_categorical_loss/val_batch_count:.4f}"
-                })
+                val_iterator.set_postfix(
+                    {
+                        "val_loss": f"{val_loss/val_batch_count:.4f}",
+                        "val_num_loss": f"{val_numeric_loss/val_batch_count:.4f}",
+                        "val_cat_loss": f"{val_categorical_loss/val_batch_count:.4f}",
+                    }
+                )
 
         # Calculate average validation metrics
         avg_val_loss = val_loss / val_batch_count
@@ -290,8 +298,14 @@ def train_model(
         )
 
         # Log learning rates
-        writer.add_scalar("Learning_Rate/numeric", numeric_optimizer.param_groups[0]["lr"], epoch)
-        writer.add_scalar("Learning_Rate/categorical", categorical_optimizer.param_groups[0]["lr"], epoch)
+        writer.add_scalar(
+            "Learning_Rate/numeric", numeric_optimizer.param_groups[0]["lr"], epoch
+        )
+        writer.add_scalar(
+            "Learning_Rate/categorical",
+            categorical_optimizer.param_groups[0]["lr"],
+            epoch,
+        )
 
         # Log epoch metrics
         writer.add_scalar("Epoch_Time", epoch_time, epoch)
@@ -331,13 +345,15 @@ def train_model(
             plateau_counter = 0
             for param_group in numeric_optimizer.param_groups:
                 param_group["lr"] = param_group["lr"] * 0.5
-                
+
             for param_group in categorical_optimizer.param_groups:
                 param_group["lr"] = param_group["lr"] * 0.5
-                
+
             new_lr_numeric = numeric_optimizer.param_groups[0]["lr"]
             new_lr_categorical = categorical_optimizer.param_groups[0]["lr"]
-            print(f"Reducing learning rates to {new_lr_numeric:.2e}/{new_lr_categorical:.2e} due to plateau")
+            print(
+                f"Reducing learning rates to {new_lr_numeric:.2e}/{new_lr_categorical:.2e} due to plateau"
+            )
 
             # Early stop if learning rate gets too small
             if new_lr_numeric < 1e-7:
@@ -361,17 +377,19 @@ def train_model(
         # Print epoch summary
         epoch_time = time.time() - start_time
         print(f"Epoch {epoch + 1}/{epochs} completed in {epoch_time:.2f}s")
-        print(
-            f"Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}"
-        )
+        print(f"Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
         print(
             f"Train Numeric Loss: {avg_train_numeric_loss:.4f}, Val Numeric Loss: {avg_val_numeric_loss:.4f}"
         )
         print(
             f"Train Cat Loss: {avg_train_categorical_loss:.4f}, Val Cat Loss: {avg_val_categorical_loss:.4f}"
         )
-        print(f"Current numeric learning rate: {numeric_optimizer.param_groups[0]['lr']:.2e}")
-        print(f"Current categorical learning rate: {categorical_optimizer.param_groups[0]['lr']:.2e}")
+        print(
+            f"Current numeric learning rate: {numeric_optimizer.param_groups[0]['lr']:.2e}"
+        )
+        print(
+            f"Current categorical learning rate: {categorical_optimizer.param_groups[0]['lr']:.2e}"
+        )
         print("-" * 50)
 
     # Ensure final metrics are written
