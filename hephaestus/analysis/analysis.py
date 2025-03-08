@@ -1,11 +1,15 @@
-import jax.numpy as jnp
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from flax.struct import dataclass
+import torch
 from matplotlib import pyplot as plt
 
-from ..models.models import TimeSeriesConfig, TimeSeriesDecoder
+# Use TYPE_CHECKING to avoid circular imports at runtime
+if TYPE_CHECKING:
+    pass
 
 
 @dataclass
@@ -13,16 +17,16 @@ class Results:
     """Data class to store model results.
 
     Attributes:
-        numeric_out (jnp.array): Numeric output from the model.
-        categorical_out (jnp.array): Categorical output from the model.
-        numeric_inputs (jnp.array): Numeric inputs to the model.
-        categorical_inputs (jnp.array): Categorical inputs to the model.
+        numeric_out (torch.Tensor): Numeric output from the model.
+        categorical_out (torch.Tensor): Categorical output from the model.
+        numeric_inputs (torch.Tensor): Numeric inputs to the model.
+        categorical_inputs (torch.Tensor): Categorical inputs to the model.
     """
 
-    numeric_out: jnp.array
-    categorical_out: jnp.array
-    numeric_inputs: jnp.array
-    categorical_inputs: jnp.array
+    numeric_out: torch.Tensor
+    categorical_out: torch.Tensor
+    numeric_inputs: torch.Tensor
+    categorical_inputs: torch.Tensor
 
 
 def return_results(model, dataset, idx=0, mask_start: int = None):
@@ -37,35 +41,46 @@ def return_results(model, dataset, idx=0, mask_start: int = None):
     Returns:
         Results: The results from the model.
     """
-    numeric_inputs, categorical_inputs = dataset[idx]
+    model.eval()
+    date_set_base = dataset[idx]
+    numeric_inputs, categorical_inputs = (
+        date_set_base.numeric,
+        date_set_base.categorical,
+    )
     if mask_start:
         numeric_inputs = numeric_inputs[:, :mask_start]
         categorical_inputs = categorical_inputs[:, :mask_start]
-    numeric_inputs = jnp.array([numeric_inputs])
-    categorical_inputs = jnp.array([categorical_inputs])
-    out = model(numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs)
-    numeric_out, categorical_out = out["numeric_out"], out["categorical_out"]
+
+    numeric_inputs = numeric_inputs.unsqueeze(0)
+    categorical_inputs = categorical_inputs.unsqueeze(0)
+
+    with torch.no_grad():
+        out = model(
+            numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
+        )
+
+    numeric_out, categorical_out = out.numeric, out.categorical
     return Results(numeric_out, categorical_out, numeric_inputs, categorical_inputs)
 
 
-def process_results(arr: jnp.array, col_names: list, config: TimeSeriesConfig):
+def process_results(arr: torch.Tensor, col_names: list, config):
     """Process model results into a DataFrame.
 
     Args:
-        arr (jnp.array): Array of results.
+        arr (torch.Tensor): Array of results.
         col_names (list): List of column names.
-        config (TimeSeriesConfig): Configuration for the time series.
+        config: Configuration for the time series.
 
     Returns:
         pd.DataFrame: DataFrame of processed results.
     """
-    arr = jnp.squeeze(arr)
-    if arr.ndim == 3:
+    arr = arr.squeeze().cpu().numpy()
+    if len(arr.shape) == 3:
         # Check if there is a logit array for example if there are 3 dims then the
         # last dim is the logit array. We need to get the argmax of the last dim
         # to get the actual values of the array and replace the logit array with the
         # actual values
-        arr = jnp.argmax(arr, axis=-1)
+        arr = np.argmax(arr, axis=-1)
     df = pd.DataFrame(arr.T)
     df.columns = col_names
     return df
@@ -91,7 +106,7 @@ def show_results_df(
 
     Args:
         model: The model to generate results from.
-        time_series_config (TimeSeriesConfig): Configuration for the time series.
+        time_series_config: Configuration for the time series.
         dataset: The dataset to use.
         idx (int, optional): Index of the dataset to use. Defaults to 0.
         mask_start (int, optional): Index to start masking inputs. Defaults to None.
@@ -130,19 +145,19 @@ class AutoRegressiveResults:
     """Data class to store auto-regressive results.
 
     Attributes:
-        numeric_inputs (jnp.array): Numeric inputs for auto-regressive predictions.
-        categorical_inputs (jnp.array): Categorical inputs for auto-regressive predictions.
+        numeric_inputs (torch.Tensor): Numeric inputs for auto-regressive predictions.
+        categorical_inputs (torch.Tensor): Categorical inputs for auto-regressive predictions.
     """
 
-    numeric_inputs: jnp.array
-    categorical_inputs: jnp.array
+    numeric_inputs: torch.Tensor
+    categorical_inputs: torch.Tensor
 
     @classmethod
-    def from_ds(cls, ds: TimeSeriesConfig, idx: int, stop_idx: int = 10):
+    def from_ds(cls, ds: Any, idx: int, stop_idx: int = 10):
         """Create AutoRegressiveResults from a dataset.
 
         Args:
-            ds (TimeSeriesConfig): The dataset to use.
+            ds: The dataset to use.
             idx (int): Index of the dataset to use.
             stop_idx (int, optional): Index to stop at. Defaults to 10.
 
@@ -150,67 +165,79 @@ class AutoRegressiveResults:
             AutoRegressiveResults: The auto-regressive results.
         """
         inputs = ds[idx]
-        numeric_inputs = inputs[0][:, :stop_idx]
-        categorical_inputs = inputs[1][:, :stop_idx]
+        numeric_inputs = inputs.numeric[:, :stop_idx]
+        categorical_inputs = inputs.categorical[:, :stop_idx]
+        numeric_inputs = (
+            torch.tensor(numeric_inputs)
+            if not isinstance(numeric_inputs, torch.Tensor)
+            else numeric_inputs
+        )
+        categorical_inputs = (
+            torch.tensor(categorical_inputs)
+            if not isinstance(categorical_inputs, torch.Tensor)
+            else categorical_inputs
+        )
         return cls(numeric_inputs, categorical_inputs)
 
 
 def auto_regressive_predictions(
-    model: TimeSeriesDecoder,
+    model,
     inputs: AutoRegressiveResults,
-) -> tuple[AutoRegressiveResults, TimeSeriesDecoder]:
+) -> AutoRegressiveResults:
     """Generate auto-regressive predictions.
 
     Args:
-        model (TimeSeriesDecoder): The model to generate predictions from.
+        model: The model to generate predictions from.
         inputs (AutoRegressiveResults): The inputs for auto-regressive predictions.
 
     Returns:
-        tuple[AutoRegressiveResults, TimeSeriesDecoder]: The updated inputs and model.
+        AutoRegressiveResults: The updated inputs.
     """
+    model.eval()
     numeric_inputs = inputs.numeric_inputs
     categorical_inputs = inputs.categorical_inputs
 
     # Ensure 3D shape (batch, features, time)
-    if numeric_inputs.ndim == 2:
-        numeric_inputs = jnp.expand_dims(numeric_inputs, axis=0)
-        categorical_inputs = jnp.expand_dims(categorical_inputs, axis=0)
+    if numeric_inputs.dim() == 2:
+        numeric_inputs = numeric_inputs.unsqueeze(0)
+        categorical_inputs = categorical_inputs.unsqueeze(0)
 
     # Track nan columns
-    numeric_nan_columns = jnp.isnan(numeric_inputs).all(axis=2)
-    categorical_nan_columns = jnp.isnan(categorical_inputs).all(axis=2)
+    numeric_nan_columns = torch.isnan(numeric_inputs).all(dim=2)
+    categorical_nan_columns = torch.isnan(categorical_inputs).all(dim=2)
 
     # Get model predictions
-    outputs = model(
-        numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
-    )
+    with torch.no_grad():
+        outputs = model(
+            numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
+        )
 
     # Handle numeric predictions
-    numeric_next = outputs["numeric_out"][:, :, -1:]  # Shape: (batch, features, 1)
+    numeric_next = outputs["numeric"][:, :, -1:]  # Shape: (batch, features, 1)
 
     # Handle categorical predictions
-    categorical_out = outputs[
-        "categorical_out"
-    ]  # Shape: (batch, features, time, classes)
+    categorical_out = outputs["categorical"]  # Shape: (batch, features, time, classes)
     categorical_last = categorical_out[:, :, -1]  # Shape: (batch, features, classes)
-    categorical_next = jnp.argmax(categorical_last, axis=-1)  # Shape: (batch, features)
+    categorical_next = torch.argmax(
+        categorical_last, dim=-1
+    )  # Shape: (batch, features)
     # Reshape to match input dimensions (batch, features, 1)
-    categorical_next = jnp.expand_dims(categorical_next, axis=-1)  # Add time dimension
+    categorical_next = categorical_next.unsqueeze(-1)  # Add time dimension
 
     # Ensure categorical_next has the same batch and feature dimensions as categorical_inputs
-    categorical_next = jnp.broadcast_to(
-        categorical_next, (categorical_inputs.shape[0], categorical_inputs.shape[1], 1)
+    categorical_next = categorical_next.expand(
+        categorical_inputs.shape[0], categorical_inputs.shape[1], 1
     )
 
     # Concatenate new predictions
-    numeric_inputs = jnp.concatenate([numeric_inputs, numeric_next], axis=2)
-    categorical_inputs = jnp.concatenate([categorical_inputs, categorical_next], axis=2)
+    numeric_inputs = torch.cat([numeric_inputs, numeric_next], dim=2)
+    categorical_inputs = torch.cat(
+        [categorical_inputs, categorical_next.to(torch.float32)], dim=2
+    )
 
     # Restore nan values
-    numeric_inputs = numeric_inputs.at[jnp.array(numeric_nan_columns)].set(jnp.nan)
-    categorical_inputs = categorical_inputs.at[jnp.array(categorical_nan_columns)].set(
-        jnp.nan
-    )
+    numeric_inputs[numeric_nan_columns] = float("nan")
+    categorical_inputs[categorical_nan_columns] = float("nan")
 
     return AutoRegressiveResults(numeric_inputs, categorical_inputs)
 
@@ -227,16 +254,55 @@ def plot_column_variants(
         offset (int, optional): Offset for the plot. Defaults to 0.
     """
     plt.figure(figsize=(15, 10))
-    plt.plot(df_pred[column], label="Autogregressive")
-    plt.plot(df_actual[column], label="Actual")
-    plt.title(f"{column} Predictions")
-    plt.legend()
-    # Show ticks and grid lines every 1 step
-    plt.xticks(np.arange(0, len(df_pred), 1))
-    plt.grid()
-    # add black line at 0 on the y axis to show the difference
-    plt.axhline(0, color="black")
-    plt.show()
+
+    # Plot prediction and actual data
+    plt.plot(df_pred[column], label="Autogregressive", linewidth=2)
+    plt.plot(df_actual[column], label="Actual", linewidth=2, linestyle="--")
+
+    # Add title and legend with larger font
+    plt.title(f"{column} Predictions", fontsize=16)
+    plt.legend(fontsize=14)
+
+    # Determine the proper x and y limits
+    x_max = max(len(df_pred), len(df_actual))
+    y_min = min(df_pred[column].min(), df_actual[column].min())
+    y_max = max(df_pred[column].max(), df_actual[column].max())
+
+    # Add some padding to y-axis for better visualization
+    y_padding = (y_max - y_min) * 0.1
+    plt.ylim(y_min - y_padding, y_max + y_padding)
+    plt.xlim(0, x_max)
+
+    # Show ticks and grid lines for the entire plot range
+    plt.xticks(np.arange(0, x_max + 1, max(1, x_max // 10)))
+    plt.grid(True, which="both", linestyle="--", alpha=0.7)
+
+    # Add black line at 0 on the y-axis to show the reference
+    if y_min < 0 < y_max:
+        plt.axhline(0, color="black", linewidth=1)
+
+    # Add vertical line at the prediction start point (usually at index 10)
+    if offset > 0 or 10 < x_max:
+        split_idx = offset if offset > 0 else 10
+        plt.axvline(x=split_idx, color="red", linestyle="--", label="Prediction Start")
+        plt.text(
+            split_idx + 0.1,
+            y_max - y_padding,
+            "Prediction Start",
+            color="red",
+            fontsize=12,
+        )
+
+    # Add axis labels with larger font
+    plt.xlabel("Time Step", fontsize=14)
+    plt.ylabel(column, fontsize=14)
+
+    # Increase tick label font size
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=12)
+
+    # Ensure layout is tight
+    plt.tight_layout()
 
 
 def create_test_inputs_df(test_inputs, time_series_config):
@@ -244,7 +310,7 @@ def create_test_inputs_df(test_inputs, time_series_config):
 
     Args:
         test_inputs (AutoRegressiveResults): The test inputs.
-        time_series_config (TimeSeriesConfig): Configuration for the time series.
+        time_series_config: Configuration for the time series.
 
     Returns:
         pd.DataFrame: DataFrame of test inputs.
@@ -252,8 +318,9 @@ def create_test_inputs_df(test_inputs, time_series_config):
     # Extract numeric and categorical inputs from test_inputs
     numeric_inputs = test_inputs.numeric_inputs
     categorical_inputs = test_inputs.categorical_inputs
-    numeric_inputs = jnp.squeeze(numeric_inputs)
-    categorical_inputs = jnp.squeeze(categorical_inputs)
+    numeric_inputs = numeric_inputs.squeeze().cpu().numpy()
+    categorical_inputs = categorical_inputs.squeeze().cpu().numpy()
+
     # Get column names from time_series_config
     numeric_col_names = time_series_config.numeric_col_tokens
     categorical_col_names = time_series_config.categorical_col_tokens
@@ -307,13 +374,13 @@ def create_non_auto_df(res, time_series_config):
 
     Args:
         res (dict): Dictionary of results.
-        time_series_config (TimeSeriesConfig): Configuration for the time series.
+        time_series_config: Configuration for the time series.
 
     Returns:
         pd.DataFrame: DataFrame of non-auto-regressive results.
     """
-    numeric_out = res["numeric_out"]
-    categorical_out = res["categorical_out"]
+    numeric_out = res["numeric"]
+    categorical_out = res["categorical"]
     numeric_df = process_results(
         numeric_out, time_series_config.numeric_col_tokens, time_series_config
     )
@@ -322,4 +389,5 @@ def create_non_auto_df(res, time_series_config):
         time_series_config.categorical_col_tokens,
         time_series_config,
     )
+    return pd.concat([categorical_df, numeric_df], axis=1)
     return pd.concat([categorical_df, numeric_df], axis=1)
