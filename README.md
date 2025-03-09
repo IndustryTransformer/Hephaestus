@@ -30,3 +30,13 @@ Results are restricted to the number of columns of categorical and numeric data.
 ```bash
 uv pip install -e .
 ```
+
+## Lambda Labs Running
+
+Running on Lambda Labs requires a bit of tweaking.
+
+```
+python3 -m venv .venv --system-site-packages
+source .venv/bin/activate
+python -m pip install icecream ipywidgets pyarrow seaborn tqdm transformers
+```

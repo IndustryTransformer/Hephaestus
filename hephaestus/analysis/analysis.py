@@ -181,8 +181,7 @@ class AutoRegressiveResults:
 
 
 def auto_regressive_predictions(
-    model,
-    inputs: AutoRegressiveResults,
+    model, inputs: AutoRegressiveResults, device: str = "cuda"
 ) -> AutoRegressiveResults:
     """Generate auto-regressive predictions.
 
@@ -196,6 +195,8 @@ def auto_regressive_predictions(
     model.eval()
     numeric_inputs = inputs.numeric_inputs
     categorical_inputs = inputs.categorical_inputs
+    numeric_inputs = numeric_inputs.to(device)
+    categorical_inputs = categorical_inputs.to(device)
 
     # Ensure 3D shape (batch, features, time)
     if numeric_inputs.dim() == 2:
