@@ -94,11 +94,11 @@ class MultiHeadAttention4D(nn.Module):
             elif mask.dim() == 3:
                 # Expand mask for heads
                 expanded_mask = mask.unsqueeze(1).unsqueeze(1)
-            
+
             # Expand mask for broadcasting to attention scores
             # scores shape: [batch_size, num_heads, n_columns, seq_len, seq_len]
             expanded_mask = expanded_mask.expand(-1, -1, n_columns, -1, -1)
-            
+
             # Apply mask based on type
             if mask.dtype == torch.bool:
                 scores = scores.masked_fill(expanded_mask, float("-inf"))

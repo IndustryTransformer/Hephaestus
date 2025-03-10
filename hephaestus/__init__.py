@@ -7,6 +7,6 @@
 from .analysis import *
 
 # Then import models, which may depend on utils
-from .models import *
+from .timeseries_models import *
 from .training import *
 from .utils import *
