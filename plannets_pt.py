@@ -23,7 +23,7 @@ from transformers import BertTokenizerFast, FlaxBertModel
 #     create_test_inputs_df,
 #     plot_column_variants,
 # )
-from hephaestus.models import (
+from hephaestus.timeseries_models import (
     TimeSeriesConfig,
     TimeSeriesDecoder,
     TimeSeriesDS,

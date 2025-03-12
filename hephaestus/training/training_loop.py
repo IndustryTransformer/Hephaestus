@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.auto import tqdm
 
-from hephaestus.models import tabular_collate_fn
+from hephaestus.timeseries_models import tabular_collate_fn
 from hephaestus.training.training import (
     create_metric_history,
     create_optimizer,

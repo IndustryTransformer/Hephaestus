@@ -7,12 +7,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from icecream import ic
 
-from hephaestus.models.model_data_classes import (
+from hephaestus.timeseries_models.model_data_classes import (
     ProcessedEmbeddings,
     TimeSeriesConfig,
     TimeSeriesOutput,
 )
-from hephaestus.models.multihead_attention import MultiHeadAttention4D
+from hephaestus.timeseries_models.multihead_attention import MultiHeadAttention4D
 
 
 class FeedForwardNetwork(nn.Module):
@@ -606,19 +606,23 @@ class TimeSeriesDecoder(nn.Module):
         # Increased dimensions and added more layers
         categorical_hidden_dim1 = self.d_model * 4  # Increased from d_model * 2
         categorical_hidden_dim2 = self.d_model * 6  # New middle layer
-        
+
         self.categorical_dense1 = nn.Linear(self.d_model, categorical_hidden_dim1)
         self.categorical_bn1 = nn.BatchNorm1d(categorical_hidden_dim1)
         self.categorical_dropout1 = nn.Dropout(0.2)
-        
-        self.categorical_dense2 = nn.Linear(categorical_hidden_dim1, categorical_hidden_dim2)
+
+        self.categorical_dense2 = nn.Linear(
+            categorical_hidden_dim1, categorical_hidden_dim2
+        )
         self.categorical_bn2 = nn.BatchNorm1d(categorical_hidden_dim2)
         self.categorical_dropout2 = nn.Dropout(0.2)
-        
-        self.categorical_dense3 = nn.Linear(categorical_hidden_dim2, categorical_hidden_dim1)
+
+        self.categorical_dense3 = nn.Linear(
+            categorical_hidden_dim2, categorical_hidden_dim1
+        )
         self.categorical_bn3 = nn.BatchNorm1d(categorical_hidden_dim1)
         self.categorical_dropout3 = nn.Dropout(0.1)
-        
+
         # Final output layer for token classification
         self.categorical_output = nn.Linear(
             categorical_hidden_dim1, len(self.config.token_decoder_dict.items())
@@ -714,25 +718,25 @@ class TimeSeriesDecoder(nn.Module):
 
             # Reshape to [batch_size * n_cat_columns * seq_len, d_model]
             categorical_flat = categorical_out.reshape(-1, d_model)
-            
+
             # First dense layer with batch normalization
             x = self.categorical_dense1(categorical_flat)
             x = self.categorical_bn1(x)
             x = F.relu(x)
             x = self.categorical_dropout1(x) if not deterministic else x
-            
+
             # Second dense layer with batch normalization
             x = self.categorical_dense2(x)
             x = self.categorical_bn2(x)
             x = F.relu(x)
             x = self.categorical_dropout2(x) if not deterministic else x
-            
+
             # Third dense layer with batch normalization
             x = self.categorical_dense3(x)
             x = self.categorical_bn3(x)
             x = F.relu(x)
             x = self.categorical_dropout3(x) if not deterministic else x
-            
+
             # Output layer
             categorical_logits = self.categorical_output(x)
 

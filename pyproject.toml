@@ -5,12 +5,14 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "altair>=5.5.0",
     "icecream>=2.1.3",
     "ipywidgets>=8.1.5",
     "matplotlib>=3.9.2",
     "numpy>=2.1.3",
     "pandas>=2.2.3",
     "pip>=24.3.1",
+    "polars>=1.24.0",
     "pre-commit>=4.0.1",
     "pyarrow>=18.1.0",
     "ruff>=0.8.0",
@@ -19,7 +21,7 @@ dependencies = [
     "tensorboard>=2.18.0",
     "tensorboardx>=2.6.2.2",
     "torch-tb-profiler>=0.4.3",
-    "torch>=2.5.1",             # Pinned to match base Python version
+    "torch>=2.6.0",
     "torchvision>=0.20.1",
     "torchviz>=0.0.3",
     "tqdm>=4.67.1",
@@ -41,6 +43,7 @@ dev-dependencies = [
     "ipywidgets>=8.1.5",
     "nbconvert>=7.16.6",
     "pre-commit>=4.0.1",
+    "xgboost>=2.1.4",
 ]
 
 [build-system]
