@@ -111,31 +111,29 @@ class TabularEncoder(nn.Module):
         # self.decoder_dict = {v: k for k, v in self.token_dict.items()}
         # Masks
         self.cat_mask_token = torch.tensor(self.token_dict["[MASK]"])
-        self.numeric_mask_token = torch.tensor(self.token_dict["[NUMERIC_MASK]"]).to(
-            self.device
-        )
+        self.numeric_mask_token = torch.tensor(self.token_dict["[NUMERIC_MASK]"])
 
         self.n_tokens = len(self.tokens)  # TODO Make this
         # Embedding layers for categorical features
         self.embeddings = nn.Embedding(self.n_tokens, self.d_model)
-        self.n_numeric_cols = len(model_config.numeric_columns)
-        self.n_cat_cols = len(model_config.category_columns)
-        self.col_tokens = model_config.category_columns + model_config.numeric_columns
+        self.n_numeric_cols = len(model_config.numeric_col_tokens)
+        self.n_cat_cols = len(model_config.categorical_col_tokens)
+        self.col_tokens = (
+            model_config.categorical_col_tokens + model_config.numeric_col_tokens
+        )
         self.n_columns = self.n_numeric_cols + self.n_cat_cols
         # self.numeric_embeddings = NumericEmbedding(d_model=self.d_model)
         self.col_indices = torch.tensor(
             [self.tokens.index(col) for col in self.col_tokens], dtype=torch.long
         )
         self.numeric_indices = torch.tensor(
-            [self.tokens.index(col) for col in model_config.numeric_columns],
+            [self.tokens.index(col) for col in model_config.numeric_col_tokens],
             dtype=torch.long,
         )
         self.transformer_encoder1 = TransformerEncoderLayer(d_model, n_heads=n_heads)
         self.transformer_encoder2 = TransformerEncoderLayer(d_model, n_heads=n_heads)
 
-        self.mlm_decoder = nn.Sequential(nn.Linear(d_model, self.n_tokens)).to(
-            self.device
-        )  # TODO try making more complex
+        self.mlm_decoder = nn.Sequential(nn.Linear(d_model, self.n_tokens))
 
         self.mnm_decoder = nn.Sequential(
             nn.Linear(
@@ -154,7 +152,8 @@ class TabularEncoder(nn.Module):
             num_inputs.size(0), 1
         )
         col_embeddings = self.embeddings(repeated_col_indices)
-
+        # Cast cat_inputs to int
+        cat_inputs = cat_inputs.long()  # TODO Fix this in the dataset class
         cat_embeddings = self.embeddings(cat_inputs)
 
         expanded_num_inputs = num_inputs.unsqueeze(2).repeat(1, 1, self.d_model)
@@ -197,6 +196,7 @@ class TabularEncoderRegressor(nn.Module):
         super(TabularEncoderRegressor, self).__init__()
         self.d_model = d_model
         self.tokens = model_config.tokens
+        self.model_config = model_config
 
         self.tabular_encoder = TabularEncoder(model_config, d_model, n_heads)
         self.regressor = nn.Sequential(
@@ -204,7 +204,7 @@ class TabularEncoderRegressor(nn.Module):
             nn.ReLU(),
             nn.Linear(d_model * 2, 1),
         )
-        self.flatten_layer = nn.Linear(len(self.col_tokens), 1)
+        self.flatten_layer = nn.Linear(self.model_config.n_columns, 1)
         self.apply(initialize_parameters)
 
     def forward(self, num_inputs, cat_inputs):
