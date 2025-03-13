@@ -149,8 +149,8 @@ class AutoRegressiveResults:
         categorical_inputs (torch.Tensor): Categorical inputs for auto-regressive predictions.
     """
 
-    numeric_inputs: torch.Tensor
-    categorical_inputs: torch.Tensor
+    numeric: torch.Tensor
+    categorical: torch.Tensor
 
     @classmethod
     def from_ds(cls, ds: Any, idx: int, stop_idx: int = 10):
@@ -165,19 +165,17 @@ class AutoRegressiveResults:
             AutoRegressiveResults: The auto-regressive results.
         """
         inputs = ds[idx]
-        numeric_inputs = inputs.numeric[:, :stop_idx]
-        categorical_inputs = inputs.categorical[:, :stop_idx]
-        numeric_inputs = (
-            torch.tensor(numeric_inputs)
-            if not isinstance(numeric_inputs, torch.Tensor)
-            else numeric_inputs
+        numeric = inputs.numeric[:, :stop_idx]
+        categorical = inputs.categorical[:, :stop_idx]
+        numeric = (
+            torch.tensor(numeric) if not isinstance(numeric, torch.Tensor) else numeric
         )
-        categorical_inputs = (
-            torch.tensor(categorical_inputs)
-            if not isinstance(categorical_inputs, torch.Tensor)
-            else categorical_inputs
+        categorical = (
+            torch.tensor(categorical)
+            if not isinstance(categorical, torch.Tensor)
+            else categorical
         )
-        return cls(numeric_inputs, categorical_inputs)
+        return cls(numeric, categorical)
 
 
 def auto_regressive_predictions(
@@ -192,32 +190,24 @@ def auto_regressive_predictions(
     Returns:
         AutoRegressiveResults: The updated inputs.
     """
-    model.eval()
-    numeric_inputs = inputs.numeric_inputs
-    categorical_inputs = inputs.categorical_inputs
-    numeric_inputs = numeric_inputs.to(device)
-    categorical_inputs = categorical_inputs.to(device)
 
     # Ensure 3D shape (batch, features, time)
-    if numeric_inputs.dim() == 2:
-        numeric_inputs = numeric_inputs.unsqueeze(0)
-        categorical_inputs = categorical_inputs.unsqueeze(0)
+    if inputs.numeric.dim() == 2:
+        inputs.numeric = inputs.numeric.unsqueeze(0)
+        inputs.categorical = inputs.categorical.unsqueeze(0)
 
     # Track nan columns
-    numeric_nan_columns = torch.isnan(numeric_inputs).all(dim=2)
-    categorical_nan_columns = torch.isnan(categorical_inputs).all(dim=2)
+    numeric_nan_columns = torch.isnan(inputs.numeric).all(dim=2)
+    categorical_nan_columns = torch.isnan(inputs.inputs).all(dim=2)
 
     # Get model predictions
-    with torch.no_grad():
-        outputs = model(
-            numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
-        )
+    outputs = model.forward(inputs)
 
     # Handle numeric predictions
-    numeric_next = outputs["numeric"][:, :, -1:]  # Shape: (batch, features, 1)
+    numeric_next = outputs.numeric[:, :, -1:]  # Shape: (batch, features, 1)
 
     # Handle categorical predictions
-    categorical_out = outputs["categorical"]  # Shape: (batch, features, time, classes)
+    categorical_out = outputs.categorical  # Shape: (batch, features, time, classes)
     categorical_last = categorical_out[:, :, -1]  # Shape: (batch, features, classes)
     categorical_next = torch.argmax(
         categorical_last, dim=-1
@@ -227,20 +217,20 @@ def auto_regressive_predictions(
 
     # Ensure categorical_next has the same batch and feature dimensions as categorical_inputs
     categorical_next = categorical_next.expand(
-        categorical_inputs.shape[0], categorical_inputs.shape[1], 1
+        inputs.categorical.shape[0], inputs.categorical.shape[1], 1
     )
 
     # Concatenate new predictions
-    numeric_inputs = torch.cat([numeric_inputs, numeric_next], dim=2)
-    categorical_inputs = torch.cat(
-        [categorical_inputs, categorical_next.to(torch.float32)], dim=2
+    inputs.numeric = torch.cat([inputs.numeric, numeric_next], dim=2)
+    inputs.categorical = torch.cat(
+        [inputs.categorical, categorical_next.to(torch.float32)], dim=2
     )
 
     # Restore nan values
-    numeric_inputs[numeric_nan_columns] = float("nan")
-    categorical_inputs[categorical_nan_columns] = float("nan")
+    inputs.numeric[numeric_nan_columns] = float("nan")
+    inputs.categorical[categorical_nan_columns] = float("nan")
 
-    return AutoRegressiveResults(numeric_inputs, categorical_inputs)
+    return AutoRegressiveResults(inputs.numeric, inputs.categorical)
 
 
 def plot_column_variants(
@@ -317,8 +307,8 @@ def create_test_inputs_df(test_inputs, time_series_config):
         pd.DataFrame: DataFrame of test inputs.
     """
     # Extract numeric and categorical inputs from test_inputs
-    numeric_inputs = test_inputs.numeric_inputs
-    categorical_inputs = test_inputs.categorical_inputs
+    numeric_inputs = test_inputs.numeric
+    categorical_inputs = test_inputs.categorical
     numeric_inputs = numeric_inputs.squeeze().cpu().numpy()
     categorical_inputs = categorical_inputs.squeeze().cpu().numpy()
 

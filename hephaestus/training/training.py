@@ -1,6 +1,9 @@
+import pandas as pd
+import pytorch_lightning as L
 import torch
 import torch.nn.functional as F
-import pytorch_lightning as L
+
+from hephaestus.analysis import DFComparison, Results, process_results
 from hephaestus.timeseries_models import TimeSeriesDecoder
 
 
@@ -144,3 +147,44 @@ class TabularDecoder(L.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
         return optimizer
+
+    def return_results(self, inputs):
+        inputs.numeric = inputs.numeric.unsqueeze(0)
+        inputs.categorical = inputs.categorical.unsqueeze(0)  # adding batch dimension
+        outputs = self.forward(inputs)
+
+        return Results(
+            numeric_out=outputs.numeric,
+            categorical_out=outputs.categorical,
+            numeric_in=inputs.numeric,
+            categorical_in=inputs.categorical,
+        )
+
+    def return_results_df(self, inputs):
+        results = self.return_results(inputs)
+
+        input_categorical = process_results(
+            results.categorical_inputs,
+            self.categorical_col_tokens,
+            self.time_series_config,
+        )
+
+        input_numeric = process_results(
+            results.numeric_inputs,
+            self.time_series_config.numeric_col_tokens,
+            self.time_series_config,
+        )
+        output_categorical = process_results(
+            results.categorical_out,
+            self.time_series_config.categorical_col_tokens,
+            self.time_series_config,
+        )
+        output_numeric = process_results(
+            results.numeric_out,
+            self.time_series_config.numeric_col_tokens,
+            self.time_series_config,
+        )
+        input_df = pd.concat([input_categorical, input_numeric], axis=1)
+        output_df = pd.concat([output_categorical, output_numeric], axis=1)
+
+        return DFComparison(input_df, output_df)
