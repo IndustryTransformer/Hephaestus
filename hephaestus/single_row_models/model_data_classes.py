@@ -14,6 +14,20 @@ from hephaestus.utils import (
 
 
 @dataclass
+class InputsTarget:
+    """
+    Dataclass for inputs and outputs.
+
+    Attributes:
+        inputs (NumericCategoricalData): The inputs.
+        target (torch.Tensor): The Target.
+    """
+
+    inputs: NumericCategoricalData
+    target: torch.Tensor
+
+
+@dataclass
 class SingleRowConfig:
     """
     Configuration class for single row encoder.
@@ -53,9 +67,10 @@ class SingleRowConfig:
     tokenizer: AutoTokenizer = None
     vocab_size: int = None
     n_columns: int = None
+    target: str = None
 
     @classmethod
-    def generate(cls, df: pd.DataFrame) -> "SingleRowConfig":
+    def generate(cls, df: pd.DataFrame, target: str = "target") -> "SingleRowConfig":
         """
         Generate a TimeSeriesConfig object based on the given DataFrame.
 
@@ -147,6 +162,7 @@ class SingleRowConfig:
 
         cls_dict["n_columns"] = len(df.columns)
         cls_dict["vocab_size"] = tokenizer.vocab_size
+        cls_dict["target"] = target
         df_categorical = convert_object_to_int_tokens(df_categorical, token_dict)
 
         return cls(**cls_dict)
@@ -162,18 +178,13 @@ class TabularDS(Dataset):
         config (TimeSeriesConfig): Configuration for the time series.
 
     Attributes:
-        max_seq_len (int): Maximum sequence length.
         df_categorical (pd.DataFrame): DataFrame of categorical columns.
         df_numeric (pd.DataFrame): DataFrame of numeric columns.
         batch_size (int): Batch size for the dataset.
     """
 
     def __init__(self, df: pd.DataFrame, config: SingleRowConfig):
-        self.max_seq_len = df.groupby("idx").size().max()
         # Set df.idx to start from 0
-        df.idx = df.idx - df.idx.min()
-        df = df.set_index("idx")
-        df.index.name = None
 
         def convert_object_to_int_tokens(df, token_dict):
             """Converts object columns to integer tokens using a token dictionary."""
@@ -182,17 +193,17 @@ class TabularDS(Dataset):
                 df[col] = df[col].map(token_dict)
             return df
 
-        # self.df_categorical = df.select_dtypes(include=["object"]).astype(str)
-        # self.df_categorical = convert_object_to_int_tokens(
-        #     self.df_categorical, config.token_dict
-        # )
-        # self.df_numeric = df.select_dtypes(include="number")  # Remove?
-        self.batch_size = self.max_seq_len
-        self.unique_indices = sorted(df.index.unique())
+        self.len = len(df)
+        self.target_df = pd.DataFrame(df.pop(config.target))
+        self.df_categorical = df.select_dtypes(include=["object"]).astype(str)
+        self.df_categorical = convert_object_to_int_tokens(
+            self.df_categorical, config.token_dict
+        )
+        self.df_numeric = df.select_dtypes(include=["number"])
 
     def __len__(self):
         """Return the length of the dataset."""
-        return len(self.unique_indices)
+        return self.len
 
     def get_data(self, df_name, set_idx):
         """Gets self.df_<df_name> for a given index."""
@@ -204,12 +215,7 @@ class TabularDS(Dataset):
 
         # Add padding
         batch_len, n_cols = batch.shape
-        pad_len = self.max_seq_len - batch_len
-        # Use torch.full instead of np.full
-        padding = torch.full((pad_len, n_cols), float("nan"), dtype=torch.float32)
-        # Use torch.cat instead of np.concatenate
-        batch = torch.cat([batch, padding], dim=0)
-        # Use torch.permute instead of np.swapaxes
+        # TODO Add padding for columns
         batch = batch.permute(1, 0)
         return batch
 
@@ -228,7 +234,7 @@ class TabularDS(Dataset):
         # Handle slice indexing
         if isinstance(idx, slice):
             # Get the actual indices from the slice
-            indices = self.unique_indices[idx]
+            indices = range(*idx.indices(len(self)))
 
             # Create a list of NumericCategoricalData
             items = [self._get_single_item(i) for i in indices]
@@ -237,7 +243,7 @@ class TabularDS(Dataset):
             return self._collate_batch(items)
 
         # Handle integer indexing
-        return self._get_single_item(self.unique_indices[idx])
+        return self._get_single_item(idx)
 
     def _get_single_item(self, set_idx):
         """Get a single item from the dataset by actual index value."""
@@ -246,10 +252,14 @@ class TabularDS(Dataset):
         else:
             categorical_inputs = self.get_data("df_categorical", set_idx)
         numeric_inputs = self.get_data("df_numeric", set_idx)
-
-        return NumericCategoricalData(
+        if self.target_df is not None:
+            target = self.get_data("target_df", set_idx)
+        else:
+            target = None
+        numeric_cat = NumericCategoricalData(
             numeric=numeric_inputs, categorical=categorical_inputs
         )
+        return InputsTarget(inputs=numeric_cat, target=target)
 
     def _collate_batch(self, items):
         """
@@ -263,13 +273,20 @@ class TabularDS(Dataset):
         """
         # All items should have numeric inputs
         # Use torch.stack instead of np.stack
-        numeric_batch = torch.stack([item.numeric for item in items])
+        numeric_batch = torch.stack([item.inputs.numeric for item in items])
 
         # Not all items might have categorical inputs
         categorical_batch = None
-        if items[0].categorical is not None:
-            categorical_batch = torch.stack([item.categorical for item in items])
-
-        return NumericCategoricalData(
-            numeric=numeric_batch, categorical=categorical_batch
+        if items[0].inputs.categorical is not None:
+            categorical_batch = torch.stack([item.inputs.categorical for item in items])
+        if items[0].target is not None:
+            target_batch = torch.stack([item.target for item in items])
+        else:
+            target_batch = None
+        obj = InputsTarget(
+            inputs=NumericCategoricalData(
+                numeric=numeric_batch, categorical=categorical_batch
+            ),
+            target=target_batch,
         )
+        return obj
