@@ -3,8 +3,6 @@ from .model_data_classes import (
     ProcessedEmbeddings,
     TimeSeriesConfig,
     TimeSeriesDS,
-    TimeSeriesInputs,
-    TimeSeriesOutput,
     tabular_collate_fn,
 )
 from .models import (

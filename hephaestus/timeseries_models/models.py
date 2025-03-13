@@ -8,9 +8,9 @@ import torch.nn.functional as F
 from icecream import ic
 
 from hephaestus.timeseries_models.model_data_classes import (
+    NumericCategoricalData,
     ProcessedEmbeddings,
     TimeSeriesConfig,
-    TimeSeriesOutput,
 )
 from hephaestus.timeseries_models.multihead_attention import MultiHeadAttention4D
 
@@ -641,7 +641,7 @@ class TimeSeriesDecoder(nn.Module):
         categorical_inputs: Optional[torch.Tensor] = None,
         deterministic: bool = False,
         causal_mask: bool = True,
-    ) -> TimeSeriesOutput:
+    ) -> NumericCategoricalData:
         """Forward pass of the decoder."""
         # Convert inputs to PyTorch tensors if they aren't already
         if not isinstance(numeric_inputs, torch.Tensor):
@@ -747,7 +747,7 @@ class TimeSeriesDecoder(nn.Module):
             print("Warning: NaNs detected in categorical output")
             categorical_out = torch.nan_to_num(categorical_out, nan=0.0)
 
-        return TimeSeriesOutput(
+        return NumericCategoricalData(
             numeric=numeric_out,
             categorical=categorical_out,
         )

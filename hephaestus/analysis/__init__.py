@@ -10,4 +10,4 @@ from .analysis import (
     return_results,
     show_results_df,
 )
-from .plots import plot_col_comparison, plot_col_error, plot_training_history
+from .plots import plot_col_comparison, plot_col_error
