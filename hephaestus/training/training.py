@@ -10,6 +10,7 @@ from hephaestus.timeseries_models import TimeSeriesDecoder
 class TabularDecoder(L.LightningModule):
     def __init__(self, time_series_config, d_model, n_heads):
         super().__init__()
+        self.save_hyperparameters()
         self.d_model = d_model
         self.n_heads = n_heads
         self.model = TimeSeriesDecoder(time_series_config, self.d_model, self.n_heads)
@@ -148,20 +149,28 @@ class TabularDecoder(L.LightningModule):
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
         return optimizer
 
-    def return_results(self, inputs):
-        inputs.numeric = inputs.numeric.unsqueeze(0)
-        inputs.categorical = inputs.categorical.unsqueeze(0)  # adding batch dimension
-        outputs = self.forward(inputs)
+    def predict_step(self, batch):
+        with torch.no_grad():
+            return self.forward(batch)
+
+    def return_results(self, dataset, idx, mask_start):
+        inputs = dataset[idx]
+        inputs.numeric = inputs.numeric[:, :mask_start].unsqueeze(0)
+        inputs.categorical = inputs.categorical[:, :mask_start].unsqueeze(
+            0
+        )  # adding batch dimension
+        outputs = self.predict_step(inputs)
 
         return Results(
             numeric_out=outputs.numeric,
             categorical_out=outputs.categorical,
-            numeric_in=inputs.numeric,
-            categorical_in=inputs.categorical,
+            numeric_inputs=inputs.numeric,
+            categorical_inputs=inputs.categorical,
         )
 
     def return_results_df(self, inputs):
-        results = self.return_results(inputs)
+        with torch.no_grad():
+            results = self.return_results(inputs)
 
         input_categorical = process_results(
             results.categorical_inputs,

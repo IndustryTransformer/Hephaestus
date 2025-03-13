@@ -69,7 +69,6 @@ class TimeSeriesConfig:
         df.idx = df.idx - df.idx.min()
         ds_length = df.groupby("idx").size().max()
         df = df.set_index("idx")
-        df.index.name = None
 
         df_categorical = df.select_dtypes(include=["object"]).astype(str)
         numeric_token = "[NUMERIC_EMBEDDING]"
@@ -288,11 +287,11 @@ class TimeSeriesDS(Dataset):
                 df[col] = df[col].map(token_dict)
             return df
 
-        self.df_categorical = df.select_dtypes(include=["object"]).astype(str)
-        self.df_categorical = convert_object_to_int_tokens(
-            self.df_categorical, config.token_dict
-        )
-        self.df_numeric = df.select_dtypes(include="number")
+        # self.df_categorical = df.select_dtypes(include=["object"]).astype(str)
+        # self.df_categorical = convert_object_to_int_tokens(
+        #     self.df_categorical, config.token_dict
+        # )
+        # self.df_numeric = df.select_dtypes(include="number")  # Remove?
         self.batch_size = self.max_seq_len
         self.unique_indices = sorted(df.index.unique())
 
@@ -375,23 +374,6 @@ class TimeSeriesDS(Dataset):
             categorical_batch = torch.stack([item.categorical for item in items])
 
         return TimeSeriesInputs(numeric=numeric_batch, categorical=categorical_batch)
-
-    def get_batch(self, batch_size=None, start_idx=0):
-        """
-        Get a batch of specified size starting from a specific index.
-
-        Args:
-            batch_size: Size of the batch to retrieve
-            start_idx: Starting index position
-
-        Returns:
-            TimeSeriesInputs object with batched data
-        """
-        if batch_size is None:
-            batch_size = self.batch_size
-
-        end_idx = min(start_idx + batch_size, len(self))
-        return self[start_idx:end_idx]
 
 
 @dataclass

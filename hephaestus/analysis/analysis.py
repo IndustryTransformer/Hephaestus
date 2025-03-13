@@ -3,9 +3,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
-import seaborn as sns
 import torch
-from matplotlib import pyplot as plt
 
 # Use TYPE_CHECKING to avoid circular imports at runtime
 if TYPE_CHECKING:
@@ -30,37 +28,32 @@ class Results:
 
 
 def return_results(model, dataset, idx=0, mask_start: int = None):
-    """Return model results for a given dataset index.
+    # """Return model results for a given dataset index.
 
-    Args:
-        model: The model to generate results from.
-        dataset: The dataset to use.
-        idx (int, optional): Index of the dataset to use. Defaults to 0.
-        mask_start (int, optional): Index to start masking inputs. Defaults to None.
+    # Args:
+    #     model: The model to generate results from.
+    #     dataset: The dataset to use.
+    #     idx (int, optional): Index of the dataset to use. Defaults to 0.
+    #     mask_start (int, optional): Index to start masking inputs. Defaults to None.
 
-    Returns:
-        Results: The results from the model.
-    """
-    model.eval()
-    date_set_base = dataset[idx]
-    numeric_inputs, categorical_inputs = (
-        date_set_base.numeric,
-        date_set_base.categorical,
-    )
-    if mask_start:
-        numeric_inputs = numeric_inputs[:, :mask_start]
-        categorical_inputs = categorical_inputs[:, :mask_start]
+    # Returns:
+    #     Results: The results from the model.
+    # """
+    # model.eval()
+    # date_set_base = dataset[idx]
 
-    numeric_inputs = numeric_inputs.unsqueeze(0)
-    categorical_inputs = categorical_inputs.unsqueeze(0)
+    # if mask_start:
+    #     numeric_inputs = numeric_inputs[:, :mask_start]
+    #     categorical_inputs = categorical_inputs[:, :mask_start]
 
-    with torch.no_grad():
-        out = model(
-            numeric_inputs=numeric_inputs, categorical_inputs=categorical_inputs
-        )
+    # numeric_inputs = numeric_inputs.unsqueeze(0)
+    # categorical_inputs = categorical_inputs.unsqueeze(0)
 
-    numeric_out, categorical_out = out.numeric, out.categorical
-    return Results(numeric_out, categorical_out, numeric_inputs, categorical_inputs)
+    # out = model.predict_step()
+
+    # numeric_out, categorical_out = out.numeric, out.categorical
+    # return Results(numeric_out, categorical_out, numeric_inputs, categorical_inputs)
+    pass
 
 
 def process_results(arr: torch.Tensor, col_names: list, config):
@@ -75,6 +68,7 @@ def process_results(arr: torch.Tensor, col_names: list, config):
         pd.DataFrame: DataFrame of processed results.
     """
     arr = arr.squeeze().cpu().numpy()
+    # arr = arr.squeeze().detach().cpu().numpy()
     if len(arr.shape) == 3:
         # Check if there is a logit array for example if there are 3 dims then the
         # last dim is the logit array. We need to get the argmax of the last dim
@@ -114,7 +108,7 @@ def show_results_df(
     Returns:
         DFComparison: DataFrames of input and output results.
     """
-    results = return_results(model, dataset, idx=idx, mask_start=mask_start)
+    results = model.return_results(dataset, idx=idx, mask_start=mask_start)
 
     input_categorical = process_results(
         results.categorical_inputs,
@@ -198,10 +192,10 @@ def auto_regressive_predictions(
 
     # Track nan columns
     numeric_nan_columns = torch.isnan(inputs.numeric).all(dim=2)
-    categorical_nan_columns = torch.isnan(inputs.inputs).all(dim=2)
+    categorical_nan_columns = torch.isnan(inputs.categorical).all(dim=2)
 
     # Get model predictions
-    outputs = model.forward(inputs)
+    outputs = model.predict_step(inputs)
 
     # Handle numeric predictions
     numeric_next = outputs.numeric[:, :, -1:]  # Shape: (batch, features, 1)
@@ -233,69 +227,6 @@ def auto_regressive_predictions(
     return AutoRegressiveResults(inputs.numeric, inputs.categorical)
 
 
-def plot_column_variants(
-    df_pred: pd.DataFrame, df_actual: pd.DataFrame, column: str, offset=0
-):
-    """Plot column variants for predictions and actual data.
-
-    Args:
-        df_pred (pd.DataFrame): DataFrame of predictions.
-        df_actual (pd.DataFrame): DataFrame of actual data.
-        column (str): Column to plot.
-        offset (int, optional): Offset for the plot. Defaults to 0.
-    """
-    plt.figure(figsize=(15, 10))
-
-    # Plot prediction and actual data
-    plt.plot(df_pred[column], label="Autogregressive", linewidth=2)
-    plt.plot(df_actual[column], label="Actual", linewidth=2, linestyle="--")
-
-    # Add title and legend with larger font
-    plt.title(f"{column} Predictions", fontsize=16)
-    plt.legend(fontsize=14)
-
-    # Determine the proper x and y limits
-    x_max = max(len(df_pred), len(df_actual))
-    y_min = min(df_pred[column].min(), df_actual[column].min())
-    y_max = max(df_pred[column].max(), df_actual[column].max())
-
-    # Add some padding to y-axis for better visualization
-    y_padding = (y_max - y_min) * 0.1
-    plt.ylim(y_min - y_padding, y_max + y_padding)
-    plt.xlim(0, x_max)
-
-    # Show ticks and grid lines for the entire plot range
-    plt.xticks(np.arange(0, x_max + 1, max(1, x_max // 10)))
-    plt.grid(True, which="both", linestyle="--", alpha=0.7)
-
-    # Add black line at 0 on the y-axis to show the reference
-    if y_min < 0 < y_max:
-        plt.axhline(0, color="black", linewidth=1)
-
-    # Add vertical line at the prediction start point (usually at index 10)
-    if offset > 0 or 10 < x_max:
-        split_idx = offset if offset > 0 else 10
-        plt.axvline(x=split_idx, color="red", linestyle="--", label="Prediction Start")
-        plt.text(
-            split_idx + 0.1,
-            y_max - y_padding,
-            "Prediction Start",
-            color="red",
-            fontsize=12,
-        )
-
-    # Add axis labels with larger font
-    plt.xlabel("Time Step", fontsize=14)
-    plt.ylabel(column, fontsize=14)
-
-    # Increase tick label font size
-    plt.xticks(fontsize=12)
-    plt.yticks(fontsize=12)
-
-    # Ensure layout is tight
-    plt.tight_layout()
-
-
 def create_test_inputs_df(test_inputs, time_series_config):
     """Create a DataFrame of test inputs.
 
@@ -325,41 +256,6 @@ def create_test_inputs_df(test_inputs, time_series_config):
     return test_inputs_df
 
 
-def plot_comparison(actual_df, one_off_auto_df, auto_regressive_df, column):
-    """Plot comparison of actual, one-off auto, and auto-regressive data.
-
-    Args:
-        actual_df (pd.DataFrame): DataFrame of actual data.
-        one_off_auto_df (pd.DataFrame): DataFrame of one-off auto data.
-        auto_regressive_df (pd.DataFrame): DataFrame of auto-regressive data.
-        column (str): Column to plot.
-    """
-    plt.figure(figsize=(15, 10))
-
-    # Plot actual data
-    sns.lineplot(data=actual_df, x=actual_df.index, y=column, label="Actual")
-
-    # Plot one-off auto data
-    sns.lineplot(
-        data=one_off_auto_df, x=one_off_auto_df.index, y=column, label="One-Off Auto"
-    )
-
-    # Plot auto-regressive data
-    sns.lineplot(
-        data=auto_regressive_df,
-        x=auto_regressive_df.index,
-        y=column,
-        label="Auto-Regressive",
-    )
-
-    plt.title(f"Comparison of {column}")
-    plt.xlabel("Row Index")
-    plt.ylabel(column)
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
-
 def create_non_auto_df(res, time_series_config):
     """Create a DataFrame of non-auto-regressive results.
 
@@ -380,5 +276,4 @@ def create_non_auto_df(res, time_series_config):
         time_series_config.categorical_col_tokens,
         time_series_config,
     )
-    return pd.concat([categorical_df, numeric_df], axis=1)
     return pd.concat([categorical_df, numeric_df], axis=1)

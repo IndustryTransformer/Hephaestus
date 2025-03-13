@@ -237,7 +237,7 @@ class TimeSeriesTransformer(nn.Module):
         self.config = config
         self.d_model = d_model
         self.n_heads = n_heads
-        self.time_window = 10000
+        # self.time_window = 10000
 
         self.embedding = ReservoirEmbedding(config=self.config, features=self.d_model)
 
@@ -275,13 +275,6 @@ class TimeSeriesTransformer(nn.Module):
                 nn.init.constant_(module.bias.data, 0.0)
                 module.weight.data = module.weight.data.to(torch.float32)
                 module.bias.data = module.bias.data.to(torch.float32)
-
-    def to(self, device):
-        super().to(device)
-        # Ensure buffers are moved to the correct device
-        for name, buffer in self.named_buffers():
-            buffer.to(device)
-        return self
 
     def process_numeric(self, numeric_inputs: torch.Tensor) -> ProcessedEmbeddings:
         """Processes the numeric inputs for the transformer model."""
@@ -508,7 +501,6 @@ class TimeSeriesTransformer(nn.Module):
         categorical_inputs: Optional[torch.Tensor] = None,
         deterministic: bool = False,
         causal_mask: bool = True,
-        encoder_mask: bool = False,
     ):
         """Forward pass of the transformer model."""
         device = numeric_inputs.device
@@ -761,7 +753,7 @@ class TimeSeriesDecoder(nn.Module):
         )
 
 
-class PositionalEncoding(nn.Module):
+class PositionalEncoding(nn.Module):  # TODO WHY IS THIS NOT USED?
     """
     Positional encoding module.
 

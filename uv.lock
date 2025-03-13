@@ -693,6 +693,7 @@ dev = [
     { name = "nbconvert" },
     { name = "pre-commit" },
     { name = "standard-imghdr" },
+    { name = "vulture" },
     { name = "xgboost" },
 ]
 
@@ -733,6 +734,7 @@ dev = [
     { name = "nbconvert", specifier = ">=7.16.6" },
     { name = "pre-commit", specifier = ">=4.0.1" },
     { name = "standard-imghdr", specifier = ">=3.13.0" },
+    { name = "vulture", specifier = ">=2.14" },
     { name = "xgboost", specifier = ">=2.1.4" },
 ]
 
@@ -2806,6 +2808,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/bf/75/53316a5a8050069228a2f6d11f32046cfa94fbb6cc3f08703f59b873de2e/virtualenv-20.28.0.tar.gz", hash = "sha256:2c9c3262bb8e7b87ea801d715fae4495e6032450c71d2309be9550e7364049aa", size = 7650368 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/10/f9/0919cf6f1432a8c4baa62511f8f8da8225432d22e83e3476f5be1a1edc6e/virtualenv-20.28.0-py3-none-any.whl", hash = "sha256:23eae1b4516ecd610481eda647f3a7c09aea295055337331bb4e6892ecce47b0", size = 4276702 },
+]
+
+[[package]]
+name = "vulture"
+version = "2.14"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8e/25/925f35db758a0f9199113aaf61d703de891676b082bd7cf73ea01d6000f7/vulture-2.14.tar.gz", hash = "sha256:cb8277902a1138deeab796ec5bef7076a6e0248ca3607a3f3dee0b6d9e9b8415", size = 58823 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a0/56/0cc15b8ff2613c1d5c3dc1f3f576ede1c43868c1bc2e5ccaa2d4bcd7974d/vulture-2.14-py2.py3-none-any.whl", hash = "sha256:d9a90dba89607489548a49d557f8bac8112bd25d3cbc8aeef23e860811bd5ed9", size = 28915 },
 ]
 
 [[package]]
