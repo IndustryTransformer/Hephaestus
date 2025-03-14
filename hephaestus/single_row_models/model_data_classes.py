@@ -97,7 +97,9 @@ class SingleRowConfig:
         numeric_mask = cls_dict["numeric_mask"]
         # Remove check on idx
         cls_dict["numeric_col_tokens"] = [
-            col_name for col_name in df.select_dtypes(include="number").columns
+            col_name
+            for col_name in df.select_dtypes(include="number").columns
+            if col_name != target  # Remove target column
         ]
         cls_dict["categorical_col_tokens"] = [
             col_name for col_name in df.select_dtypes(include="object").columns

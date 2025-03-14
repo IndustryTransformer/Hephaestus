@@ -143,7 +143,7 @@ class TabularEncoder(nn.Module):
             nn.Linear(self.d_model * 4, self.n_numeric_cols),
         )
 
-        self.flatten_layer = nn.Linear(len(self.col_tokens), 1)
+        # self.flatten_layer = nn.Linear(len(self.col_tokens), 1)
         self.apply(initialize_parameters)
 
     def forward(self, num_inputs, cat_inputs):
@@ -204,13 +204,19 @@ class TabularEncoderRegressor(nn.Module):
             nn.ReLU(),
             nn.Linear(d_model * 2, 1),
         )
-        self.flatten_layer = nn.Linear(self.model_config.n_columns, 1)
+        # self.flatten_layer = nn.Linear(18, 1)
+        self.flatten_layer = nn.Linear(1, self.model_config.n_columns)
         self.apply(initialize_parameters)
 
     def forward(self, num_inputs, cat_inputs):
+        print(f"num_inputs shape: {num_inputs.shape}")
+        print(f"cat_inputs shape: {cat_inputs.shape}")
         out = self.tabular_encoder(num_inputs, cat_inputs)
+        print(f"out shape after encoder: {out.shape}")
         out = self.regressor(out)
+        print(f"out shape after regressor: {out.shape}")
         out = self.flatten_layer(out)
+        print(f"out shape after flatten: {out.shape}")
         return out
 
 
