@@ -205,7 +205,7 @@ class TabularEncoderRegressor(nn.Module):
             nn.Linear(d_model * 2, 1),
         )
         # self.flatten_layer = nn.Linear(18, 1)
-        self.flatten_layer = nn.Linear(9, 1)
+        self.flatten_layer = nn.Linear(9, 1)  # TODO Fix Hardcoded
         self.apply(initialize_parameters)
 
     def forward(self, num_inputs, cat_inputs):
@@ -215,7 +215,7 @@ class TabularEncoderRegressor(nn.Module):
         print(f"out shape after encoder: {out.shape}")
         out = self.regressor(out)
         print(f"out shape after regressor: {out.shape}")
-        out = self.flatten_layer(out)
+        out = self.flatten_layer(out.squeeze(-1))
         print(f"out shape after flatten: {out.shape}")
         return out
 
