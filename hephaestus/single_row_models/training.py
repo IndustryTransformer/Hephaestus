@@ -1,4 +1,5 @@
 import pytorch_lightning as L
+import torch
 from torch import nn
 
 from hephaestus.single_row_models.single_row_models import TabularEncoderRegressor
@@ -40,7 +41,7 @@ class TabularRegressor(L.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        optimizer = L.optim.Adam(self.parameters(), lr=1e-3)
+        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
         return optimizer
 
     def predict_step(self, batch: InputsTarget):
