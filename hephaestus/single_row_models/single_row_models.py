@@ -205,7 +205,7 @@ class TabularEncoderRegressor(nn.Module):
             nn.Linear(d_model * 2, 1),
         )
         # self.flatten_layer = nn.Linear(18, 1)
-        self.flatten_layer = nn.Linear(1, self.model_config.n_columns)
+        self.flatten_layer = nn.Linear(9, 1)
         self.apply(initialize_parameters)
 
     def forward(self, num_inputs, cat_inputs):
