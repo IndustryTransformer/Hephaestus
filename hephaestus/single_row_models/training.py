@@ -8,11 +8,12 @@ from hephaestus.utils import NumericCategoricalData
 
 
 class TabularRegressor(L.LightningModule):
-    def __init__(self, model_config, d_model, n_heads):
+    def __init__(self, model_config, d_model, n_heads, lr=1e-1):
         super().__init__()
-        self.save_hyperparameters()
+        # self.save_hyperparameters()
         self.d_model = d_model
         self.n_heads = n_heads
+        self.lr = lr
 
         self.model = TabularEncoderRegressor(
             model_config=model_config,
@@ -28,10 +29,6 @@ class TabularRegressor(L.LightningModule):
         X = batch.inputs
         y = batch.target
         y_hat = self.model(X.numeric, X.categorical)
-        # y_hat = y_hat.squeeze()
-        # change y from size 20 to size (20, 1)
-        # y = y.unsqueeze(-1)
-        print(f"{y_hat.shape=}, {y.shape=}, {y_hat=}, {y=}")
         loss = self.loss_fn(y_hat, y)
         self.log("train_loss", loss)
         return loss
@@ -40,39 +37,31 @@ class TabularRegressor(L.LightningModule):
         X = batch.inputs
         y = batch.target
         y_hat = self.model(X.numeric, X.categorical)
+        # print(f"{y_hat.shape=}, {y.shape=}")
         loss = self.loss_fn(y_hat, y)
         self.log("val_loss", loss)
+        self.log("lr", self.optimizers().param_groups[0]["lr"])
         return loss
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
-        return optimizer
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", factor=0.1, patience=10
+        )  # Example scheduler
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "monitor": "val_loss",
+                "frequency": 1,
+            },
+        }
 
     def predict_step(self, batch: InputsTarget):
-        with self.no_grad():
+        with torch.no_grad():
             return self.forward(batch)
 
 
-# def tabular_collate_fn(batch):
-#     """Custom collate function for NumericCategoricalData objects."""
-#     # return batch
-#     numeric_tensors = torch.stack([item.inputs.numeric for item in batch])
-
-#     if batch[0].inputs.categorical is not None:
-#         categorical_tensors = torch.stack([item.inputs.categorical for item in batch])
-
-#     else:
-#         categorical_tensors = None
-
-
-#     target_tensors = torch.stack([item.target for item in batch])
-#     target_tensors = target_tensors.squeeze(-1).unsqueeze(-1)
-#     return InputsTarget(
-#         inputs=NumericCategoricalData(
-#             numeric=numeric_tensors, categorical=categorical_tensors
-#         ),
-#         target=target_tensors,
-#     )
 def tabular_collate_fn(batch):
     """Custom collate function for NumericCategoricalData objects."""
     numeric_tensors = torch.stack([item.inputs.numeric for item in batch])
