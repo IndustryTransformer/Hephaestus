@@ -195,6 +195,7 @@ class TabularDS(Dataset):
                 df[col] = df[col].map(token_dict)
             return df
 
+        df = df.copy()  # Prevents changing the original DataFrame
         self.len = len(df)
         self.target_df = pd.DataFrame(df.pop(config.target))
         self.df_categorical = df.select_dtypes(include=["object"]).astype(str)

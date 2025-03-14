@@ -147,6 +147,17 @@ class TabularEncoder(nn.Module):
         self.apply(initialize_parameters)
 
     def forward(self, num_inputs, cat_inputs):
+        # expand dims if only 1
+
+        if num_inputs.dim() == 1 and cat_inputs.dim() == 1:
+            num_inputs = num_inputs.unsqueeze(0)
+            cat_inputs = cat_inputs.unsqueeze(0)
+        elif num_inputs.dim() == 2 and cat_inputs.dim() == 2:
+            pass
+        else:
+            raise ValueError(
+                f"Incorrect input dimensions {num_inputs.dim()=}, {cat_inputs.dim()=}"
+            )
         # Embed column indices
         repeated_col_indices = self.col_indices.unsqueeze(0).repeat(
             num_inputs.size(0), 1
