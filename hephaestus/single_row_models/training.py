@@ -2,9 +2,9 @@ import pytorch_lightning as L
 import torch
 from torch import nn
 
+from hephaestus.single_row_models.model_data_classes import InputsTarget
 from hephaestus.single_row_models.single_row_models import TabularEncoderRegressor
-
-from .model_data_classes import InputsTarget
+from hephaestus.utils import NumericCategoricalData
 
 
 class TabularRegressor(L.LightningModule):
@@ -28,6 +28,10 @@ class TabularRegressor(L.LightningModule):
         X = batch.inputs
         y = batch.target
         y_hat = self.model(X.numeric, X.categorical)
+        # y_hat = y_hat.squeeze()
+        # change y from size 20 to size (20, 1)
+        # y = y.unsqueeze(-1)
+        print(f"{y_hat.shape=}, {y.shape=}, {y_hat=}, {y=}")
         loss = self.loss_fn(y_hat, y)
         self.log("train_loss", loss)
         return loss
@@ -47,3 +51,46 @@ class TabularRegressor(L.LightningModule):
     def predict_step(self, batch: InputsTarget):
         with self.no_grad():
             return self.forward(batch)
+
+
+# def tabular_collate_fn(batch):
+#     """Custom collate function for NumericCategoricalData objects."""
+#     # return batch
+#     numeric_tensors = torch.stack([item.inputs.numeric for item in batch])
+
+#     if batch[0].inputs.categorical is not None:
+#         categorical_tensors = torch.stack([item.inputs.categorical for item in batch])
+
+#     else:
+#         categorical_tensors = None
+
+
+#     target_tensors = torch.stack([item.target for item in batch])
+#     target_tensors = target_tensors.squeeze(-1).unsqueeze(-1)
+#     return InputsTarget(
+#         inputs=NumericCategoricalData(
+#             numeric=numeric_tensors, categorical=categorical_tensors
+#         ),
+#         target=target_tensors,
+#     )
+def tabular_collate_fn(batch):
+    """Custom collate function for NumericCategoricalData objects."""
+    numeric_tensors = torch.stack([item.inputs.numeric for item in batch])
+
+    if batch[0].inputs.categorical is not None:
+        categorical_tensors = torch.stack([item.inputs.categorical for item in batch])
+    else:
+        categorical_tensors = None
+
+    target_tensors = torch.stack([item.target for item in batch])
+    if target_tensors.dim() == 1:
+        target_tensors = target_tensors.unsqueeze(
+            -1
+        )  # Ensure target tensors have shape (batch_size, 1)
+
+    return InputsTarget(
+        inputs=NumericCategoricalData(
+            numeric=numeric_tensors, categorical=categorical_tensors
+        ),
+        target=target_tensors,
+    )

@@ -110,8 +110,12 @@ class TabularEncoder(nn.Module):
         self.token_dict = model_config.token_dict
         # self.decoder_dict = {v: k for k, v in self.token_dict.items()}
         # Masks
-        self.cat_mask_token = torch.tensor(self.token_dict["[MASK]"])
-        self.numeric_mask_token = torch.tensor(self.token_dict["[NUMERIC_MASK]"])
+        # self.cat_mask_token = torch.tensor(self.token_dict["[MASK]"])
+        self.register_buffer("cat_mask_token", torch.tensor(self.token_dict["[MASK]"]))
+        # self.numeric_mask_token = torch.tensor(self.token_dict["[NUMERIC_MASK]"])
+        self.register_buffer(
+            "numeric_mask_token", torch.tensor(self.token_dict["[NUMERIC_MASK]"])
+        )
 
         self.n_tokens = len(self.tokens)  # TODO Make this
         # Embedding layers for categorical features
@@ -123,12 +127,19 @@ class TabularEncoder(nn.Module):
         )
         self.n_columns = self.n_numeric_cols + self.n_cat_cols
         # self.numeric_embeddings = NumericEmbedding(d_model=self.d_model)
-        self.col_indices = torch.tensor(
-            [self.tokens.index(col) for col in self.col_tokens], dtype=torch.long
+        self.register_buffer(
+            "col_indices",
+            torch.tensor(
+                [self.tokens.index(col) for col in self.col_tokens], dtype=torch.long
+            ),
         )
-        self.numeric_indices = torch.tensor(
-            [self.tokens.index(col) for col in model_config.numeric_col_tokens],
-            dtype=torch.long,
+
+        self.register_buffer(
+            "numeric_indices",
+            torch.tensor(
+                [self.tokens.index(col) for col in model_config.numeric_col_tokens],
+                dtype=torch.long,
+            ),
         )
         self.transformer_encoder1 = TransformerEncoderLayer(d_model, n_heads=n_heads)
         self.transformer_encoder2 = TransformerEncoderLayer(d_model, n_heads=n_heads)
@@ -220,14 +231,9 @@ class TabularEncoderRegressor(nn.Module):
         self.apply(initialize_parameters)
 
     def forward(self, num_inputs, cat_inputs):
-        print(f"num_inputs shape: {num_inputs.shape}")
-        print(f"cat_inputs shape: {cat_inputs.shape}")
         out = self.tabular_encoder(num_inputs, cat_inputs)
-        print(f"out shape after encoder: {out.shape}")
         out = self.regressor(out)
-        print(f"out shape after regressor: {out.shape}")
         out = self.flatten_layer(out.squeeze(-1))
-        print(f"out shape after flatten: {out.shape}")
         return out
 
 

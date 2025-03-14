@@ -212,12 +212,12 @@ class TabularDS(Dataset):
         """Gets self.df_<df_name> for a given index."""
         df = getattr(self, df_name)
 
-        batch = df.loc[df.index == set_idx, :]
+        batch = df.iloc[set_idx, :]
         # Convert DataFrame to torch.Tensor directly
         batch = torch.tensor(batch.values, dtype=torch.float32)
 
         # Add padding
-        batch_len, n_cols = batch.shape
+        # batch_len, n_cols = batch.shape
         batch = batch.squeeze(0)
         # TODO Add padding for columns
         # batch = batch.permute(1, 0)
