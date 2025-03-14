@@ -215,8 +215,9 @@ class TabularDS(Dataset):
 
         # Add padding
         batch_len, n_cols = batch.shape
+        batch = batch.squeeze(0)
         # TODO Add padding for columns
-        batch = batch.permute(1, 0)
+        # batch = batch.permute(1, 0)
         return batch
 
     def __getitem__(self, idx):
