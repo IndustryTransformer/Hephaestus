@@ -1,12 +1,12 @@
-import torch.nn as nn
-import torch.nn.init as init
-import torch
 import copy
 from datetime import datetime as dt
 
 import pandas as pd
-from torch.utils.tensorboard import SummaryWriter
+import torch
+import torch.nn as nn
+import torch.nn.init as init
 import torch.optim as optim
+from torch.utils.tensorboard import SummaryWriter
 from tqdm.notebook import trange
 
 
@@ -205,7 +205,14 @@ def mtm(model, dataset, model_name, epochs=100, batch_size=1000, lr=0.001):
 
 # %%
 def fine_tune_model(
-    model, dataset, n_rows, model_name, epochs=100, lr=0.01, early_stop=True
+    model,
+    dataset,
+    n_rows,
+    model_name,
+    epochs=100,
+    lr=0.01,
+    early_stop=True,
+    return_model=False,
 ):
     # Regression Model
 
@@ -274,7 +281,10 @@ def fine_tune_model(
         if early_stopping_status:
             break
     best_loss = early_stopping.best_loss if early_stopping is not None else loss_test
-    return {"n_rows": n_rows, "test_loss": best_loss.item()}
+    if return_model:
+        return model, {"n_rows": n_rows, "test_loss": best_loss.item(), "model": model}
+    else:
+        return {"n_rows": n_rows, "test_loss": best_loss.item()}
 
 
 # %%
