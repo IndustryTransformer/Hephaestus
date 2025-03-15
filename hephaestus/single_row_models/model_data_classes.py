@@ -67,6 +67,7 @@ class SingleRowConfig:
     tokenizer: AutoTokenizer = None
     vocab_size: int = None
     n_columns: int = None
+    n_columns_no_target: int = None
     target: str = None
 
     @classmethod
@@ -163,6 +164,7 @@ class SingleRowConfig:
         cls_dict["reservoir_vocab"] = reservoir_vocab
 
         cls_dict["n_columns"] = len(df.columns)
+        cls_dict["n_columns_no_target"] = len(df.columns) - 1
         cls_dict["vocab_size"] = tokenizer.vocab_size
         cls_dict["target"] = target
         df_categorical = convert_object_to_int_tokens(df_categorical, token_dict)
