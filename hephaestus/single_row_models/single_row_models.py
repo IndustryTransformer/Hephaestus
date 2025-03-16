@@ -7,6 +7,8 @@ from hephaestus.single_row_models.single_row_utils import (
 )
 from hephaestus.utils import NumericCategoricalData
 
+from .model_data_classes import SingleRowConfig
+
 
 # %%
 class MultiHeadAttention(nn.Module):
@@ -100,13 +102,14 @@ class TransformerEncoderLayer(nn.Module):
 class TabularEncoder(nn.Module):
     def __init__(
         self,
-        model_config,
+        model_config: SingleRowConfig,
         d_model=64,
         n_heads=4,
     ):
         super(TabularEncoder, self).__init__()
         self.d_model = d_model
         self.tokens = model_config.tokens
+
         self.token_dict = model_config.token_dict
         # self.decoder_dict = {v: k for k, v in self.token_dict.items()}
         # Masks
@@ -120,8 +123,8 @@ class TabularEncoder(nn.Module):
         self.n_tokens = len(self.tokens)  # TODO Make this
         # Embedding layers for categorical features
         self.embeddings = nn.Embedding(self.n_tokens, self.d_model)
-        self.n_numeric_cols = len(model_config.numeric_col_tokens)
-        self.n_cat_cols = len(model_config.categorical_col_tokens)
+        self.n_numeric_cols = model_config.n_numeric_cols
+        self.n_cat_cols = model_config.n_cat_cols
         self.col_tokens = (
             model_config.categorical_col_tokens + model_config.numeric_col_tokens
         )
@@ -143,17 +146,8 @@ class TabularEncoder(nn.Module):
         )
         self.transformer_encoder1 = TransformerEncoderLayer(d_model, n_heads=n_heads)
         self.transformer_encoder2 = TransformerEncoderLayer(d_model, n_heads=n_heads)
-
-        self.mlm_decoder = nn.Sequential(nn.Linear(d_model, self.n_tokens))
-
-        self.mnm_decoder = nn.Sequential(
-            nn.Linear(
-                self.n_columns * self.d_model, self.d_model * 4
-            ),  # Try making more complex
-            nn.ReLU(),
-            nn.Linear(self.d_model * 4, self.n_numeric_cols),
-        )
-
+        self.transformer_encoder3 = TransformerEncoderLayer(d_model, n_heads=n_heads)
+        self.transformer_encoder4 = TransformerEncoderLayer(d_model, n_heads=n_heads)
         # self.flatten_layer = nn.Linear(len(self.col_tokens), 1)
         self.apply(initialize_parameters)
 
@@ -204,14 +198,43 @@ class TabularEncoder(nn.Module):
             # col_embeddings, query_embeddings, query_embeddings
         )
         out = self.transformer_encoder2(out, out, out)
-
+        out = self.transformer_encoder3(out, out, out)
+        out = self.transformer_encoder4(out, out, out)
         return out
+
+
+class AttentionPooling(nn.Module):
+    def __init__(self, d_model):
+        super().__init__()
+        # Query vector for attention
+        self.query = nn.Parameter(torch.randn(d_model))
+        self.key_proj = nn.Linear(d_model, d_model)
+        self.scaling_factor = d_model**-0.5
+
+    def forward(self, x):
+        # x shape: [batch_size, seq_len, d_model]
+        # Project sequence to keys
+        keys = self.key_proj(x)  # [batch_size, seq_len, d_model]
+
+        # Calculate attention scores
+        query = self.query.unsqueeze(0).unsqueeze(0)  # [1, 1, d_model]
+        scores = (
+            torch.matmul(query, keys.transpose(-2, -1)) * self.scaling_factor
+        )  # [batch_size, 1, seq_len]
+
+        # Apply softmax to get attention weights
+        attn_weights = F.softmax(scores, dim=-1)  # [batch_size, 1, seq_len]
+
+        # Apply attention weights to sequence
+        context = torch.matmul(attn_weights, x)  # [batch_size, 1, d_model]
+
+        return context.squeeze(1)  # [batch_size, d_model]
 
 
 class TabularEncoderRegressor(nn.Module):
     def __init__(
         self,
-        model_config,
+        model_config: SingleRowConfig,
         d_model=64,
         n_heads=4,
     ):
@@ -222,20 +245,23 @@ class TabularEncoderRegressor(nn.Module):
 
         self.tabular_encoder = TabularEncoder(model_config, d_model, n_heads)
         self.regressor = nn.Sequential(
-            nn.Linear(d_model, d_model * 2),
+            nn.Linear(self.d_model, self.d_model * 2),
             nn.ReLU(),
-            nn.Linear(d_model * 2, 1),
+            nn.Linear(self.d_model * 2, 1),
         )
-        # self.flatten_layer = nn.Linear(18, 1)
-        self.flatten_layer = nn.Linear(
-            self.model_config.n_columns_no_target, 1
-        )  # TODO Fix Hardcoded
-        self.apply(initialize_parameters)
+        self.attention_pooling = AttentionPooling(d_model)
+        # self.flatten_layer = nn.Linear(
+        #     self.model_config.n_columns_no_target, 1
+        # )
+        # self.apply(initialize_parameters)
 
     def forward(self, num_inputs, cat_inputs):
         out = self.tabular_encoder(num_inputs, cat_inputs)
+        out = self.attention_pooling(out)
         out = self.regressor(out)
-        out = self.flatten_layer(out.squeeze(-1))
+        # out = self.flatten_layer(out.squeeze(-1))
+        # print(f"out shape: {out.shape}")
+        # out = out.squeeze(-1).max(dim=1).values
         return out
 
 
@@ -260,7 +286,7 @@ class MaskedTabularModeling(nn.Module):
             nn.Linear(self.d_model * 4, self.n_numeric_cols),
         )
         self.flatten_layer = nn.Linear(len(self.col_tokens), 1)
-        self.apply(initialize_parameters)
+        # self.apply(initialize_parameters)
 
     def forward(self, num_inputs, cat_inputs):
         out = self.tabular_encoder(num_inputs, cat_inputs)

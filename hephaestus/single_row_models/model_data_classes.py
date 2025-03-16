@@ -68,6 +68,8 @@ class SingleRowConfig:
     vocab_size: int = None
     n_columns: int = None
     n_columns_no_target: int = None
+    n_numeric_cols: int = None
+    n_cat_cols: int = None
     target: str = None
 
     @classmethod
@@ -167,6 +169,9 @@ class SingleRowConfig:
         cls_dict["n_columns_no_target"] = len(df.columns) - 1
         cls_dict["vocab_size"] = tokenizer.vocab_size
         cls_dict["target"] = target
+
+        cls_dict["n_numeric_cols"] = len(numeric_col_tokens)
+        cls_dict["n_cat_cols"] = len(categorical_col_tokens) - 1
         df_categorical = convert_object_to_int_tokens(df_categorical, token_dict)
 
         return cls(**cls_dict)

@@ -1,3 +1,5 @@
+from typing import Optional
+
 import pytorch_lightning as L
 import torch
 from torch import nn
@@ -8,7 +10,7 @@ from hephaestus.utils import NumericCategoricalData
 
 
 class TabularRegressor(L.LightningModule):
-    def __init__(self, model_config, d_model, n_heads, lr=1e-1):
+    def __init__(self, model_config, d_model, n_heads, lr=1e-3):
         super().__init__()
         # self.save_hyperparameters()
         self.d_model = d_model
@@ -22,7 +24,13 @@ class TabularRegressor(L.LightningModule):
         )
         self.loss_fn = nn.MSELoss()
 
-    def forward(self, x: InputsTarget):
+        self.example_input_array = self._create_example_input(3)
+
+    def forward(self, x: Optional[InputsTarget] = None, *args, **kwargs):
+        if x is None:
+            return self.model(
+                kwargs["inputs"]["numeric"], kwargs["inputs"]["categorical"]
+            )
         return self.model(x.inputs.numeric, x.inputs.categorical)
 
     def training_step(self, batch: InputsTarget, batch_idx):
@@ -60,6 +68,20 @@ class TabularRegressor(L.LightningModule):
     def predict_step(self, batch: InputsTarget):
         with torch.no_grad():
             return self.forward(batch)
+
+    def _create_example_input(self, batch_size: int):
+        numeric = torch.rand(batch_size, self.model.model_config.n_numeric_cols)
+        categorical = torch.randint(
+            0,
+            self.model.model_config.n_tokens,
+            (batch_size, self.model.model_config.n_cat_cols),  # Please dont cat call
+        ).float()
+
+        target = torch.rand(batch_size, 1)
+        return {
+            "inputs": {"numeric": numeric, "categorical": categorical},
+            "target": target,
+        }
 
 
 def tabular_collate_fn(batch):
