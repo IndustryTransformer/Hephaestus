@@ -87,7 +87,7 @@ class TabularDS:
 
 
 class TabularDataset(Dataset):
-    def __init__(self, config: TabularDS, mode: str):
+    def __init__(self, config: TabularDS, df: pd.DataFrame, mode: str):
         self.config = config
         # if mode == "train":
         #     self.X_numeric = config.X_train_numeric
@@ -97,7 +97,7 @@ class TabularDataset(Dataset):
         #     self.X_numeric = config.X_test_numeric
         #     self.X_categorical = config.X_test_categorical
         #     self.y = config.y_test
-        self.df = config.df
+        self.df = df
         self._create_train_test()
         if mode == "train":
             self.X_numeric = self.config.X_train_numeric
