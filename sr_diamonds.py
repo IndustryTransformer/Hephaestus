@@ -19,8 +19,8 @@ df.head()
 train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
 # %%
 dataset = sr.TabularDS(df, target_column="price")
-dataset_pt_train = sr.TabularDataset(dataset, df, "train")
-dataset_pt_test = sr.TabularDataset(dataset, df, "test")
+dataset_pt_train = sr.TabularDataset(dataset, train_df, "train")
+dataset_pt_test = sr.TabularDataset(dataset, test_df, "train")
 train_loader = torch.utils.data.DataLoader(
     dataset_pt_train, batch_size=100, shuffle=True
 )
@@ -45,7 +45,7 @@ x
 # %%
 # Masked Tabular Modeling
 batch_size = 1000
-model_name = "with_np"
+model_name = "Not almost there"
 loss_fn = nn.MSELoss()
 lr = 0.001
 optimizer = optim.Adam(model.parameters(), lr=lr)

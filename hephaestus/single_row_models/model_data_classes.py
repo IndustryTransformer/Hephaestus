@@ -78,78 +78,66 @@ class TabularDS:
         self.token_dict = {token: i for i, token in enumerate(self.tokens)}
         self.token_decoder_dict = {i: token for i, token in enumerate(self.tokens)}
 
-        self.scaler = StandardScaler()
+        # self.scaler = StandardScaler()
+        # self.numeric_columns.remove(self.target_column[0])
+        print(self.numeric_columns, "numeric_columns1")
+
         self.numeric_columns.remove(self.target_column[0])
-        # self.numeric_columns = self.numeric_columns.remove(self.target_column[0])
-        numeric_scaled = self.scaler.fit_transform(self.df[self.numeric_columns])
-        self.df[self.numeric_columns] = numeric_scaled
-        for col in self.category_columns:
-            self.df[col] = self.df[col].map(self.token_dict)
+        print(self.numeric_columns, "numeric_columns2")
+        # numeric_scaled = self.scaler.fit_transform(self.df[self.numeric_columns])
+        # self.df[self.numeric_columns] = numeric_scaled
+        # for col in self.category_columns:
+        #     self.df[col] = self.df[col].map(self.token_dict)
 
 
 class TabularDataset(Dataset):
     def __init__(self, config: TabularDS, df: pd.DataFrame, mode: str):
         self.config = config
-        # if mode == "train":
-        #     self.X_numeric = config.X_train_numeric
-        #     self.X_categorical = config.X_train_categorical
-        #     self.y = config.y_train
-        # else:
-        #     self.X_numeric = config.X_test_numeric
-        #     self.X_categorical = config.X_test_categorical
-        #     self.y = config.y_test
+
         self.df = df
+        self.scaler = StandardScaler()
+
         self._create_train_test()
         if mode == "train":
-            self.X_numeric = self.config.X_train_numeric
-            self.X_categorical = self.config.X_train_categorical
-            self.y = self.config.y_train
+            self.X_numeric = self.X_train_numeric
+            self.X_categorical = self.X_train_categorical
+            self.y = self.y_train
         else:
-            self.X_numeric = self.config.X_test_numeric
-            self.X_categorical = self.config.X_test_categorical
-            self.y = self.config.y_test
+            self.X_numeric = self.X_test_numeric
+            self.X_categorical = self.X_test_categorical
+            self.y = self.y_test
 
-    #     self.y = df[config.target_column].values
-    #     df = df.drop(columns=config.target_column)
-    #     X_numeric = df[config.numeric_columns].values
-    #     self.X_numeric = torch.tensor(X_numeric, dtype=torch.float32)
-
-    #     for col in config.category_columns:
-    #         df[col] = df[col].map(config.token_dict)
-    #     X_categorical = df[config.category_columns].values
-
-    #     self.X_categorical = torch.tensor(X_categorical, dtype=torch.long)
     def _create_train_test(self):
-        X = self.config.df.drop(self.config.target_column, axis=1)
-        y = self.config.df[self.config.target_column]
-
+        X = self.df.drop(self.config.target_column, axis=1)
+        y = self.df[self.config.target_column]
+        X[self.config.numeric_columns] = self.scaler.fit_transform(
+            X[self.config.numeric_columns]
+        )
+        for col in self.config.category_columns:
+            X[col] = X[col].map(self.config.token_dict)
         (
-            self.config.X_train,
-            self.config.X_test,
-            self.config.y_train,
-            self.config.y_test,
-        ) = train_test_split(X, y, test_size=0.2)
+            self.X_train,
+            self.X_test,
+            self.y_train,
+            self.y_test,
+        ) = train_test_split(X, y, test_size=0.001)
 
-        X_train_numeric = self.config.X_train[self.config.numeric_columns]
-        X_train_categorical = self.config.X_train[self.config.category_columns]
-        X_test_numeric = self.config.X_test[self.config.numeric_columns]
-        X_test_categorical = self.config.X_test[self.config.category_columns]
+        X_train_numeric = self.X_train[self.config.numeric_columns]
+        X_train_categorical = self.X_train[self.config.category_columns]
+        X_test_numeric = self.X_test[self.config.numeric_columns]
+        X_test_categorical = self.X_test[self.config.category_columns]
 
-        self.config.X_train_numeric = np.array(X_train_numeric.values, dtype=np.float32)
+        self.X_train_numeric = np.array(X_train_numeric.values, dtype=np.float32)
 
-        self.config.X_train_categorical = np.array(
-            X_train_categorical.values, dtype=np.long
-        )
+        self.X_train_categorical = np.array(X_train_categorical.values, dtype=np.long)
 
-        self.config.X_test_numeric = np.array(X_test_numeric.values, dtype=np.float32)
+        self.X_test_numeric = np.array(X_test_numeric.values, dtype=np.float32)
 
-        self.config.X_test_categorical = np.array(
-            X_test_categorical.values, dtype=np.long
-        )
+        self.X_test_categorical = np.array(X_test_categorical.values, dtype=np.long)
 
-        self.config.y_train = np.array(self.config.y_train.values, dtype=np.float32)
+        self.y_train = np.array(self.y_train.values, dtype=np.float32)
 
-        self.config.y_test = np.array(self.config.y_test.values, dtype=np.float32)
+        self.y_test = np.array(self.y_test.values, dtype=np.float32)
 
     def __len__(self):
         return self.X_numeric.shape[0]
