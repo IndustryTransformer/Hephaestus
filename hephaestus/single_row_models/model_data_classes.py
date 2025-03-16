@@ -67,5 +67,5 @@ class TabularDataset(Dataset):
         return {
             "X_numeric": torch.tensor(self.X_numeric[idx]),
             "X_categorical": torch.tensor(self.X_categorical[idx]),
-            "y": torch.tensor(self.y[idx]).clone().detach(),
+            "y": torch.tensor(self.y[idx], dtype=torch.float32),
         }
