@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from hephaestus.single_row_models.single_row_utils import (
     initialize_parameters,
 )
+
 # Load and preprocess the dataset (assuming you have a CSV file)
 
 
@@ -198,17 +199,60 @@ class TabTransformer(nn.Module):
         )
         out = self.transformer_encoder2(out, out, out)
 
-        if task == "regression":
-            out = self.regressor(out)
-            out = self.flatten_layer(out.squeeze(-1))
+        return out
 
-            return out
-        elif task == "mlm":
-            cat_out = self.mlm_decoder(out)
-            # print(f"Out shape: {out.shape}, cat_out shape: {cat_out.shape}")
-            numeric_out = out.view(out.size(0), -1)
-            # print(f"numeric_out shape: {numeric_out.shape}")
-            numeric_out = self.mnm_decoder(numeric_out)
-            return cat_out, numeric_out
-        else:
-            raise ValueError(f"Task {task} not supported.")
+
+class TabRegressor(nn.Module):
+    def __init__(
+        self,
+        dataset,
+        d_model=64,
+        n_heads=4,
+    ):
+        super().__init__()
+        self.device = dataset.device
+        self.d_model = d_model
+        self.tokens = dataset.tokens
+        self.token_dict = dataset.token_dict
+        # self.decoder_dict = {v: k for k, v in self.token_dict.items()}
+        # Masks
+        self.cat_mask_token = torch.tensor(self.token_dict["[MASK]"]).to(self.device)
+        self.numeric_mask_token = torch.tensor(self.token_dict["[NUMERIC_MASK]"]).to(
+            self.device
+        )
+
+        self.n_tokens = len(self.tokens)  # TODO Make this
+        # Embedding layers for categorical features
+        self.embeddings = nn.Embedding(self.n_tokens, self.d_model).to(self.device)
+        self.n_numeric_cols = len(dataset.numeric_columns)
+        self.n_cat_cols = len(dataset.category_columns)
+        self.col_tokens = dataset.category_columns + dataset.numeric_columns
+        self.n_columns = self.n_numeric_cols + self.n_cat_cols
+        # self.numeric_embeddings = NumericEmbedding(d_model=self.d_model)
+        self.col_indices = torch.tensor(
+            [self.tokens.index(col) for col in self.col_tokens], dtype=torch.long
+        ).to(self.device)
+        self.numeric_indices = torch.tensor(
+            [self.tokens.index(col) for col in dataset.numeric_columns],
+            dtype=torch.long,
+        ).to(self.device)
+
+        self.tab_transformer = TabTransformer(dataset, d_model, n_heads)
+        self.regressor = nn.Sequential(
+            nn.Linear(d_model, d_model * 2),
+            nn.ReLU(),
+            nn.Linear(d_model * 2, 1),
+            # nn.ReLU(),
+        ).to(self.device)
+        self.flatten_layer = nn.Linear(len(self.col_tokens), 1).to(self.device)
+
+    def forward(self, num_inputs, cat_inputs):
+        out = self.tab_transformer(num_inputs, cat_inputs)
+        out = self.regressor(out)
+        out = self.flatten_layer(out.squeeze(-1))
+
+        return out
+
+
+# %%
+# model = sr.TabTransformer(dataset, n_heads=8).to(dataset.device)
