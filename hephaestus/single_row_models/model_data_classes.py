@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from itertools import chain
 
+import numpy as np
 import pandas as pd
 import torch
 from sklearn.model_selection import train_test_split
@@ -134,27 +135,21 @@ class TabularDataset(Dataset):
         X_test_numeric = self.config.X_test[self.config.numeric_columns]
         X_test_categorical = self.config.X_test[self.config.category_columns]
 
-        self.config.X_train_numeric = torch.tensor(
-            X_train_numeric.values, dtype=torch.float
+        self.config.X_train_numeric = np.array(X_train_numeric.values, dtype=np.float32)
+
+        self.config.X_train_categorical = np.array(
+            X_train_categorical.values, dtype=np.long
         )
 
-        self.config.X_train_categorical = torch.tensor(
-            X_train_categorical.values, dtype=torch.long
+        self.config.X_test_numeric = np.array(X_test_numeric.values, dtype=np.float32)
+
+        self.config.X_test_categorical = np.array(
+            X_test_categorical.values, dtype=np.long
         )
 
-        self.config.X_test_numeric = torch.tensor(
-            X_test_numeric.values, dtype=torch.float
-        )
+        self.config.y_train = np.array(self.config.y_train.values, dtype=np.float32)
 
-        self.config.X_test_categorical = torch.tensor(
-            X_test_categorical.values, dtype=torch.long
-        )
-
-        self.config.y_train = torch.tensor(
-            self.config.y_train.values, dtype=torch.float
-        )
-
-        self.config.y_test = torch.tensor(self.config.y_test.values, dtype=torch.float)
+        self.config.y_test = np.array(self.config.y_test.values, dtype=np.float32)
 
     def __len__(self):
         return self.X_numeric.shape[0]

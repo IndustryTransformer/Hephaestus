@@ -45,7 +45,7 @@ x
 # %%
 # Masked Tabular Modeling
 batch_size = 1000
-model_name = "separate_df"
+model_name = "with_np"
 loss_fn = nn.MSELoss()
 lr = 0.001
 optimizer = optim.Adam(model.parameters(), lr=lr)
