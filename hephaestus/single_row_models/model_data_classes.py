@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 import torch
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 from torch.utils.data import Dataset
 
 # %%
@@ -80,10 +79,8 @@ class TabularDS:
 
         # self.scaler = StandardScaler()
         # self.numeric_columns.remove(self.target_column[0])
-        print(self.numeric_columns, "numeric_columns1")
 
         self.numeric_columns.remove(self.target_column[0])
-        print(self.numeric_columns, "numeric_columns2")
         # numeric_scaled = self.scaler.fit_transform(self.df[self.numeric_columns])
         # self.df[self.numeric_columns] = numeric_scaled
         # for col in self.category_columns:
@@ -95,7 +92,7 @@ class TabularDataset(Dataset):
         self.config = config
 
         self.df = df
-        self.scaler = StandardScaler()
+        # self.scaler = StandardScaler()
 
         self._create_train_test()
         if mode == "train":
@@ -110,9 +107,9 @@ class TabularDataset(Dataset):
     def _create_train_test(self):
         X = self.df.drop(self.config.target_column, axis=1)
         y = self.df[self.config.target_column]
-        X[self.config.numeric_columns] = self.scaler.fit_transform(
-            X[self.config.numeric_columns]
-        )
+        # X[self.config.numeric_columns] = self.scaler.fit_transform(
+        #     X[self.config.numeric_columns]
+        # )
         for col in self.config.category_columns:
             X[col] = X[col].map(self.config.token_dict)
         (

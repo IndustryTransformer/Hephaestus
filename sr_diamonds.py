@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.notebook import trange
 
@@ -14,6 +15,11 @@ from hephaestus.single_row_models.single_row_utils import EarlyStopping
 
 # Load and preprocess the dataset (assuming you have a CSV file)
 df = pd.read_csv("./data/diamonds.csv")
+# scale the numeric columns
+scaler = StandardScaler()
+numeric_columns = df.select_dtypes(include=["int64", "float64"]).columns.tolist()
+numeric_columns.remove("price")
+df[numeric_columns] = scaler.fit_transform(df[numeric_columns])
 df.head()
 
 train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
@@ -45,7 +51,7 @@ x
 # %%
 # Masked Tabular Modeling
 batch_size = 1000
-model_name = "Not almost there"
+model_name = "GlobalScale"
 loss_fn = nn.MSELoss()
 lr = 0.001
 optimizer = optim.Adam(model.parameters(), lr=lr)
