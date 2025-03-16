@@ -115,14 +115,12 @@ class TabTransformer(nn.Module):
         self.token_dict = dataset.token_dict
         # self.decoder_dict = {v: k for k, v in self.token_dict.items()}
         # Masks
-        self.cat_mask_token = torch.tensor(self.token_dict["[MASK]"]).to(self.device)
-        self.numeric_mask_token = torch.tensor(self.token_dict["[NUMERIC_MASK]"]).to(
-            self.device
-        )
+        self.cat_mask_token = torch.tensor(self.token_dict["[MASK]"])
+        self.numeric_mask_token = torch.tensor(self.token_dict["[NUMERIC_MASK]"])
 
         self.n_tokens = len(self.tokens)  # TODO Make this
         # Embedding layers for categorical features
-        self.embeddings = nn.Embedding(self.n_tokens, self.d_model).to(self.device)
+        self.embeddings = nn.Embedding(self.n_tokens, self.d_model)
         self.n_numeric_cols = len(dataset.numeric_columns)
         self.n_cat_cols = len(dataset.category_columns)
         self.col_tokens = dataset.category_columns + dataset.numeric_columns
@@ -130,27 +128,21 @@ class TabTransformer(nn.Module):
         # self.numeric_embeddings = NumericEmbedding(d_model=self.d_model)
         self.col_indices = torch.tensor(
             [self.tokens.index(col) for col in self.col_tokens], dtype=torch.long
-        ).to(self.device)
+        )
         self.numeric_indices = torch.tensor(
             [self.tokens.index(col) for col in dataset.numeric_columns],
             dtype=torch.long,
-        ).to(self.device)
-        self.transformer_encoder1 = TransformerEncoderLayer(
-            d_model, n_heads=n_heads
-        ).to(self.device)
-        self.transformer_encoder2 = TransformerEncoderLayer(
-            d_model, n_heads=n_heads
-        ).to(self.device)
+        )
+        self.transformer_encoder1 = TransformerEncoderLayer(d_model, n_heads=n_heads)
+        self.transformer_encoder2 = TransformerEncoderLayer(d_model, n_heads=n_heads)
         self.regressor = nn.Sequential(
             nn.Linear(d_model, d_model * 2),
             nn.ReLU(),
             nn.Linear(d_model * 2, 1),
             # nn.ReLU(),
-        ).to(self.device)
+        )
 
-        self.mlm_decoder = nn.Sequential(nn.Linear(d_model, self.n_tokens)).to(
-            self.device
-        )  # TODO try making more complex
+        self.mlm_decoder = nn.Sequential(nn.Linear(d_model, self.n_tokens))
 
         self.mnm_decoder = nn.Sequential(
             nn.Linear(
@@ -158,9 +150,9 @@ class TabTransformer(nn.Module):
             ),  # Try making more complex
             nn.ReLU(),
             nn.Linear(self.d_model * 4, self.n_numeric_cols),
-        ).to(self.device)
+        )
 
-        self.flatten_layer = nn.Linear(len(self.col_tokens), 1).to(self.device)
+        self.flatten_layer = nn.Linear(len(self.col_tokens), 1)
         self.apply(initialize_parameters)
 
     def forward(self, num_inputs, cat_inputs, task="regression"):
@@ -216,14 +208,12 @@ class TabRegressor(nn.Module):
         self.token_dict = dataset.token_dict
         # self.decoder_dict = {v: k for k, v in self.token_dict.items()}
         # Masks
-        self.cat_mask_token = torch.tensor(self.token_dict["[MASK]"]).to(self.device)
-        self.numeric_mask_token = torch.tensor(self.token_dict["[NUMERIC_MASK]"]).to(
-            self.device
-        )
+        self.cat_mask_token = torch.tensor(self.token_dict["[MASK]"])
+        self.numeric_mask_token = torch.tensor(self.token_dict["[NUMERIC_MASK]"])
 
         self.n_tokens = len(self.tokens)  # TODO Make this
         # Embedding layers for categorical features
-        self.embeddings = nn.Embedding(self.n_tokens, self.d_model).to(self.device)
+        self.embeddings = nn.Embedding(self.n_tokens, self.d_model)
         self.n_numeric_cols = len(dataset.numeric_columns)
         self.n_cat_cols = len(dataset.category_columns)
         self.col_tokens = dataset.category_columns + dataset.numeric_columns
@@ -231,11 +221,11 @@ class TabRegressor(nn.Module):
         # self.numeric_embeddings = NumericEmbedding(d_model=self.d_model)
         self.col_indices = torch.tensor(
             [self.tokens.index(col) for col in self.col_tokens], dtype=torch.long
-        ).to(self.device)
+        )
         self.numeric_indices = torch.tensor(
             [self.tokens.index(col) for col in dataset.numeric_columns],
             dtype=torch.long,
-        ).to(self.device)
+        )
 
         self.tab_transformer = TabTransformer(dataset, d_model, n_heads)
         self.regressor = nn.Sequential(
@@ -243,8 +233,8 @@ class TabRegressor(nn.Module):
             nn.ReLU(),
             nn.Linear(d_model * 2, 1),
             # nn.ReLU(),
-        ).to(self.device)
-        self.flatten_layer = nn.Linear(len(self.col_tokens), 1).to(self.device)
+        )
+        self.flatten_layer = nn.Linear(len(self.col_tokens), 1)
 
     def forward(self, num_inputs, cat_inputs):
         out = self.tab_transformer(num_inputs, cat_inputs)

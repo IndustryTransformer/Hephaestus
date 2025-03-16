@@ -1,5 +1,5 @@
 # ruff: noqa: F401
-from hephaestus.single_row_models.model_data_classes import TabularDS
+from hephaestus.single_row_models.model_data_classes import TabularDataset, TabularDS
 from hephaestus.single_row_models.single_row_models import TabRegressor, TabTransformer
 from hephaestus.single_row_models.single_row_utils import (
     EarlyStopping,

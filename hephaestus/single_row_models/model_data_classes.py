@@ -1,10 +1,10 @@
 from dataclasses import dataclass, field
 from itertools import chain
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 
 import pandas as pd
 import torch
+from sklearn.preprocessing import StandardScaler
+from torch.utils.data import Dataset
 
 
 # %%
@@ -20,9 +20,6 @@ class TabularDS:
     )
 
     def __post_init__(self):
-        self.df = self.df.sample(frac=1, random_state=self.seed).reset_index(
-            drop=True
-        )  # This is where randomness is introduced
         self.category_columns = self.df.select_dtypes(
             include=["object"]
         ).columns.tolist()
@@ -49,38 +46,26 @@ class TabularDS:
         for col in self.category_columns:
             self.df[col] = self.df[col].map(self.token_dict)
 
-        X = self.df.drop(self.target_column, axis=1)
-        y = self.df[self.target_column]
 
-        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
-            X, y, test_size=0.2
-        )
+class TabularDataset(Dataset):
+    def __init__(self, df: pd.DataFrame, config: TabularDS):
+        self.y = df[config.target_column].values
+        df = df.drop(columns=config.target_column)
+        X_numeric = df[config.numeric_columns].values
+        self.X_numeric = torch.tensor(X_numeric, dtype=torch.float32)
 
-        X_train_numeric = self.X_train[self.numeric_columns]
-        X_train_categorical = self.X_train[self.category_columns]
-        X_test_numeric = self.X_test[self.numeric_columns]
-        X_test_categorical = self.X_test[self.category_columns]
+        for col in config.category_columns:
+            df[col] = df[col].map(config.token_dict)
+        X_categorical = df[config.category_columns].values
 
-        self.X_train_numeric = torch.tensor(
-            X_train_numeric.values, dtype=torch.float
-        ).to(self.device)
+        self.X_categorical = torch.tensor(X_categorical, dtype=torch.long)
 
-        self.X_train_categorical = torch.tensor(
-            X_train_categorical.values, dtype=torch.long
-        ).to(self.device)
+    def __len__(self):
+        return self.X_numeric.shape[0]
 
-        self.X_test_numeric = torch.tensor(X_test_numeric.values, dtype=torch.float).to(
-            self.device
-        )
-
-        self.X_test_categorical = torch.tensor(
-            X_test_categorical.values, dtype=torch.long
-        ).to(self.device)
-
-        self.y_train = torch.tensor(self.y_train.values, dtype=torch.float).to(
-            self.device
-        )
-
-        self.y_test = torch.tensor(self.y_test.values, dtype=torch.float).to(
-            self.device
-        )
+    def __getitem__(self, idx):
+        return {
+            "X_numeric": torch.tensor(self.X_numeric[idx]),
+            "X_categorical": torch.tensor(self.X_categorical[idx]),
+            "y": torch.tensor(self.y[idx]).clone().detach(),
+        }
