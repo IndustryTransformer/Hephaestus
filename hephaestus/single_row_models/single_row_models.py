@@ -263,14 +263,14 @@ class TabularEncoderRegressor(nn.Module):
         return out
 
 
-class MaskedTabularModeling(nn.Module):
+class MaskedTabularEncoder(nn.Module):
     def __init__(
         self,
         model_config,
         d_model=64,
         n_heads=4,
     ):
-        super(MaskedTabularModeling, self).__init__()
+        super().__init__()
         self.d_model = d_model
         self.tokens = model_config.tokens
 

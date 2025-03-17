@@ -6,7 +6,7 @@ from torch import nn
 
 from hephaestus.single_row_models.model_data_classes import InputsTarget
 from hephaestus.single_row_models.single_row_models import TabularEncoderRegressor
-from hephaestus.utils import MaskedTabularModeling, NumericCategoricalData
+from hephaestus.utils import MaskedTabularEncoder, NumericCategoricalData
 
 
 class TabularRegressor(L.LightningModule):
@@ -107,7 +107,7 @@ def tabular_collate_fn(batch):
     )
 
 
-class MaskedTabularModelingTrainer(L.LightningDataModule):
+class MaskedTabularModeling(L.LightningDataModule):
     def __init__(self, model_config, d_model, n_heads, lr=1e-3):
         super().__init__()
         # self.save_hyperparameters()
@@ -115,4 +115,4 @@ class MaskedTabularModelingTrainer(L.LightningDataModule):
         self.n_heads = n_heads
         self.lr = lr
 
-        self.model = MaskedTabularModeling(model_config, d_model, n_heads)
+        self.model = MaskedTabularEncoder(model_config, d_model, n_heads)
