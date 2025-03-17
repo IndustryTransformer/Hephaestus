@@ -171,7 +171,7 @@ class SingleRowConfig:
         cls_dict["target"] = target
 
         cls_dict["n_numeric_cols"] = len(numeric_col_tokens)
-        cls_dict["n_cat_cols"] = len(categorical_col_tokens) - 1
+        cls_dict["n_cat_cols"] = len(categorical_col_tokens)
         df_categorical = convert_object_to_int_tokens(df_categorical, token_dict)
 
         return cls(**cls_dict)
@@ -210,6 +210,7 @@ class TabularDS(Dataset):
             self.df_categorical, config.token_dict
         )
         self.df_numeric = df.select_dtypes(include=["number"])
+        # Scale the numeric columns
 
     def __len__(self):
         """Return the length of the dataset."""

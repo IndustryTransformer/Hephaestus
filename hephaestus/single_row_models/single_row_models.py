@@ -11,7 +11,7 @@ from .model_data_classes import SingleRowConfig
 
 
 # %%
-class MultiHeadAttention(nn.Module):
+class MultiHeadAttention(nn.Module):  # Try to use nn.MultiheadAttention
     def __init__(self, d_model, n_heads):
         super(MultiHeadAttention, self).__init__()
         self.n_heads = n_heads
@@ -257,11 +257,9 @@ class TabularEncoderRegressor(nn.Module):
 
     def forward(self, num_inputs, cat_inputs):
         out = self.tabular_encoder(num_inputs, cat_inputs)
-        out = self.attention_pooling(out)
+        out = self.attention_pooling(out)  # Could use max pooling too
         out = self.regressor(out)
-        # out = self.flatten_layer(out.squeeze(-1))
-        # print(f"out shape: {out.shape}")
-        # out = out.squeeze(-1).max(dim=1).values
+
         return out
 
 
@@ -285,7 +283,7 @@ class MaskedTabularModeling(nn.Module):
             nn.ReLU(),
             nn.Linear(self.d_model * 4, self.n_numeric_cols),
         )
-        self.flatten_layer = nn.Linear(len(self.col_tokens), 1)
+
         # self.apply(initialize_parameters)
 
     def forward(self, num_inputs, cat_inputs):
