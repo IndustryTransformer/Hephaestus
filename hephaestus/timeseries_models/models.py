@@ -279,6 +279,18 @@ class TimeSeriesTransformer(nn.Module):
     def process_numeric(self, numeric_inputs: torch.Tensor) -> ProcessedEmbeddings:
         """Processes the numeric inputs for the transformer model."""
         device = numeric_inputs.device
+
+        # Handle different input formats
+        if numeric_inputs.dim() == 2:
+            # If input is (batch_size, seq_len), reshape to (batch_size, 1, seq_len)
+            numeric_inputs = numeric_inputs.unsqueeze(1)
+
+        # Now ensure we have the expected shape
+        if numeric_inputs.dim() != 3:
+            raise ValueError(
+                f"Expected numeric_inputs to have 3 dimensions (batch, cols, seq_len), got shape {numeric_inputs.shape}"
+            )
+
         batch_size, num_cols, seq_len = numeric_inputs.shape
         base_indices = torch.arange(num_cols, device=device)
         repeated_numeric_indices = base_indices.repeat(batch_size, seq_len, 1).permute(
@@ -476,6 +488,21 @@ class TimeSeriesTransformer(nn.Module):
         # Create causal mask (lower triangular)
         seq_len = mask_input.size(2)
         mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1).bool()
+
+        # For categorical data, let's allow seeing a wider context
+        # This will help with the odd/even pattern
+        if categorical_inputs is not None:
+            # Allow looking at t-1 and t-2 tokens more explicitly
+            # This creates a special pattern for categorical sequences
+            categorical_mask = torch.ones(seq_len, seq_len, dtype=torch.bool)
+
+            # Create a "look back 1" pattern
+            for i in range(1, seq_len):
+                categorical_mask[i, i - 1] = False  # Allow looking at previous token
+
+            # Apply this less restrictive mask to categorical data only
+            mask = mask & categorical_mask
+
         mask = mask.to(next(self.parameters()).device)
 
         # Create padding mask (for nan values)

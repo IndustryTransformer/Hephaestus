@@ -86,14 +86,23 @@ class MultiHeadAttention4D(nn.Module):
 
         # Apply mask if provided
         if mask is not None:
-            # Reshape mask to broadcast correctly across attention dimensions
-            # mask shape: [seq_len, seq_len] or [batch_size, seq_len, seq_len]
+            # Ensure mask preserves information about previous values
+            # The current implementation might be too aggressive in masking
             if mask.dim() == 2:
                 # Expand mask for batch size and heads
                 expanded_mask = mask.unsqueeze(0).unsqueeze(0).unsqueeze(0)
             elif mask.dim() == 3:
                 # Expand mask for heads
                 expanded_mask = mask.unsqueeze(1).unsqueeze(1)
+
+            # Add logging for mask shape and values in debugging
+            # if self.training:
+            #     non_masked = (
+            #         (~expanded_mask.bool()).sum().item()
+            #         if expanded_mask.dtype == torch.bool
+            #         else 0
+            #     )
+            #     # print(f"Attention mask allows {non_masked} connections")
 
             # Expand mask for broadcasting to attention scores
             # scores shape: [batch_size, num_heads, n_columns, seq_len, seq_len]

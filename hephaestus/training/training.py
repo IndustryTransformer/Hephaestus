@@ -13,10 +13,37 @@ class TabularDecoder(L.LightningModule):
         # self.save_hyperparameters()
         self.d_model = d_model
         self.n_heads = n_heads
+        self.time_series_config = time_series_config  # Store the config as an attribute
         self.model = TimeSeriesDecoder(time_series_config, self.d_model, self.n_heads)
 
     def forward(self, x):
-        return self.model(x.numeric, x.categorical)
+        """
+        Forward pass for the model.
+        Handles both batched inputs from DataLoader and single inputs.
+        """
+        # Check if x is already in the expected format (NumericCategoricalData)
+        if hasattr(x, "numeric") and hasattr(x, "categorical"):
+            return self.model(x.numeric, x.categorical)
+
+        # Handle case where x is a raw tensor or dictionary
+        if isinstance(x, torch.Tensor):
+            # Assume it's just numeric data
+            return self.model(x, None)
+        elif isinstance(x, dict):
+            # Convert dict to expected format
+            numeric = x.get("numeric", None)
+            categorical = x.get("categorical", None)
+            return self.model(numeric, categorical)
+        else:
+            # For dataset item, they might need reshaping
+            try:
+                numeric = x[0].unsqueeze(0) if isinstance(x, tuple) else x.numeric
+                categorical = (
+                    x[1].unsqueeze(0) if isinstance(x, tuple) else x.categorical
+                )
+                return self.model(numeric, categorical)
+            except (IndexError, AttributeError) as e:
+                raise ValueError(f"Unsupported input format: {type(x)}. Error: {e}")
 
     def add_input_offsets(self, inputs, outputs, inputs_offset=1):
         """Add offsets to inputs and apply mask to outputs (PyTorch version).
@@ -68,11 +95,18 @@ class TabularDecoder(L.LightningModule):
         y_pred = y_pred.to(torch.float32)
 
         # Convert target to long type but handle it carefully
-        y_true = y_true.to(torch.long)  # Convert to long (int64) for class indices
+        y_true = y_true.to(torch.long)
 
-        # Apply offset adjustment to inputs and outputs
-        y_true, y_pred, _ = self.add_input_offsets(y_true, y_pred, inputs_offset=1)
+        # For sequence prediction, we need to set the offset correctly
+        # We should use offset=1 to predict the NEXT token, not the current one
+        # This means the model input at position i predicts the target at position i+1
+        y_true, y_pred, mask = self.add_input_offsets(y_true, y_pred, inputs_offset=1)
 
+        # Log shapes for debugging
+        self.log("cat_true_shape", float(y_true.numel()))
+        self.log("cat_pred_shape", float(y_pred.numel()))
+
+        # Create a mask for valid values (not NaN)
         mask = ~torch.isnan(y_true)
         if mask.any():
             # Apply log_softmax to predictions
@@ -85,11 +119,19 @@ class TabularDecoder(L.LightningModule):
             num_classes = y_pred.size(-1)
             valid_targets_mask = (targets >= 0) & (targets < num_classes)
 
+            # Log number of valid targets for debugging
+            self.log("valid_targets", float(valid_targets_mask.sum()))
+
             # Only use valid targets
             if valid_targets_mask.any():
                 valid_log_probs = log_probs[valid_targets_mask]
                 valid_targets = targets[valid_targets_mask]
                 loss = F.nll_loss(valid_log_probs, valid_targets, reduction="mean")
+
+                # Add a small regularization term to encourage diversity in predictions
+                entropy = -torch.sum(torch.exp(log_probs) * log_probs, dim=1).mean()
+                loss = loss - 0.01 * entropy
+
                 return loss
             else:
                 # Return zero loss if no valid targets found
@@ -114,14 +156,63 @@ class TabularDecoder(L.LightningModule):
     def training_step(self, batch, batch_idx):
         outputs = self.forward(batch)
         numeric_loss = self.numeric_loss(batch.numeric, outputs.numeric)
+
         if batch.categorical is not None:
             categorical_loss = self.categorical_loss(
                 batch.categorical, outputs.categorical
             )
-            loss = numeric_loss + categorical_loss
+
+            # Find the is_odd column index
+            is_odd_idx = None
+            for i, col in enumerate(self.time_series_config.categorical_col_tokens):
+                if "is_odd" in col:
+                    is_odd_idx = i
+                    break
+
+            # Add enhanced monitoring for the is_odd column specifically
+            with torch.no_grad():
+                if (
+                    is_odd_idx is not None and batch_idx % 5 == 0
+                ):  # Check more frequently
+                    # Get predictions for is_odd column
+                    pred_cats = outputs.categorical[:, is_odd_idx].argmax(dim=-1)
+                    # true_cats = batch.categorical[:, is_odd_idx].long()
+
+                    # Check alternating pattern in predictions
+                    seq_len = pred_cats.shape[1]
+                    alternating_count = 0
+                    total_checks = 0
+
+                    for i in range(1, seq_len):
+                        mask = ~torch.isnan(
+                            batch.categorical[:, is_odd_idx, i]
+                        ) & ~torch.isnan(batch.categorical[:, is_odd_idx, i - 1])
+                        if mask.any():
+                            # Count how often predictions alternate (odd->even, even->odd)
+                            alternating = (pred_cats[:, i] != pred_cats[:, i - 1])[mask]
+                            alternating_count += alternating.sum().item()
+                            total_checks += mask.sum().item()
+
+                    if total_checks > 0:
+                        alternating_rate = alternating_count / total_checks
+                        self.log("alternating_rate", alternating_rate)
+
+                        # Log specific examples to understand the pattern
+                        # if batch_idx % 20 == 0:
+                        #     sample_idx = 0
+                        #     seq_preds = pred_cats[sample_idx].cpu().numpy()
+                        #     seq_true = true_cats[sample_idx].cpu().numpy()
+                        # print(f"Sample predictions: {seq_preds[:10]}")
+                        # print(f"Sample true values: {seq_true[:10]}")
+
+            # Give more weight to categorical loss to emphasize learning patterns
+            loss = (
+                numeric_loss + 3.0 * categorical_loss
+            )  # Increased weight from 2.0 to 3.0
         else:
             categorical_loss = torch.tensor(0.0, device=self.device)
             loss = numeric_loss
+
         self.log("train_loss", loss)
         self.log("train_numeric_loss", numeric_loss)
         self.log("train_categorical_loss", categorical_loss)
@@ -174,7 +265,7 @@ class TabularDecoder(L.LightningModule):
 
         input_categorical = process_results(
             results.categorical_inputs,
-            self.categorical_col_tokens,
+            self.time_series_config.categorical_col_tokens,  # Using the stored config
             self.time_series_config,
         )
 
