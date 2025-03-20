@@ -10,7 +10,7 @@ from hephaestus.timeseries_models import TimeSeriesDecoder
 class TabularDecoder(L.LightningModule):
     def __init__(self, time_series_config, d_model, n_heads):
         super().__init__()
-        self.save_hyperparameters()
+        # self.save_hyperparameters()
         self.d_model = d_model
         self.n_heads = n_heads
         self.model = TimeSeriesDecoder(time_series_config, self.d_model, self.n_heads)
