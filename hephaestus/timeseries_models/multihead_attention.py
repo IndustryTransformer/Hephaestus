@@ -84,7 +84,17 @@ class MultiHeadAttention4D(nn.Module):
         # Compute attention scores
         scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
 
-        # Apply mask if provided
+        # Apply causal mask to enforce autoregressive property
+        # This ensures each position can only attend to previous positions
+        causal_mask = torch.triu(
+            torch.ones(seq_len, seq_len, device=scores.device) * float("-inf"),
+            diagonal=1,
+        )
+
+        # Apply the causal mask to scores
+        scores = scores + causal_mask.unsqueeze(0).unsqueeze(0).unsqueeze(0)
+
+        # Apply additional mask if provided
         if mask is not None:
             # Reshape mask to broadcast correctly across attention dimensions
             # mask shape: [seq_len, seq_len] or [batch_size, seq_len, seq_len]
