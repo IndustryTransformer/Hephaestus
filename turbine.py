@@ -87,12 +87,6 @@ df["is_odd"] = np.where(df.index % 2 == 0, "even", "odd")
 # Add an integer representation alongside categorical for easier learning
 df["is_odd_numeric"] = df.index % 2  # 0 for even, 1 for odd
 
-# Create a more explicit timestamp column to help with sequence learning
-df["timestamp"] = df.index
-df["sequence_position"] = df.index % 100  # Helps model recognize position in sequence
-
-# Add explicit previous value to help the model learn the pattern
-df["prev_is_odd"] = df["is_odd"].shift(1).fillna("even")  # Start with "even"
 
 numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
 df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
@@ -136,9 +130,13 @@ len(train_ds), len(test_ds)
 time_series_config.n_columns
 
 # %%
-N_HEADS = 4  # 8 * 8
+N_HEADS = 16
+BATCH_SIZE = 128
+D_MODEL = 64
 # tabular_decoder = TimeSeriesDecoder(time_series_config, d_model=512, n_heads=N_HEADS)
-tabular_decoder = hp.TabularDecoder(time_series_config, d_model=64, n_heads=N_HEADS)
+tabular_decoder = hp.TabularDecoder(
+    time_series_config, d_model=D_MODEL, n_heads=N_HEADS
+)
 
 # %%
 logger_variant_name = "NOXSmall"
@@ -149,13 +147,13 @@ logger = TensorBoardLogger(
     "runs",
     name=logger_name,
 )
-early_stopping = EarlyStopping(monitor="val_loss", patience=3, mode="min")
+early_stopping = EarlyStopping(monitor="val_loss", patience=20, mode="min")
 trainer = L.Trainer(
     max_epochs=200, logger=logger, callbacks=[early_stopping], log_every_n_steps=1
 )
 train_dl = DataLoader(
     train_ds,
-    batch_size=32,
+    batch_size=BATCH_SIZE,
     shuffle=True,
     collate_fn=tabular_collate_fn,
     # num_workers=7,
@@ -163,7 +161,7 @@ train_dl = DataLoader(
 )
 test_dl = DataLoader(
     test_ds,
-    batch_size=32,
+    batch_size=BATCH_SIZE,
     shuffle=False,
     collate_fn=tabular_collate_fn,
     # num_workers=7,
@@ -218,7 +216,7 @@ if is_odd_idx is not None:
 df_comp = hp.show_results_df(
     model=tabular_decoder,
     time_series_config=time_series_config,
-    dataset=train_ds,
+    dataset=test_ds,
     idx=0,
 )
 
@@ -287,30 +285,26 @@ for i, col in enumerate(columns_to_plot):
     )
 
     # Highlight the oscillating pattern more clearly
-    if col == "is_odd_numeric":
-        ax.set_title(f"{col} Trajectory - Alternating Pattern", fontweight="bold")
-        ax.set_ylim(-1.5, 1.5)  # Set explicit y-limits to see the pattern
 
-        # Add a text annotation highlighting the pattern
-        ax.text(
-            0.5,
-            0.95,
-            "This should alternate between -1 and 1",
-            transform=ax.transAxes,
-            ha="center",
-            va="top",
-            bbox=dict(boxstyle="round,pad=0.3", fc="yellow", alpha=0.3),
-        )
-    else:
-        ax.set_title(f"{col} Trajectory")
+    ax.set_title(f"{col} Auto-Regressive Predictions")
 
     ax.set_xlabel("Time Step")
-    ax.set_ylabel("Position")
+    ax.set_ylabel(f"{col} Value")
     ax.legend(loc="best")
     ax.grid(True, alpha=0.3)
 
 plt.suptitle("Autoregressive Predictions vs Actual Values", fontsize=16)
 plt.tight_layout(rect=[0, 0, 1, 0.95])  # Add space for the suptitle
 plt.show()
+
+# %%
+df_comp2 = hp.show_results_df(
+    model=tabular_decoder,
+    time_series_config=time_series_config,
+    dataset=test_ds,
+    idx=test_idx,
+    mask_start=stop_idx,
+)
+df_comp2.input_df = df_comp2.input_df.iloc[:]
 
 # %%
