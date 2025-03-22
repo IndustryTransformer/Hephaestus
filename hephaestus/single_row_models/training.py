@@ -5,8 +5,11 @@ import torch
 from torch import nn
 
 from hephaestus.single_row_models.model_data_classes import InputsTarget
-from hephaestus.single_row_models.single_row_models import TabularEncoderRegressor
-from hephaestus.utils import MaskedTabularEncoder, NumericCategoricalData
+from hephaestus.single_row_models.single_row_models import (
+    TabularEncoderRegressor,
+    MaskedTabularEncoder,
+)
+from hephaestus.utils import NumericCategoricalData
 
 
 class TabularRegressor(L.LightningModule):

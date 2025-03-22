@@ -52,3 +52,8 @@ dev-dependencies = [
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+line-length = 88
+extend-select = ["I", "F", "E", "W", "C90"]
+fix = true
