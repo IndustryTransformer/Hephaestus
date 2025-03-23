@@ -9,7 +9,6 @@ import os
 from datetime import datetime as dt
 from pathlib import Path
 
-import altair as alt
 import numpy as np
 import pandas as pd
 import pytorch_lightning as L  # noqa: N812
@@ -27,8 +26,9 @@ from sklearn.model_selection import RepeatedKFold, cross_val_score, train_test_s
 from sklearn.preprocessing import StandardScaler
 
 import hephaestus.single_row_models as sr
+from hephaestus.single_row_models.plotting_utils import plot_prediction_analysis
 
-D_MODEL = 128
+D_MODEL = 64
 N_HEADS = 4
 LR = 0.0001
 BATCH_SIZE = 1024 * 8
@@ -104,8 +104,9 @@ trainer = L.Trainer(
 )
 trainer.fit(model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
 
+# %% [markdown]
+# ### Run inference on the entire inference dataloader
 # %%
-# Run inference on the entire inference dataloader
 y = []
 y_hat = []
 for batch in train_dataloader:
@@ -119,73 +120,20 @@ print(y.shape, y_hat.shape)
 print(f"Mean Squared Error: {mean_squared_error(y, y_hat)}")
 
 res_df = pd.DataFrame({"Actual": y, "Predicted": y_hat})
+
+
+# %%
 plot_df = res_df.sample(5000)
-# %%
-# Create a scatter plot to compare predicted vs actual values using Altair
 
-# Calculate metrics
-mse = mean_squared_error(y, y_hat)
-rmse = np.sqrt(mse)
-
-scatter = (
-    alt.Chart(plot_df)
-    .mark_circle(opacity=0.5)
-    .encode(
-        x=alt.X("Actual", title="Actual Nox"),
-        y=alt.Y("Predicted", title="Predicted Nox"),
-        tooltip=["Actual", "Predicted"],
-    )
-    .properties(width=600, height=400, title="Actual vs Predicted Emissions")
+plot_prediction_analysis(
+    df=res_df,
+    name="Hephaestus",
+    y_col="Actual",
+    y_hat_col="Predicted",
 )
-
-# Create the diagonal line
-min_val = min(plot_df["Actual"].min(), plot_df["Predicted"].min())
-max_val = max(plot_df["Actual"].max(), plot_df["Predicted"].max())
-line_df = pd.DataFrame({"x": [min_val, max_val], "y": [min_val, max_val]})
-line = alt.Chart(line_df).mark_line(color="red", strokeDash=[4, 4]).encode(x="x", y="y")
-
-# Add text annotation for metrics
-text_df = pd.DataFrame(
-    [
-        {
-            "x": min_val + (max_val - min_val) * 0.05,
-            "y": min_val + (max_val - min_val) * 0.95,
-            "text": f"MSE: {mse:.2f}\nRMSE: {rmse:.2f}",
-        }
-    ]
-)
-text = (
-    alt.Chart(text_df)
-    .mark_text(align="left", baseline="top")
-    .encode(x="x", y="y", text="text")
-)
-
-# Combine the components
-chart = (scatter + line + text).interactive()
-
-# Display the chart
-chart
-
-# %%
-#
-# Create a line plot of df.index vs df.target (nox) using Altair
-df_head_tail = pd.concat([df.head(1000), df.tail(1000)]).reset_index(drop=True)
-line_chart = (
-    alt.Chart(df_head_tail.reset_index())
-    .mark_line()
-    .encode(
-        x=alt.X("index", title="Index"),
-        y=alt.Y("target", title="Nox"),
-        tooltip=["index", "target"],
-    )
-    .properties(width=800, height=400, title="Nox Emissions Over Index")
-)
-
-# Display the chart
-line_chart
 # %%
 # %% [markdown]
-# ## Linear Regression
+# ### Linear Regression
 
 # %%
 
@@ -205,47 +153,12 @@ rmse = np.sqrt(mse_linear)
 print(f"Linear Regression MSE: {mse_linear}")
 # %% Plot the results
 res_df = pd.DataFrame({"Actual": y_test, "Predicted": y_pred})
-plot_df = res_df.sample(5000)
-scatter_linear = (
-    alt.Chart(plot_df)
-    .mark_circle(opacity=0.5)
-    .encode(
-        x=alt.X("Actual", title="Actual Nox"),
-        y=alt.Y("Predicted", title="Predicted Nox"),
-        tooltip=["Actual", "Predicted"],
-    )
-    .properties(
-        width=600,
-        height=400,
-        title="Actual vs Predicted Emissions with Linear Regression",
-    )
+plot_prediction_analysis(
+    df=res_df,
+    name="Linear Regression",
+    y_col="Actual",
+    y_hat_col="Predicted",
 )
-min_val = min(plot_df["Actual"].min(), plot_df["Predicted"].min())
-max_val = max(plot_df["Actual"].max(), plot_df["Predicted"].max())
-line_df = pd.DataFrame({"x": [min_val, max_val], "y": [min_val, max_val]})
-line = alt.Chart(line_df).mark_line(color="red", strokeDash=[4, 4]).encode(x="x", y="y")
-
-# Add text annotation for metrics
-text_df = pd.DataFrame(
-    [
-        {
-            "x": min_val + (max_val - min_val) * 0.05,
-            "y": min_val + (max_val - min_val) * 0.95,
-            "text": f"MSE: {mse_linear:.2f}\nRMSE: {rmse:.2f}",
-        }
-    ]
-)
-text = (
-    alt.Chart(text_df)
-    .mark_text(align="left", baseline="top")
-    .encode(x="x", y="y", text="text")
-)
-
-# Combine the components
-chart_linear = (scatter_linear + line + text).interactive()
-
-# Display the chart
-chart_linear
 # %%
 model = RandomForestRegressor()
 # evaluate the model
@@ -280,40 +193,13 @@ print("MSE on test set:", round(mse, 3))
 # %% PLot the results
 res_df = pd.DataFrame({"Actual": y_test, "Predicted": y_pred})
 plot_df = res_df.sample(5000)
-scatter_rf = (
-    alt.Chart(plot_df)
-    .mark_circle(opacity=0.5)
-    .encode(
-        x=alt.X("Actual", title="Actual Nox"),
-        y=alt.Y("Predicted", title="Predicted Nox"),
-        tooltip=["Actual", "Predicted"],
-    )
-    .properties(
-        width=600,
-        height=400,
-        title="Actual vs Predicted Emissions with Random Forest",
-    )
-)
-min_val = min(plot_df["Actual"].min(), plot_df["Predicted"].min())
-max_val = max(plot_df["Actual"].max(), plot_df["Predicted"].max())
-line_df = pd.DataFrame({"x": [min_val, max_val], "y": [min_val, max_val]})
-line = alt.Chart(line_df).mark_line(color="red", strokeDash=[4, 4]).encode(x="x", y="y")
 
-# Add text annotation for metrics
-text_df = pd.DataFrame(
-    [
-        {
-            "x": min_val + (max_val - min_val) * 0.05,
-            "y": min_val + (max_val - min_val) * 0.95,
-            "text": f"MSE: {mse:.2f}, RMSE: {np.sqrt(mse):.2f}",
-        }
-    ]
+# %%
+plot_prediction_analysis(
+    df=res_df,
+    name="Random Forest",
+    y_col="Actual",
+    y_hat_col="Predicted",
 )
-text = (
-    alt.Chart(text_df)
-    .mark_text(align="left", baseline="top")
-    .encode(x="x", y="y", text="text")
-)
-chart_rf = (scatter_rf + line + text).interactive()
-chart_rf
+
 # %%
