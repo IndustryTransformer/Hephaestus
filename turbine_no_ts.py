@@ -1,3 +1,8 @@
+# %% [markdown]
+# # Turbine Model
+#
+# ## Load Libs
+#
 # %%
 import glob
 import os
@@ -8,6 +13,8 @@ import altair as alt
 import numpy as np
 import pandas as pd
 import pytorch_lightning as L  # noqa: N812
+from sklearn.linear_model import LinearRegression
+
 import torch
 from pytorch_lightning.callbacks import (
     EarlyStopping,
@@ -21,11 +28,11 @@ from sklearn.preprocessing import StandardScaler
 
 import hephaestus.single_row_models as sr
 
-D_MODEL = 128 * 4
+D_MODEL = 128
 N_HEADS = 4
-LR = 0.001
+LR = 0.0001
 BATCH_SIZE = 1024 * 8
-name = "AttentionPooling"
+name = "SiluTransomed"
 LOGGER_VARIANT_NAME = f"{name}_D{D_MODEL}_H{N_HEADS}_LR{LR}"
 
 
@@ -49,7 +56,7 @@ df = df.rename(columns={"nox": "target"})
 # scale the non-target numerical columns
 scaler = StandardScaler()
 numeric_cols = df.select_dtypes(include=[float, int]).columns
-numeric_cols = numeric_cols.drop("target")
+# numeric_cols = numeric_cols.drop("target")
 df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
 # df["target"] = df["target"] + 100
 df["cat_column"] = "category"
@@ -109,7 +116,7 @@ for batch in train_dataloader:
 y = torch.cat(y, dim=0).squeeze().numpy()
 y_hat = torch.cat(y_hat, dim=0).squeeze().numpy()
 print(y.shape, y_hat.shape)
-print(mean_squared_error(y, y_hat))
+print(f"Mean Squared Error: {mean_squared_error(y, y_hat)}")
 
 res_df = pd.DataFrame({"Actual": y, "Predicted": y_hat})
 plot_df = res_df.sample(5000)
@@ -176,4 +183,67 @@ line_chart = (
 
 # Display the chart
 line_chart
+# %%
+# %% [markdown]
+# ## Linear Regression
+
+# %%
+
+# prepare X and y
+X = df[numeric_cols.drop("target")]
+y = df["target"]
+
+
+linear_model = LinearRegression()
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+linear_model.fit(X_train, y_train)
+y_pred = linear_model.predict(X_test)
+mse_linear = mean_squared_error(y_test, y_pred)
+rmse = np.sqrt(mse_linear)
+print(f"Linear Regression MSE: {mse_linear}")
+# %% Plot the results
+res_df = pd.DataFrame({"Actual": y_test, "Predicted": y_pred})
+plot_df = res_df.sample(5000)
+scatter_linear = (
+    alt.Chart(plot_df)
+    .mark_circle(opacity=0.5)
+    .encode(
+        x=alt.X("Actual", title="Actual Nox"),
+        y=alt.Y("Predicted", title="Predicted Nox"),
+        tooltip=["Actual", "Predicted"],
+    )
+    .properties(
+        width=600,
+        height=400,
+        title="Actual vs Predicted Emissions with Linear Regression",
+    )
+)
+min_val = min(plot_df["Actual"].min(), plot_df["Predicted"].min())
+max_val = max(plot_df["Actual"].max(), plot_df["Predicted"].max())
+line_df = pd.DataFrame({"x": [min_val, max_val], "y": [min_val, max_val]})
+line = alt.Chart(line_df).mark_line(color="red", strokeDash=[4, 4]).encode(x="x", y="y")
+
+# Add text annotation for metrics
+text_df = pd.DataFrame(
+    [
+        {
+            "x": min_val + (max_val - min_val) * 0.05,
+            "y": min_val + (max_val - min_val) * 0.95,
+            "text": f"MSE: {mse_linear:.2f}\nRMSE: {rmse:.2f}",
+        }
+    ]
+)
+text = (
+    alt.Chart(text_df)
+    .mark_text(align="left", baseline="top")
+    .encode(x="x", y="y", text="text")
+)
+
+# Combine the components
+chart_linear = (scatter_linear + line + text).interactive()
+
+# Display the chart
+chart_linear
 # %%

@@ -76,11 +76,11 @@ class TransformerEncoderLayer(nn.Module):
 
         self.feed_forward = nn.Sequential(
             nn.Linear(d_model, 2 * d_model),
-            nn.ReLU(),
-            nn.Linear(2 * d_model, d_model),
-            # nn.Linear(4 * d_model, d_model * 4),
-            # nn.ReLU(),
-            # nn.Linear(d_model * 4, d_model),
+            nn.SiLU(),
+            nn.Linear(2 * d_model, d_model * 4),
+            nn.Linear(4 * d_model, d_model * 4),
+            nn.SiLU(),
+            nn.Linear(d_model * 4, d_model),
         )
 
         self.layernorm1 = nn.LayerNorm(d_model)
@@ -246,10 +246,14 @@ class TabularEncoderRegressor(nn.Module):
         self.tabular_encoder = TabularEncoder(model_config, d_model, n_heads)
         self.regressor = nn.Sequential(
             nn.Linear(self.d_model, self.d_model * 2),
-            nn.ReLU(),
+            nn.SiLU(),  # Try SiLU instead of ReLU
+            nn.Linear(self.d_model * 2, self.d_model * 2),
+            nn.SiLU(),
             nn.Linear(self.d_model * 2, 1),
         )
-        self.attention_pooling = AttentionPooling(d_model)
+
+        self.pooling = AttentionPooling(d_model)
+        # self.pooling = nn.MaxPool3d((1, 1, self.d_model))
         # self.flatten_layer = nn.Linear(
         #     self.model_config.n_columns_no_target, 1
         # )
@@ -257,7 +261,9 @@ class TabularEncoderRegressor(nn.Module):
 
     def forward(self, num_inputs, cat_inputs):
         out = self.tabular_encoder(num_inputs, cat_inputs)
-        out = self.attention_pooling(out)  # Could use max pooling too
+        # out = self.pooling(out)  # Could use max pooling too
+        # out = torch.max(out, dim=1)[0]  # [batch_size, d_model]
+        out = self.pooling(out)
         out = self.regressor(out)
 
         return out
@@ -280,7 +286,7 @@ class MaskedTabularEncoder(nn.Module):
             nn.Linear(
                 self.n_columns * self.d_model, self.d_model * 4
             ),  # Try making more complex
-            nn.ReLU(),
+            nn.SiLU(),
             nn.Linear(self.d_model * 4, self.n_numeric_cols),
         )
 

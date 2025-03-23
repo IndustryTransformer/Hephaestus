@@ -55,10 +55,13 @@ class TabularRegressor(L.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=1e-5)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.1, patience=10
-        )  # Example scheduler
+            optimizer,
+            mode="min",
+            factor=0.1,
+            patience=10,
+        )
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
