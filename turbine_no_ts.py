@@ -13,8 +13,6 @@ import altair as alt
 import numpy as np
 import pandas as pd
 import pytorch_lightning as L  # noqa: N812
-from sklearn.linear_model import LinearRegression
-
 import torch
 from pytorch_lightning.callbacks import (
     EarlyStopping,
@@ -22,8 +20,10 @@ from pytorch_lightning.callbacks import (
     TQDMProgressBar,
 )
 from pytorch_lightning.loggers import TensorBoardLogger
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import RepeatedKFold, cross_val_score, train_test_split
 from sklearn.preprocessing import StandardScaler
 
 import hephaestus.single_row_models as sr
@@ -246,4 +246,74 @@ chart_linear = (scatter_linear + line + text).interactive()
 
 # Display the chart
 chart_linear
+# %%
+model = RandomForestRegressor()
+# evaluate the model
+cv = RepeatedKFold(n_splits=10, n_repeats=3, random_state=1)
+n_scores = cross_val_score(
+    model,
+    X_train,
+    y_train,
+    scoring="neg_mean_absolute_error",
+    cv=cv,
+    n_jobs=-1,
+    error_score="raise",
+)
+# report performance
+print(
+    "MAE on cross validation set : %.3f (%.3f)"
+    % (abs(np.mean(n_scores)), np.std(n_scores))
+)
+
+# %% Plot the RandomForestRegressor results
+# fit the model
+model = RandomForestRegressor(random_state=0)
+model = model.fit(X_train, y_train)
+
+# %%
+
+y_pred = model.predict(X_test)
+mse = mean_squared_error(y_test, y_pred)
+
+print("MSE on test set:", round(mse, 3))
+
+# %% PLot the results
+res_df = pd.DataFrame({"Actual": y_test, "Predicted": y_pred})
+plot_df = res_df.sample(5000)
+scatter_rf = (
+    alt.Chart(plot_df)
+    .mark_circle(opacity=0.5)
+    .encode(
+        x=alt.X("Actual", title="Actual Nox"),
+        y=alt.Y("Predicted", title="Predicted Nox"),
+        tooltip=["Actual", "Predicted"],
+    )
+    .properties(
+        width=600,
+        height=400,
+        title="Actual vs Predicted Emissions with Random Forest",
+    )
+)
+min_val = min(plot_df["Actual"].min(), plot_df["Predicted"].min())
+max_val = max(plot_df["Actual"].max(), plot_df["Predicted"].max())
+line_df = pd.DataFrame({"x": [min_val, max_val], "y": [min_val, max_val]})
+line = alt.Chart(line_df).mark_line(color="red", strokeDash=[4, 4]).encode(x="x", y="y")
+
+# Add text annotation for metrics
+text_df = pd.DataFrame(
+    [
+        {
+            "x": min_val + (max_val - min_val) * 0.05,
+            "y": min_val + (max_val - min_val) * 0.95,
+            "text": f"MSE: {mse:.2f}, RMSE: {np.sqrt(mse):.2f}",
+        }
+    ]
+)
+text = (
+    alt.Chart(text_df)
+    .mark_text(align="left", baseline="top")
+    .encode(x="x", y="y", text="text")
+)
+chart_rf = (scatter_rf + line + text).interactive()
+chart_rf
 # %%
