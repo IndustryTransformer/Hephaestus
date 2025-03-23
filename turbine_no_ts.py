@@ -1,15 +1,22 @@
-# %% [markdown]
-# # Turbine Model
-#
-# ## Load Libs
-#
+# ruff: noq: F402
+# %%
+import numpy as np
+from IPython.display import Markdown  # noqa: F401
+
+Markdown("""# Nox Prediction
+This notebook is used to predict NOx emissions from a gas turbine using a transformer
+model.
+
+## Load Libraries and Prepare Data
+
+""")
 # %%
 import glob
 import os
 from datetime import datetime as dt
 from pathlib import Path
 
-import numpy as np
+# ruff: noqa: E402
 import pandas as pd
 import pytorch_lightning as L  # noqa: N812
 import torch
@@ -22,11 +29,18 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import RepeatedKFold, cross_val_score, train_test_split
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 import hephaestus.single_row_models as sr
 from hephaestus.single_row_models.plotting_utils import plot_prediction_analysis
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+
+Markdown("""## Hephaestus Parameters
+We will use the following parameters for the Hephaestus model:
+""")
 
 D_MODEL = 64
 N_HEADS = 4
@@ -36,7 +50,6 @@ name = "SiluTransomed"
 LOGGER_VARIANT_NAME = f"{name}_D{D_MODEL}_H{N_HEADS}_LR{LR}"
 
 
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
 # Load and preprocess the train_dataset (assuming you have a CSV file)
 csv_files = glob.glob("data/nox/*.csv")
 
@@ -63,6 +76,11 @@ df["cat_column"] = "category"
 df.head()
 
 # %%
+Markdown("""### Model Initialization
+
+Initialize the model and create dataloaders for training and validation.
+""")
+# %%
 single_row_config = sr.SingleRowConfig.generate(df, "target")
 train_df, test_df = train_test_split(df.copy(), test_size=0.2, random_state=42)
 train_dataset = sr.TabularDS(train_df, single_row_config)
@@ -86,6 +104,10 @@ val_dataloader = torch.utils.data.DataLoader(
 )
 
 # %%
+Markdown("""### Model Training
+Using PyTorch Lightning, we will train the model using the training and validation
+""")
+
 logger_time = dt.now().strftime("%Y-%m-%dT%H:%M:%S")
 logger_name = f"{logger_time}_{LOGGER_VARIANT_NAME}"
 print(f"Using logger name: {logger_name}")
@@ -104,8 +126,7 @@ trainer = L.Trainer(
 )
 trainer.fit(model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
 
-# %% [markdown]
-# ### Run inference on the entire inference dataloader
+Markdown("""### Run inference on the entire inference dataloader""")
 # %%
 y = []
 y_hat = []
@@ -122,8 +143,7 @@ print(f"Mean Squared Error: {mean_squared_error(y, y_hat)}")
 res_df = pd.DataFrame({"Actual": y, "Predicted": y_hat})
 
 
-# %%
-plot_df = res_df.sample(5000)
+Markdown("""### Plot the results""")
 
 plot_prediction_analysis(
     df=res_df,
@@ -132,67 +152,55 @@ plot_prediction_analysis(
     y_hat_col="Predicted",
 )
 # %%
-# %% [markdown]
-# ### Linear Regression
+Markdown("""## Compare with Scikit Learn Models
+We will compare the Hephaestus model with the following Scikit Learn models:
+- Linear Regression
+- Random Forest
 
+### Linear Regression
+""")
 # %%
 
-# prepare X and y
 X = df[numeric_cols.drop("target")]
 y = df["target"]
-
-
-linear_model = LinearRegression()
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42
 )
+linear_model = LinearRegression()
+
 linear_model.fit(X_train, y_train)
-y_pred = linear_model.predict(X_test)
-mse_linear = mean_squared_error(y_test, y_pred)
+y_pred_lr = linear_model.predict(X_test)
+mse_linear = mean_squared_error(y_test, y_pred_lr)
 rmse = np.sqrt(mse_linear)
-print(f"Linear Regression MSE: {mse_linear}")
+Markdown(f"Linear Regression MSE: {mse_linear:.3f} | RMSE: {rmse:.3f}")
 # %% Plot the results
-res_df = pd.DataFrame({"Actual": y_test, "Predicted": y_pred})
+res_df_lr = pd.DataFrame({"Actual": y_test, "Predicted": y_pred_lr})
 plot_prediction_analysis(
-    df=res_df,
+    df=res_df_lr,
     name="Linear Regression",
     y_col="Actual",
     y_hat_col="Predicted",
 )
 # %%
-model = RandomForestRegressor()
-# evaluate the model
-cv = RepeatedKFold(n_splits=10, n_repeats=3, random_state=1)
-n_scores = cross_val_score(
-    model,
-    X_train,
-    y_train,
-    scoring="neg_mean_absolute_error",
-    cv=cv,
-    n_jobs=-1,
-    error_score="raise",
-)
-# report performance
-print(
-    "MAE on cross validation set : %.3f (%.3f)"
-    % (abs(np.mean(n_scores)), np.std(n_scores))
-)
+Markdown("""### Random Forest
 
-# %% Plot the RandomForestRegressor results
-# fit the model
-model = RandomForestRegressor(random_state=0)
-model = model.fit(X_train, y_train)
+Random Forest is a more complex model that can capture non-linear relationships. We will
+see if it performs better than the Linear Regression model and the Hephaestus model.
+""")
+model_rf = RandomForestRegressor()
+
+model_rf = RandomForestRegressor(random_state=0)
+model_rf = model_rf.fit(X_train, y_train)
 
 # %%
 
-y_pred = model.predict(X_test)
-mse = mean_squared_error(y_test, y_pred)
+y_pred_rf = model_rf.predict(X_test)
+mse_rf = mean_squared_error(y_test, y_pred_rf)
 
-print("MSE on test set:", round(mse, 3))
+Markdown(f"Random Forest MSE: {mse_rf:.3f}")
 
 # %% PLot the results
-res_df = pd.DataFrame({"Actual": y_test, "Predicted": y_pred})
-plot_df = res_df.sample(5000)
+res_df_lr = pd.DataFrame({"Actual": y_test, "Predicted": y_pred_rf})
 
 # %%
 plot_prediction_analysis(

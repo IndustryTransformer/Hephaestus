@@ -21,7 +21,7 @@ def plot_prediction_analysis(
     y_hat_col : str, default='y_hat'
         Column name for predicted values
     sample_size : int, default=5000
-        Number of points to sample for visualization (to avoid overplotting)
+        Number of points to sample for visualization (to avoid over plotting)
 
     Returns:
     --------
@@ -58,7 +58,7 @@ def plot_prediction_analysis(
 
     # Metrics text
     metrics_text = (
-        f"{name} Performance Metrics:\nRMSE: {rmse:.4f} | MAE: {mse:.4f} | R²: {r2:.4f}"
+        f"{name} Performance Metrics:\nRMSE: {rmse:.4f} | MSE: {mse:.4f} | R²: {r2:.4f}"
     )
 
     # Chart 1: Actual vs Predicted
