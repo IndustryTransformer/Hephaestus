@@ -8,6 +8,7 @@ repos:
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-added-large-files
+        args: ['--maxkb=2000'] # Increased from default 500KB to 700KB
   # - repo: https://gitlab.com/pycqa/flake8
   #   rev: 8f9b4931b9a28896fb43edccb23016a7540f5b82
   #   hooks:

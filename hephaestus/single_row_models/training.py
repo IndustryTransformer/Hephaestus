@@ -1,0 +1,124 @@
+from typing import Optional
+
+import pytorch_lightning as L
+import torch
+from torch import nn
+
+from hephaestus.single_row_models.model_data_classes import InputsTarget
+from hephaestus.single_row_models.single_row_models import (
+    TabularEncoderRegressor,
+    MaskedTabularEncoder,
+)
+from hephaestus.utils import NumericCategoricalData
+
+
+class TabularRegressor(L.LightningModule):
+    def __init__(self, model_config, d_model, n_heads, lr=1e-3):
+        super().__init__()
+        # self.save_hyperparameters()
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.lr = lr
+
+        self.model = TabularEncoderRegressor(
+            model_config=model_config,
+            d_model=d_model,
+            n_heads=n_heads,
+        )
+        self.loss_fn = nn.MSELoss()
+
+        self.example_input_array = self._create_example_input(3)
+
+    def forward(self, x: Optional[InputsTarget] = None, *args, **kwargs):
+        if x is None:
+            return self.model(
+                kwargs["inputs"]["numeric"], kwargs["inputs"]["categorical"]
+            )
+        return self.model(x.inputs.numeric, x.inputs.categorical)
+
+    def training_step(self, batch: InputsTarget, batch_idx):
+        X = batch.inputs
+        y = batch.target
+        y_hat = self.model(X.numeric, X.categorical)
+        loss = self.loss_fn(y_hat, y)
+        self.log("train_loss", loss)
+        return loss
+
+    def validation_step(self, batch: InputsTarget, batch_idx):
+        X = batch.inputs
+        y = batch.target
+        y_hat = self.model(X.numeric, X.categorical)
+        # print(f"{y_hat.shape=}, {y.shape=}")
+        loss = self.loss_fn(y_hat, y)
+        self.log("val_loss", loss)
+        self.log("lr", self.optimizers().param_groups[0]["lr"])
+        return loss
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=1e-5)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="min",
+            factor=0.1,
+            patience=3,  # Reduced from 10 to 3
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "monitor": "val_loss",
+                "frequency": 1,
+            },
+        }
+
+    def predict_step(self, batch: InputsTarget):
+        with torch.no_grad():
+            return self.forward(batch)
+
+    def _create_example_input(self, batch_size: int):
+        numeric = torch.rand(batch_size, self.model.model_config.n_numeric_cols)
+        categorical = torch.randint(
+            0,
+            self.model.model_config.n_tokens,
+            (batch_size, self.model.model_config.n_cat_cols),  # Please dont cat call
+        ).float()
+
+        target = torch.rand(batch_size, 1)
+        return {
+            "inputs": {"numeric": numeric, "categorical": categorical},
+            "target": target,
+        }
+
+
+def tabular_collate_fn(batch):
+    """Custom collate function for NumericCategoricalData objects."""
+    numeric_tensors = torch.stack([item.inputs.numeric for item in batch])
+
+    if batch[0].inputs.categorical is not None:
+        categorical_tensors = torch.stack([item.inputs.categorical for item in batch])
+    else:
+        categorical_tensors = None
+
+    target_tensors = torch.stack([item.target for item in batch])
+    if target_tensors.dim() == 1:
+        target_tensors = target_tensors.unsqueeze(
+            -1
+        )  # Ensure target tensors have shape (batch_size, 1)
+
+    return InputsTarget(
+        inputs=NumericCategoricalData(
+            numeric=numeric_tensors, categorical=categorical_tensors
+        ),
+        target=target_tensors,
+    )
+
+
+class MaskedTabularModeling(L.LightningDataModule):
+    def __init__(self, model_config, d_model, n_heads, lr=1e-3):
+        super().__init__()
+        # self.save_hyperparameters()
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.lr = lr
+
+        self.model = MaskedTabularEncoder(model_config, d_model, n_heads)

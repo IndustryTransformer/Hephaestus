@@ -7,6 +7,8 @@ import torch
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
 
+from hephaestus.utils import NumericCategoricalData
+
 # Import tokenizer functions directly from module to avoid circular imports
 from hephaestus.utils.tokenizer import convert_object_to_int_tokens, split_complex_word
 
@@ -69,7 +71,6 @@ class TimeSeriesConfig:
         df.idx = df.idx - df.idx.min()
         ds_length = df.groupby("idx").size().max()
         df = df.set_index("idx")
-        df.index.name = None
 
         df_categorical = df.select_dtypes(include=["object"]).astype(str)
         numeric_token = "[NUMERIC_EMBEDDING]"
@@ -157,108 +158,6 @@ class TimeSeriesConfig:
         return cls(**cls_dict)
 
 
-@dataclass
-class TimeSeriesInputs:
-    """
-    Data class to store time series batch data.
-
-    Attributes:
-        numeric: Numeric inputs for the model.
-        categorical: Categorical inputs for the model, may be None if no categorical data exists.
-    """
-
-    numeric: torch.Tensor
-    categorical: Optional[torch.Tensor] = None
-
-    def to(self, device: torch.device):
-        """
-        Move tensors to the specified device.
-
-        Args:
-            device: The device to move tensors to (e.g., 'cuda', 'cpu', or torch.device)
-
-        Returns:
-            TimeSeriesInputs: Self with tensors moved to the specified device
-        """
-        self.numeric = self.numeric.to(device)
-        if self.categorical is not None:
-            self.categorical = self.categorical.to(device)
-        return self
-
-
-@dataclass
-class TimeSeriesOutput:
-    """
-    Data class to store time series model outputs.
-
-    Attributes:
-        numeric: Numeric outputs from the model.
-        categorical: Categorical outputs from the model, may be None if no categorical data exists.
-    """
-
-    numeric: torch.Tensor
-    categorical: Optional[torch.Tensor] = None
-
-    def to(self, device: torch.device):
-        """
-        Move tensors to the specified device.
-
-        Args:
-            device: The device to move tensors to (e.g., 'cuda', 'cpu', or torch.device)
-
-        Returns:
-            TimeSeriesOutput: Self with tensors moved to the specified device
-        """
-        self.numeric = self.numeric.to(device)
-        if self.categorical is not None:
-            self.categorical = self.categorical.to(device)
-        return self
-
-    def items(self):
-        """
-        Return a dictionary-like items view for backward compatibility.
-
-        Returns:
-            An items iterator similar to dict.items()
-        """
-        result = {"numeric": self.numeric}
-        if self.categorical is not None:
-            result["categorical"] = self.categorical
-        return result.items()
-
-    def __getitem__(self, key):
-        """
-        Support dictionary-style access for backward compatibility.
-
-        Args:
-            key: The key to access ('numeric' or 'categorical')
-
-        Returns:
-            The corresponding tensor
-
-        Raises:
-            KeyError: If key is not 'numeric' or 'categorical'
-        """
-        if key == "numeric":
-            return self.numeric
-        elif key == "categorical":
-            return self.categorical
-        else:
-            raise KeyError(f"Invalid key: {key}")
-
-    def values(self):
-        """
-        Return values for backward compatibility with dictionary.
-
-        Returns:
-            List of tensor values
-        """
-        result = [self.numeric]
-        if self.categorical is not None:
-            result.append(self.categorical)
-        return result
-
-
 class TimeSeriesDS(Dataset):
     """
     Dataset class for time series data.
@@ -292,7 +191,7 @@ class TimeSeriesDS(Dataset):
         self.df_categorical = convert_object_to_int_tokens(
             self.df_categorical, config.token_dict
         )
-        self.df_numeric = df.select_dtypes(include="number")
+        self.df_numeric = df.select_dtypes(include="number")  # Remove?
         self.batch_size = self.max_seq_len
         self.unique_indices = sorted(df.index.unique())
 
@@ -328,15 +227,15 @@ class TimeSeriesDS(Dataset):
             idx: Integer index or slice object
 
         Returns:
-            For integer index: A TimeSeriesInputs object
-            For slice: A collated batch of TimeSeriesInputs formatted like DataLoader output
+            For integer index: A NumericCategoricalData object
+            For slice: A collated batch of NumericCategoricalData formatted like DataLoader output
         """
         # Handle slice indexing
         if isinstance(idx, slice):
             # Get the actual indices from the slice
             indices = self.unique_indices[idx]
 
-            # Create a list of TimeSeriesInputs
+            # Create a list of NumericCategoricalData
             items = [self._get_single_item(i) for i in indices]
 
             # Collate the items into a batch
@@ -353,17 +252,19 @@ class TimeSeriesDS(Dataset):
             categorical_inputs = self.get_data("df_categorical", set_idx)
         numeric_inputs = self.get_data("df_numeric", set_idx)
 
-        return TimeSeriesInputs(numeric=numeric_inputs, categorical=categorical_inputs)
+        return NumericCategoricalData(
+            numeric=numeric_inputs, categorical=categorical_inputs
+        )
 
     def _collate_batch(self, items):
         """
-        Collate a list of TimeSeriesInputs into a batch.
+        Collate a list of NumericCategoricalData into a batch.
 
         Args:
-            items: List of TimeSeriesInputs objects
+            items: List of NumericCategoricalData objects
 
         Returns:
-            A TimeSeriesInputs object with batched tensors
+            A NumericCategoricalData object with batched tensors
         """
         # All items should have numeric inputs
         # Use torch.stack instead of np.stack
@@ -374,24 +275,9 @@ class TimeSeriesDS(Dataset):
         if items[0].categorical is not None:
             categorical_batch = torch.stack([item.categorical for item in items])
 
-        return TimeSeriesInputs(numeric=numeric_batch, categorical=categorical_batch)
-
-    def get_batch(self, batch_size=None, start_idx=0):
-        """
-        Get a batch of specified size starting from a specific index.
-
-        Args:
-            batch_size: Size of the batch to retrieve
-            start_idx: Starting index position
-
-        Returns:
-            TimeSeriesInputs object with batched data
-        """
-        if batch_size is None:
-            batch_size = self.batch_size
-
-        end_idx = min(start_idx + batch_size, len(self))
-        return self[start_idx:end_idx]
+        return NumericCategoricalData(
+            numeric=numeric_batch, categorical=categorical_batch
+        )
 
 
 @dataclass
@@ -405,13 +291,13 @@ class ProcessedEmbeddings:
 
 
 def tabular_collate_fn(batch):
-    """Custom collate function for TimeSeriesInputs objects."""
+    """Custom collate function for NumericCategoricalData objects."""
     numeric_tensors = torch.stack([item.numeric for item in batch])
 
     if batch[0].categorical is not None:
         categorical_tensors = torch.stack([item.categorical for item in batch])
-        return TimeSeriesInputs(
+        return NumericCategoricalData(
             numeric=numeric_tensors, categorical=categorical_tensors
         )
     else:
-        return TimeSeriesInputs(numeric=numeric_tensors, categorical=None)
+        return NumericCategoricalData(numeric=numeric_tensors, categorical=None)

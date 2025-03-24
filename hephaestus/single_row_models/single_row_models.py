@@ -5,16 +5,15 @@ import torch.nn.functional as F
 from hephaestus.single_row_models.single_row_utils import (
     initialize_parameters,
 )
-# Load and preprocess the dataset (assuming you have a CSV file)
+from hephaestus.utils import NumericCategoricalData
+
+from .model_data_classes import SingleRowConfig
 
 
 # %%
-
-
-# %%
-class MultiHeadAttention(nn.Module):
+class MultiHeadAttention(nn.Module):  # Try to use nn.MultiheadAttention
     def __init__(self, d_model, n_heads):
-        super(MultiHeadAttention, self).__init__()
+        super().__init__()
         self.n_heads = n_heads
         self.d_model = d_model
         self.d_head = d_model // n_heads
@@ -70,18 +69,23 @@ class MultiHeadAttention(nn.Module):
 
 
 class TransformerEncoderLayer(nn.Module):
-    def __init__(self, d_model, n_heads):
+    def __init__(self, d_model, n_heads, dropout=0.2):
         super(TransformerEncoderLayer, self).__init__()
 
-        self.multi_head_attention = MultiHeadAttention(d_model, n_heads)
+        # self.multi_head_attention = MultiHeadAttention(d_model, n_heads)
+        self.multi_head_attention = nn.MultiheadAttention(
+            d_model, n_heads, batch_first=True, dropout=dropout
+        )
 
         self.feed_forward = nn.Sequential(
             nn.Linear(d_model, 2 * d_model),
-            nn.ReLU(),
-            nn.Linear(2 * d_model, d_model),
-            # nn.Linear(4 * d_model, d_model * 4),
-            # nn.ReLU(),
-            # nn.Linear(d_model * 4, d_model),
+            nn.GELU(),
+            nn.Dropout(0.2),
+            nn.Linear(2 * d_model, d_model * 4),
+            nn.Linear(4 * d_model, d_model * 4),
+            nn.GELU(),
+            nn.Dropout(0.2),
+            nn.Linear(d_model * 4, d_model),
         )
 
         self.layernorm1 = nn.LayerNorm(d_model)
@@ -90,7 +94,7 @@ class TransformerEncoderLayer(nn.Module):
         self.apply(initialize_parameters)
 
     def forward(self, q, k, v, mask=None, input_feed_forward=False):
-        attn_output = self.multi_head_attention(q, k, v, mask, input_feed_forward)
+        attn_output, weights = self.multi_head_attention(q, k, v, mask)
         out1 = self.layernorm1(q + attn_output)
 
         ff_output = self.feed_forward(out1)
@@ -100,75 +104,77 @@ class TransformerEncoderLayer(nn.Module):
 
 
 # %%
-class TabTransformer(nn.Module):
+class TabularEncoder(nn.Module):
     def __init__(
         self,
-        dataset,
+        model_config: SingleRowConfig,
         d_model=64,
         n_heads=4,
     ):
-        super(TabTransformer, self).__init__()
-        self.device = dataset.device
+        super(TabularEncoder, self).__init__()
         self.d_model = d_model
-        self.tokens = dataset.tokens
-        self.token_dict = dataset.token_dict
+        self.tokens = model_config.tokens
+
+        self.token_dict = model_config.token_dict
         # self.decoder_dict = {v: k for k, v in self.token_dict.items()}
         # Masks
-        self.cat_mask_token = torch.tensor(self.token_dict["[MASK]"]).to(self.device)
-        self.numeric_mask_token = torch.tensor(self.token_dict["[NUMERIC_MASK]"]).to(
-            self.device
+        # self.cat_mask_token = torch.tensor(self.token_dict["[MASK]"])
+        self.register_buffer("cat_mask_token", torch.tensor(self.token_dict["[MASK]"]))
+        # self.numeric_mask_token = torch.tensor(self.token_dict["[NUMERIC_MASK]"])
+        self.register_buffer(
+            "numeric_mask_token", torch.tensor(self.token_dict["[NUMERIC_MASK]"])
         )
 
         self.n_tokens = len(self.tokens)  # TODO Make this
         # Embedding layers for categorical features
-        self.embeddings = nn.Embedding(self.n_tokens, self.d_model).to(self.device)
-        self.n_numeric_cols = len(dataset.numeric_columns)
-        self.n_cat_cols = len(dataset.category_columns)
-        self.col_tokens = dataset.category_columns + dataset.numeric_columns
+        self.embeddings = nn.Embedding(self.n_tokens, self.d_model)
+        self.n_numeric_cols = model_config.n_numeric_cols
+        self.n_cat_cols = model_config.n_cat_cols
+        self.col_tokens = (
+            model_config.categorical_col_tokens + model_config.numeric_col_tokens
+        )
         self.n_columns = self.n_numeric_cols + self.n_cat_cols
         # self.numeric_embeddings = NumericEmbedding(d_model=self.d_model)
-        self.col_indices = torch.tensor(
-            [self.tokens.index(col) for col in self.col_tokens], dtype=torch.long
-        ).to(self.device)
-        self.numeric_indices = torch.tensor(
-            [self.tokens.index(col) for col in dataset.numeric_columns],
-            dtype=torch.long,
-        ).to(self.device)
-        self.transformer_encoder1 = TransformerEncoderLayer(
-            d_model, n_heads=n_heads
-        ).to(self.device)
-        self.transformer_encoder2 = TransformerEncoderLayer(
-            d_model, n_heads=n_heads
-        ).to(self.device)
-        self.regressor = nn.Sequential(
-            nn.Linear(d_model, d_model * 2),
-            nn.ReLU(),
-            nn.Linear(d_model * 2, 1),
-            # nn.ReLU(),
-        ).to(self.device)
+        self.register_buffer(
+            "col_indices",
+            torch.tensor(
+                [self.tokens.index(col) for col in self.col_tokens], dtype=torch.long
+            ),
+        )
 
-        self.mlm_decoder = nn.Sequential(nn.Linear(d_model, self.n_tokens)).to(
-            self.device
-        )  # TODO try making more complex
-
-        self.mnm_decoder = nn.Sequential(
-            nn.Linear(
-                self.n_columns * self.d_model, self.d_model * 4
-            ),  # Try making more complex
-            nn.ReLU(),
-            nn.Linear(self.d_model * 4, self.n_numeric_cols),
-        ).to(self.device)
-
-        self.flatten_layer = nn.Linear(len(self.col_tokens), 1).to(self.device)
+        self.register_buffer(
+            "numeric_indices",
+            torch.tensor(
+                [self.tokens.index(col) for col in model_config.numeric_col_tokens],
+                dtype=torch.long,
+            ),
+        )
+        self.transformer_encoder1 = TransformerEncoderLayer(d_model, n_heads=n_heads)
+        self.transformer_encoder2 = TransformerEncoderLayer(d_model, n_heads=n_heads)
+        self.transformer_encoder3 = TransformerEncoderLayer(d_model, n_heads=n_heads)
+        self.transformer_encoder4 = TransformerEncoderLayer(d_model, n_heads=n_heads)
+        # self.flatten_layer = nn.Linear(len(self.col_tokens), 1)
         self.apply(initialize_parameters)
 
-    def forward(self, num_inputs, cat_inputs, task="regression"):
+    def forward(self, num_inputs, cat_inputs):
+        # expand dims if only 1
+
+        if num_inputs.dim() == 1 and cat_inputs.dim() == 1:
+            num_inputs = num_inputs.unsqueeze(0)
+            cat_inputs = cat_inputs.unsqueeze(0)
+        elif num_inputs.dim() == 2 and cat_inputs.dim() == 2:
+            pass
+        else:
+            raise ValueError(
+                f"Incorrect input dimensions {num_inputs.dim()=}, {cat_inputs.dim()=}"
+            )
         # Embed column indices
         repeated_col_indices = self.col_indices.unsqueeze(0).repeat(
             num_inputs.size(0), 1
         )
         col_embeddings = self.embeddings(repeated_col_indices)
-
+        # Cast cat_inputs to int
+        cat_inputs = cat_inputs.long()  # TODO Fix this in the dataset class
         cat_embeddings = self.embeddings(cat_inputs)
 
         expanded_num_inputs = num_inputs.unsqueeze(2).repeat(1, 1, self.d_model)
@@ -189,26 +195,121 @@ class TabTransformer(nn.Module):
         base_numeric[inf_mask] = self.embeddings(self.numeric_mask_token)
 
         query_embeddings = torch.cat([cat_embeddings, base_numeric], dim=1)
-        out = self.transformer_encoder1(
+        out1 = self.transformer_encoder1(
             col_embeddings,
             # query_embeddings,
             query_embeddings,
             query_embeddings,
             # col_embeddings, query_embeddings, query_embeddings
         )
-        out = self.transformer_encoder2(out, out, out)
+        # No skipping connection
+        out2 = self.transformer_encoder2(out1, out1, out1)
+        out2 = out2 + out1
+        out3 = self.transformer_encoder3(out2, out2, out2)
+        out3 = out3 + out2
+        out4 = self.transformer_encoder4(out3, out3, out3)
+        out4 = out4 + out3
+        return out4
 
-        if task == "regression":
-            out = self.regressor(out)
-            out = self.flatten_layer(out.squeeze(-1))
 
-            return out
-        elif task == "mlm":
-            cat_out = self.mlm_decoder(out)
-            # print(f"Out shape: {out.shape}, cat_out shape: {cat_out.shape}")
-            numeric_out = out.view(out.size(0), -1)
-            # print(f"numeric_out shape: {numeric_out.shape}")
-            numeric_out = self.mnm_decoder(numeric_out)
-            return cat_out, numeric_out
-        else:
-            raise ValueError(f"Task {task} not supported.")
+class AttentionPooling(nn.Module):
+    def __init__(self, d_model):
+        super().__init__()
+        # Query vector for attention
+        self.query = nn.Parameter(torch.randn(d_model))
+        self.key_proj = nn.Linear(d_model, d_model)
+        self.scaling_factor = d_model**-0.5
+
+    def forward(self, x):
+        # x shape: [batch_size, seq_len, d_model]
+        # Project sequence to keys
+        keys = self.key_proj(x)  # [batch_size, seq_len, d_model]
+
+        # Calculate attention scores
+        query = self.query.unsqueeze(0).unsqueeze(0)  # [1, 1, d_model]
+        scores = (
+            torch.matmul(query, keys.transpose(-2, -1)) * self.scaling_factor
+        )  # [batch_size, 1, seq_len]
+
+        # Apply softmax to get attention weights
+        attn_weights = F.softmax(scores, dim=-1)  # [batch_size, 1, seq_len]
+
+        # Apply attention weights to sequence
+        context = torch.matmul(attn_weights, x)  # [batch_size, 1, d_model]
+
+        return context.squeeze(1)  # [batch_size, d_model]
+
+
+class TabularEncoderRegressor(nn.Module):
+    def __init__(
+        self,
+        model_config: SingleRowConfig,
+        d_model=64,
+        n_heads=4,
+    ):
+        super(TabularEncoderRegressor, self).__init__()
+        self.d_model = d_model
+        self.tokens = model_config.tokens
+        self.model_config = model_config
+        self.Dropout_rate = 0.2
+        self.dropout = nn.Dropout(self.Dropout_rate)
+        self.tabular_encoder = TabularEncoder(model_config, d_model, n_heads)
+        self.regressor = nn.Sequential(
+            nn.Linear(self.d_model, self.d_model * 2),
+            nn.GELU(),  # Try GELU instead of ReLU
+            nn.Dropout(self.Dropout_rate),
+            nn.Linear(self.d_model * 2, self.d_model * 2),
+            nn.GELU(),
+            nn.Dropout(self.Dropout_rate),
+            nn.Linear(self.d_model * 2, 1),
+        )
+
+        self.pooling = AttentionPooling(d_model)
+        # self.pooling = nn.MaxPool3d((1, 1, self.d_model))
+        # self.flatten_layer = nn.Linear(
+        #     self.model_config.n_columns_no_target, 1
+        # )
+        # self.apply(initialize_parameters)
+
+    def forward(self, num_inputs, cat_inputs):
+        out = self.tabular_encoder(num_inputs, cat_inputs)
+        # out = self.pooling(out)  # Could use max pooling too
+        # out = torch.max(out, dim=1)[0]  # [batch_size, d_model]
+        out = self.pooling(out)
+        out = self.dropout(out)
+        # skip = out
+        out = self.regressor(out)
+        # out = out + skip
+        return out
+
+
+class MaskedTabularEncoder(nn.Module):
+    def __init__(
+        self,
+        model_config,
+        d_model=64,
+        n_heads=4,
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.tokens = model_config.tokens
+
+        self.tabular_encoder = TabularEncoder(model_config, d_model, n_heads)
+        self.mlm_decoder = nn.Sequential(nn.Linear(d_model, self.n_tokens))
+        self.mnm_decoder = nn.Sequential(
+            nn.Linear(
+                self.n_columns * self.d_model, self.d_model * 4
+            ),  # Try making more complex
+            nn.GELU(),
+            nn.Linear(self.d_model * 4, self.n_numeric_cols),
+        )
+
+        # self.apply(initialize_parameters)
+
+    def forward(self, num_inputs, cat_inputs):
+        out = self.tabular_encoder(num_inputs, cat_inputs)
+        cat_out = self.mlm_decoder(out)
+        numeric_out = out.view(out.size(0), -1)
+        # print(f"numeric_out shape: {numeric_out.shape}")
+        numeric_out = self.mnm_decoder(numeric_out)
+        return NumericCategoricalData(numeric_out=numeric_out, categorical_out=cat_out)
