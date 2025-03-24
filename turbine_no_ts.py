@@ -46,7 +46,7 @@ D_MODEL = 64
 N_HEADS = 4
 LR = 0.0001
 BATCH_SIZE = 1024 * 8
-name = "SiluTransomed"
+name = "Stock_Skip_with_reg"
 LOGGER_VARIANT_NAME = f"{name}_D{D_MODEL}_H{N_HEADS}_LR{LR}"
 
 
@@ -83,6 +83,7 @@ Initialize the model and create dataloaders for training and validation.
 # %%
 single_row_config = sr.SingleRowConfig.generate(df, "target")
 train_df, test_df = train_test_split(df.copy(), test_size=0.2, random_state=42)
+
 train_dataset = sr.TabularDS(train_df, single_row_config)
 test_dataset = sr.TabularDS(test_df, single_row_config)
 
@@ -103,6 +104,7 @@ val_dataloader = torch.utils.data.DataLoader(
     collate_fn=sr.training.tabular_collate_fn,
 )
 
+
 # %%
 Markdown("""### Model Training
 Using PyTorch Lightning, we will train the model using the training and validation
@@ -116,7 +118,9 @@ logger = TensorBoardLogger(
     name=logger_name,
 )
 model_summary = ModelSummary(max_depth=3)
-early_stopping = EarlyStopping(monitor="val_loss", patience=5, mode="min")
+early_stopping = EarlyStopping(
+    monitor="val_loss", patience=15, min_delta=0.001, mode="min"
+)
 progress_bar = TQDMProgressBar(leave=False)
 trainer = L.Trainer(
     max_epochs=200,
@@ -125,6 +129,46 @@ trainer = L.Trainer(
     log_every_n_steps=1,
 )
 trainer.fit(model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
+# %%
+
+# Markdown("""### Finetune the model
+
+# We are having issues on the highest values of the target. We will finetune the model
+# on the highest values of the target.""")
+# fine_tune_model = sr.TabularRegressor(
+#     single_row_config, d_model=D_MODEL, n_heads=N_HEADS, lr=0.00001
+# )
+# fine_tune_model.load_state_dict(model.state_dict())
+# train_df_finetune_high = df.loc[df.target > 4]
+# train_df_finetune_high = pd.concat(
+#     [
+#         train_df_finetune_high,
+#         train_df.loc[df.target < 4].sample(len(train_df_finetune_high)),
+#     ]
+# )
+# train_df_finetune_high = train_df_finetune_high.sample(frac=1).reset_index(drop=True)
+# train_ds_finetune_high = sr.TabularDS(train_df_finetune_high, single_row_config)
+# high_dataloader = torch.utils.data.DataLoader(
+#     train_ds_finetune_high,
+#     batch_size=BATCH_SIZE,
+#     shuffle=True,
+#     collate_fn=sr.training.tabular_collate_fn,
+# )
+# finetune_logger = TensorBoardLogger(
+#     "runs",
+#     name=f"{logger_time}_{LOGGER_VARIANT_NAME}_finetune",
+# )
+# finetune_trainer = L.Trainer(
+#     max_epochs=30,
+#     logger=finetune_logger,
+#     callbacks=[progress_bar, model_summary],
+#     log_every_n_steps=1,
+# )
+# finetune_trainer.fit(
+#     fine_tune_model,
+#     train_dataloaders=high_dataloader,
+#     val_dataloaders=val_dataloader,
+# )
 
 Markdown("""### Run inference on the entire inference dataloader""")
 # %%
@@ -147,7 +191,7 @@ Markdown("""### Plot the results""")
 
 plot_prediction_analysis(
     df=res_df,
-    name="Hephaestus",
+    name="Hephaestus Finetune",
     y_col="Actual",
     y_hat_col="Predicted",
 )
@@ -160,8 +204,10 @@ We will compare the Hephaestus model with the following Scikit Learn models:
 ### Linear Regression
 """)
 # %%
-
-X = df[numeric_cols.drop("target")]
+if "target" in numeric_cols:
+    X = df[numeric_cols.drop("target")]
+else:
+    X = df[numeric_cols]
 y = df["target"]
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42
@@ -180,6 +226,7 @@ plot_prediction_analysis(
     name="Linear Regression",
     y_col="Actual",
     y_hat_col="Predicted",
+    it_color="scikit",
 )
 # %%
 Markdown("""### Random Forest
@@ -200,14 +247,15 @@ mse_rf = mean_squared_error(y_test, y_pred_rf)
 Markdown(f"Random Forest MSE: {mse_rf:.3f}")
 
 # %% PLot the results
-res_df_lr = pd.DataFrame({"Actual": y_test, "Predicted": y_pred_rf})
+res_df_rf = pd.DataFrame({"Actual": y_test, "Predicted": y_pred_rf})
 
 # %%
 plot_prediction_analysis(
-    df=res_df,
+    df=res_df_rf,
     name="Random Forest",
     y_col="Actual",
     y_hat_col="Predicted",
+    it_color="scikit",
 )
 
 # %%

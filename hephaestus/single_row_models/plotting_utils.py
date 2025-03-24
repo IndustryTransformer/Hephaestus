@@ -1,11 +1,16 @@
+import altair as alt
 import numpy as np
 import pandas as pd
-import altair as alt
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import root_mean_squared_error, r2_score
 
 
 def plot_prediction_analysis(
-    df: pd.DataFrame, name: str, y_col="y", y_hat_col="y_hat", sample_size=5000
+    df: pd.DataFrame,
+    name: str,
+    y_col="y",
+    y_hat_col="y_hat",
+    sample_size=5000,
+    it_color: str = "hephaestus",
 ):
     """
     Generate a set of plots for analyzing predictions using Altair.
@@ -28,16 +33,24 @@ def plot_prediction_analysis(
     chart : altair.Chart
         The combined Altair chart containing all visualizations
     """
+    # Define a custom color for all chart elements
+    if it_color == "hephaestus":
+        custom_color = "rgb(28, 37, 29)"
+        # custom_color = "blue"
+    elif it_color == "scikit":
+        custom_color = "rgb(76, 78, 82)"
+    else:
+        custom_color = it_color
+
     # Calculate metrics
-    rmse = np.sqrt(mean_squared_error(df[y_col], df[y_hat_col]))
-    mse = mean_squared_error(df[y_col], df[y_hat_col])
+    rmse = np.sqrt(root_mean_squared_error(df[y_col], df[y_hat_col]))
+    mse = root_mean_squared_error(df[y_col], df[y_hat_col])
     r2 = r2_score(df[y_col], df[y_hat_col])
 
     # Prepare data for plotting
     plot_df = df[[y_col, y_hat_col]].copy()
     plot_df.columns = ["Actual", "Predicted"]
 
-    # Sample data if necessary to avoid overplotting
     if len(plot_df) > sample_size:
         plot_df = plot_df.sample(sample_size, random_state=42)
 
@@ -52,7 +65,7 @@ def plot_prediction_analysis(
     # Create diagonal line for actual vs predicted charts
     diagonal_line = (
         alt.Chart(line_df)
-        .mark_line(color="red", strokeDash=[4, 4])
+        .mark_line(color="LightCoral", strokeDash=[4, 4])
         .encode(x="x", y="y")
     )
 
@@ -64,7 +77,7 @@ def plot_prediction_analysis(
     # Chart 1: Actual vs Predicted
     chart1 = (
         alt.Chart(plot_df)
-        .mark_circle(opacity=0.5)
+        .mark_circle(opacity=0.5, color=custom_color)
         .encode(
             x=alt.X("Actual", title="Actual"),
             y=alt.Y("Predicted", title="Predicted"),
@@ -90,7 +103,7 @@ def plot_prediction_analysis(
 
     chart2 = (
         alt.Chart(plot_df)
-        .mark_circle(opacity=0.5)
+        .mark_circle(opacity=0.5, color=custom_color)
         .encode(
             x=alt.X("Predicted", title="Predicted"),
             y=alt.Y("Residual", title="Residuals"),
@@ -107,7 +120,7 @@ def plot_prediction_analysis(
     # Chart 3: Residual Distribution
     chart3 = (
         alt.Chart(plot_df)
-        .mark_bar()
+        .mark_bar(color=custom_color)
         .encode(
             x=alt.X("Residual", bin=alt.Bin(maxbins=30), title="Residual"),
             y=alt.Y("count()", title="Frequency"),
@@ -118,7 +131,7 @@ def plot_prediction_analysis(
     # Chart 4: Predicted vs Actual (inverse of chart1)
     chart4 = (
         alt.Chart(plot_df)
-        .mark_circle(opacity=0.5)
+        .mark_circle(opacity=0.5, color=custom_color)
         .encode(
             x=alt.X("Predicted", title="Predicted"),
             y=alt.Y("Actual", title="Actual"),

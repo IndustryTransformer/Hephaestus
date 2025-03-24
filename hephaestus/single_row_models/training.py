@@ -60,7 +60,7 @@ class TabularRegressor(L.LightningModule):
             optimizer,
             mode="min",
             factor=0.1,
-            patience=10,
+            patience=3,  # Reduced from 10 to 3
         )
         return {
             "optimizer": optimizer,
