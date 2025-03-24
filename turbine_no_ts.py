@@ -42,11 +42,11 @@ Markdown("""## Hephaestus Parameters
 We will use the following parameters for the Hephaestus model:
 """)
 
-D_MODEL = 64
+D_MODEL = 128
 N_HEADS = 4
 LR = 0.0001
-BATCH_SIZE = 1024 * 8
-name = "Stock_Skip_with_reg"
+BATCH_SIZE = 64
+name = "SmallBatch"
 LOGGER_VARIANT_NAME = f"{name}_D{D_MODEL}_H{N_HEADS}_LR{LR}"
 
 
@@ -129,46 +129,6 @@ trainer = L.Trainer(
     log_every_n_steps=1,
 )
 trainer.fit(model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
-# %%
-
-# Markdown("""### Finetune the model
-
-# We are having issues on the highest values of the target. We will finetune the model
-# on the highest values of the target.""")
-# fine_tune_model = sr.TabularRegressor(
-#     single_row_config, d_model=D_MODEL, n_heads=N_HEADS, lr=0.00001
-# )
-# fine_tune_model.load_state_dict(model.state_dict())
-# train_df_finetune_high = df.loc[df.target > 4]
-# train_df_finetune_high = pd.concat(
-#     [
-#         train_df_finetune_high,
-#         train_df.loc[df.target < 4].sample(len(train_df_finetune_high)),
-#     ]
-# )
-# train_df_finetune_high = train_df_finetune_high.sample(frac=1).reset_index(drop=True)
-# train_ds_finetune_high = sr.TabularDS(train_df_finetune_high, single_row_config)
-# high_dataloader = torch.utils.data.DataLoader(
-#     train_ds_finetune_high,
-#     batch_size=BATCH_SIZE,
-#     shuffle=True,
-#     collate_fn=sr.training.tabular_collate_fn,
-# )
-# finetune_logger = TensorBoardLogger(
-#     "runs",
-#     name=f"{logger_time}_{LOGGER_VARIANT_NAME}_finetune",
-# )
-# finetune_trainer = L.Trainer(
-#     max_epochs=30,
-#     logger=finetune_logger,
-#     callbacks=[progress_bar, model_summary],
-#     log_every_n_steps=1,
-# )
-# finetune_trainer.fit(
-#     fine_tune_model,
-#     train_dataloaders=high_dataloader,
-#     val_dataloaders=val_dataloader,
-# )
 
 Markdown("""### Run inference on the entire inference dataloader""")
 # %%
@@ -191,7 +151,7 @@ Markdown("""### Plot the results""")
 
 plot_prediction_analysis(
     df=res_df,
-    name="Hephaestus Finetune",
+    name="Hephaestus",
     y_col="Actual",
     y_hat_col="Predicted",
 )
