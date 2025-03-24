@@ -257,24 +257,7 @@ class TimeSeriesTransformer(nn.Module):
             ]
         )
 
-        # Initialize weights properly
-        self._init_weights()
-
-    def _init_weights(self):
-        """Initialize model weights to prevent NaN issues"""
-        for module in self.modules():
-            if isinstance(module, nn.Linear):
-                nn.init.xavier_uniform_(module.weight)
-                if module.bias is not None:
-                    nn.init.constant_(module.bias, 0)
-            elif isinstance(module, nn.Embedding):
-                nn.init.normal_(module.weight, mean=0, std=0.02)
-                module.weight.data = module.weight.data.to(torch.float32)
-            elif isinstance(module, nn.LayerNorm):
-                nn.init.constant_(module.weight.data, 1.0)
-                nn.init.constant_(module.bias.data, 0.0)
-                module.weight.data = module.weight.data.to(torch.float32)
-                module.bias.data = module.bias.data.to(torch.float32)
+        self.pos_encoder = PositionalEncoding(max_len=1024, d_pos_encoding=d_model)
 
     def process_numeric(self, numeric_inputs: torch.Tensor) -> ProcessedEmbeddings:
         """Processes the numeric inputs for the transformer model."""
@@ -445,6 +428,7 @@ class TimeSeriesTransformer(nn.Module):
                 ],
                 dim=1,
             )
+
         elif numeric.value_embeddings is not None:
             value_embeddings = numeric.value_embeddings
             column_embeddings = numeric.column_embeddings
@@ -453,7 +437,8 @@ class TimeSeriesTransformer(nn.Module):
             column_embeddings = categorical.column_embeddings
         else:
             raise ValueError("No numeric or categorical inputs provided.")
-
+        value_embeddings = self.pos_encoder(value_embeddings)
+        column_embeddings = self.pos_encoder(column_embeddings)
         return ProcessedEmbeddings(
             value_embeddings=value_embeddings, column_embeddings=column_embeddings
         )

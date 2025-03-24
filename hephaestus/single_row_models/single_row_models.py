@@ -13,7 +13,7 @@ from .model_data_classes import SingleRowConfig
 # %%
 class MultiHeadAttention(nn.Module):  # Try to use nn.MultiheadAttention
     def __init__(self, d_model, n_heads):
-        super(MultiHeadAttention, self).__init__()
+        super().__init__()
         self.n_heads = n_heads
         self.d_model = d_model
         self.d_head = d_model // n_heads
@@ -69,18 +69,23 @@ class MultiHeadAttention(nn.Module):  # Try to use nn.MultiheadAttention
 
 
 class TransformerEncoderLayer(nn.Module):
-    def __init__(self, d_model, n_heads):
+    def __init__(self, d_model, n_heads, dropout=0.2):
         super(TransformerEncoderLayer, self).__init__()
 
-        self.multi_head_attention = MultiHeadAttention(d_model, n_heads)
+        # self.multi_head_attention = MultiHeadAttention(d_model, n_heads)
+        self.multi_head_attention = nn.MultiheadAttention(
+            d_model, n_heads, batch_first=True, dropout=dropout
+        )
 
         self.feed_forward = nn.Sequential(
             nn.Linear(d_model, 2 * d_model),
-            nn.ReLU(),
-            nn.Linear(2 * d_model, d_model),
-            # nn.Linear(4 * d_model, d_model * 4),
-            # nn.ReLU(),
-            # nn.Linear(d_model * 4, d_model),
+            nn.GELU(),
+            nn.Dropout(0.2),
+            nn.Linear(2 * d_model, d_model * 4),
+            nn.Linear(4 * d_model, d_model * 4),
+            nn.GELU(),
+            nn.Dropout(0.2),
+            nn.Linear(d_model * 4, d_model),
         )
 
         self.layernorm1 = nn.LayerNorm(d_model)
@@ -89,7 +94,7 @@ class TransformerEncoderLayer(nn.Module):
         self.apply(initialize_parameters)
 
     def forward(self, q, k, v, mask=None, input_feed_forward=False):
-        attn_output = self.multi_head_attention(q, k, v, mask, input_feed_forward)
+        attn_output, weights = self.multi_head_attention(q, k, v, mask)
         out1 = self.layernorm1(q + attn_output)
 
         ff_output = self.feed_forward(out1)
@@ -190,17 +195,21 @@ class TabularEncoder(nn.Module):
         base_numeric[inf_mask] = self.embeddings(self.numeric_mask_token)
 
         query_embeddings = torch.cat([cat_embeddings, base_numeric], dim=1)
-        out = self.transformer_encoder1(
+        out1 = self.transformer_encoder1(
             col_embeddings,
             # query_embeddings,
             query_embeddings,
             query_embeddings,
             # col_embeddings, query_embeddings, query_embeddings
         )
-        out = self.transformer_encoder2(out, out, out)
-        out = self.transformer_encoder3(out, out, out)
-        out = self.transformer_encoder4(out, out, out)
-        return out
+        # No skipping connection
+        out2 = self.transformer_encoder2(out1, out1, out1)
+        out2 = out2 + out1
+        out3 = self.transformer_encoder3(out2, out2, out2)
+        out3 = out3 + out2
+        out4 = self.transformer_encoder4(out3, out3, out3)
+        out4 = out4 + out3
+        return out4
 
 
 class AttentionPooling(nn.Module):
@@ -242,14 +251,21 @@ class TabularEncoderRegressor(nn.Module):
         self.d_model = d_model
         self.tokens = model_config.tokens
         self.model_config = model_config
-
+        self.Dropout_rate = 0.2
+        self.dropout = nn.Dropout(self.Dropout_rate)
         self.tabular_encoder = TabularEncoder(model_config, d_model, n_heads)
         self.regressor = nn.Sequential(
             nn.Linear(self.d_model, self.d_model * 2),
-            nn.ReLU(),
+            nn.GELU(),  # Try GELU instead of ReLU
+            nn.Dropout(self.Dropout_rate),
+            nn.Linear(self.d_model * 2, self.d_model * 2),
+            nn.GELU(),
+            nn.Dropout(self.Dropout_rate),
             nn.Linear(self.d_model * 2, 1),
         )
-        self.attention_pooling = AttentionPooling(d_model)
+
+        self.pooling = AttentionPooling(d_model)
+        # self.pooling = nn.MaxPool3d((1, 1, self.d_model))
         # self.flatten_layer = nn.Linear(
         #     self.model_config.n_columns_no_target, 1
         # )
@@ -257,9 +273,13 @@ class TabularEncoderRegressor(nn.Module):
 
     def forward(self, num_inputs, cat_inputs):
         out = self.tabular_encoder(num_inputs, cat_inputs)
-        out = self.attention_pooling(out)  # Could use max pooling too
+        # out = self.pooling(out)  # Could use max pooling too
+        # out = torch.max(out, dim=1)[0]  # [batch_size, d_model]
+        out = self.pooling(out)
+        out = self.dropout(out)
+        # skip = out
         out = self.regressor(out)
-
+        # out = out + skip
         return out
 
 
@@ -280,7 +300,7 @@ class MaskedTabularEncoder(nn.Module):
             nn.Linear(
                 self.n_columns * self.d_model, self.d_model * 4
             ),  # Try making more complex
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(self.d_model * 4, self.n_numeric_cols),
         )
 

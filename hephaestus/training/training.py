@@ -147,6 +147,7 @@ class TabularDecoder(L.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
+        # scheduler = CosineAnnealingLR(optimizer, T_max=100)
         return optimizer
 
     def predict_step(self, batch):
