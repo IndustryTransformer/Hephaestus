@@ -121,4 +121,62 @@ class MaskedTabularModeling(L.LightningDataModule):
         self.n_heads = n_heads
         self.lr = lr
 
+        self.numeric_loss_fn = nn.MSELoss()
+        self.categorical_loss_fn = nn.CrossEntropyLoss()
+        self.model_config = model_config
+
         self.model = MaskedTabularEncoder(model_config, d_model, n_heads)
+
+    def forward(self, x: NumericCategoricalData) -> NumericCategoricalData:
+        return self.model(x.numeric, x.categorical)
+
+    def aggregate_loss(
+        self, actual: NumericCategoricalData, predicted: NumericCategoricalData
+    ):
+        numeric_loss = self.numeric_loss_fn(actual.numeric, predicted.numeric)
+        categorical_loss = self.categorical_loss_fn(
+            actual.categorical, predicted.categorical
+        )
+        return numeric_loss + categorical_loss
+
+    def training_step(self, x: NumericCategoricalData, probability: float = 0.8):
+        numeric = x.numeric
+        categorical = x.categorical
+
+        numeric_masked = mask_tensor(numeric, self.model, probability)
+        categorical_masked = mask_tensor(categorical, self.model, probability)
+
+        predicted = self.model(numeric_masked, categorical_masked)
+        loss = self.aggregate_loss(x, predicted)
+        self.log("train_loss", loss)
+        self.log("lr", self.optimizers().param_groups[0]["lr"])
+
+        return loss
+
+    def validation_step(self, x: NumericCategoricalData, probability: float = 0.8):
+        numeric = x.numeric
+        categorical = x.categorical
+        numeric_masked = mask_tensor(numeric, self.model, probability)
+        categorical_masked = mask_tensor(categorical, self.model, probability)
+        predicted = self.model(numeric_masked, categorical_masked)
+        loss = self.aggregate_loss(x, predicted)
+        self.log("val_loss", loss)
+
+        return loss
+
+
+def mask_tensor(tensor, model, probability=0.8):
+    if tensor.dtype == torch.float32:
+        is_numeric = True
+    elif tensor.dtype == torch.int32 or tensor.dtype == torch.int64:
+        is_numeric = False
+    else:
+        raise ValueError(f"Task {tensor.dtype} not supported.")
+
+    tensor = tensor.clone()
+    bit_mask = torch.rand(tensor.shape) > probability
+    if is_numeric:
+        tensor[bit_mask] = torch.tensor(float("-Inf"))
+    else:
+        tensor[bit_mask] = model.cat_mask_token
+    return tensor.to(model.device)

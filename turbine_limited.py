@@ -83,14 +83,20 @@ Initialize the model and create dataloaders for training and validation.
 """)
 # %%
 single_row_config = sr.SingleRowConfig.generate(df, "target")
-train_df, test_df = train_test_split(df.copy(), test_size=0.2, random_state=42)
+X = df[numeric_cols.drop("target")]
+y = df["target"]
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
 
-train_dataset = sr.TabularDS(train_df, single_row_config)
-test_dataset = sr.TabularDS(test_df, single_row_config)
+train_dataset = sr.TabularDS(X_train, single_row_config)
+test_dataset = sr.TabularDS(X_test, single_row_config)
 
 
-model = sr.TabularRegressor(single_row_config, d_model=D_MODEL, n_heads=N_HEADS, lr=LR)
-model.predict_step(train_dataset[0:10])
+mtm_model = sr.MaskedTabularModeling(
+    single_row_config, d_model=D_MODEL, n_heads=N_HEADS, lr=LR
+)
+mtm_model.predict_step(train_dataset[0:10])
 
 # %%
 train_dataloader = torch.utils.data.DataLoader(
@@ -129,7 +135,9 @@ trainer = L.Trainer(
     callbacks=[early_stopping, progress_bar, model_summary],
     log_every_n_steps=1,
 )
-trainer.fit(model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
+trainer.fit(
+    mtm_model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader
+)
 
 Markdown("""### Run inference on the entire inference dataloader""")
 # %%
@@ -137,7 +145,7 @@ y = []
 y_hat = []
 for batch in train_dataloader:
     y.append(batch.target)
-    preds = model.predict_step(batch)
+    preds = mtm_model.predict_step(batch)
     y_hat.append(preds)
 
 y = torch.cat(y, dim=0).squeeze().numpy()
