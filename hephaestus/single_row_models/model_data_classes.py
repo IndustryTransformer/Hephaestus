@@ -1,3 +1,4 @@
+from typing import Optional
 from dataclasses import dataclass
 
 import numpy as np
@@ -73,7 +74,9 @@ class SingleRowConfig:
     target: str = None
 
     @classmethod
-    def generate(cls, df: pd.DataFrame, target: str = "target") -> "SingleRowConfig":
+    def generate(
+        cls, df: pd.DataFrame, target: Optional[str] = None
+    ) -> "SingleRowConfig":
         """
         Generate a TimeSeriesConfig object based on the given DataFrame.
 
@@ -177,10 +180,8 @@ class SingleRowConfig:
         return cls(**cls_dict)
 
 
-# %%
-class TabularDS(Dataset):
-    """
-    Dataset class for time series data.
+class MTMDataset(Dataset):
+    """Dataset class for time series data.
 
     Args:
         df (pd.DataFrame): The DataFrame containing the time series data.
@@ -204,7 +205,135 @@ class TabularDS(Dataset):
 
         df = df.copy()  # Prevents changing the original DataFrame
         self.len = len(df)
-        self.target_df = pd.DataFrame(df.pop(config.target))
+        self.df_categorical = df.select_dtypes(include=["object"]).astype(str)
+        self.df_categorical = convert_object_to_int_tokens(
+            self.df_categorical, config.token_dict
+        )
+        self.df_numeric = df.select_dtypes(include=["number"])
+        # Scale the numeric columns
+
+    def __len__(self):
+        """Return the length of the dataset."""
+        return self.len
+
+    def get_data(self, df_name, set_idx):
+        """Gets self.df_<df_name> for a given index."""
+        df = getattr(self, df_name)
+
+        batch = df.iloc[set_idx, :]
+        # Convert DataFrame to torch.Tensor directly
+        batch = torch.tensor(batch.values, dtype=torch.float32)
+
+        # Add padding
+        # batch_len, n_cols = batch.shape
+        batch = batch.squeeze(0)
+        # TODO Add padding for columns
+        # batch = batch.permute(1, 0)
+        return batch
+
+    def __getitem__(self, idx):
+        """
+        Get item(s) from the dataset.
+        Supports both integer indexing and slice indexing.
+
+        Args:
+            idx: Integer index or slice object
+
+        Returns:
+            For integer index: A NumericCategoricalData object
+            For slice: A collated batch of NumericCategoricalData formatted like DataLoader output
+        """
+        # Handle slice indexing
+        if isinstance(idx, slice):
+            # Get the actual indices from the slice
+            indices = range(*idx.indices(len(self)))
+
+            # Create a list of NumericCategoricalData
+            items = [self._get_single_item(i) for i in indices]
+
+            # Collate the items into a batch
+            return self._collate_batch(items)
+
+        # Handle integer indexing
+        return self._get_single_item(idx)
+
+    def _get_single_item(self, set_idx):
+        """Get a single item from the dataset by actual index value."""
+        if self.df_categorical.empty:
+            categorical_inputs = None
+        else:
+            categorical_inputs = self.get_data("df_categorical", set_idx)
+        numeric_inputs = self.get_data("df_numeric", set_idx)
+        if self.target_df is not None:
+            target = self.get_data("target_df", set_idx)
+        else:
+            target = None
+        numeric_cat = NumericCategoricalData(
+            numeric=numeric_inputs, categorical=categorical_inputs
+        )
+        return InputsTarget(inputs=numeric_cat, target=target)
+
+    def _collate_batch(self, items):
+        """
+        Collate a list of NumericCategoricalData into a batch.
+
+        Args:
+            items: List of NumericCategoricalData objects
+
+        Returns:
+            A NumericCategoricalData object with batched tensors
+        """
+        # All items should have numeric inputs
+        # Use torch.stack instead of np.stack
+        numeric_batch = torch.stack([item.inputs.numeric for item in items])
+
+        # Not all items might have categorical inputs
+        categorical_batch = None
+        if items[0].inputs.categorical is not None:
+            categorical_batch = torch.stack([item.inputs.categorical for item in items])
+        if items[0].target is not None:
+            target_batch = torch.stack([item.target for item in items])
+        else:
+            target_batch = None
+        obj = InputsTarget(
+            inputs=NumericCategoricalData(
+                numeric=numeric_batch, categorical=categorical_batch
+            ),
+            target=target_batch,
+        )
+        return obj
+
+
+# %%
+class TabularDS(Dataset):
+    """Dataset class for time series data.
+
+    Args:
+        df (pd.DataFrame): The DataFrame containing the time series data.
+        config (TimeSeriesConfig): Configuration for the time series.
+
+    Attributes:
+        df_categorical (pd.DataFrame): DataFrame of categorical columns.
+        df_numeric (pd.DataFrame): DataFrame of numeric columns.
+        batch_size (int): Batch size for the dataset.
+    """
+
+    def __init__(self, df: pd.DataFrame, config: SingleRowConfig):
+        # Set df.idx to start from 0
+
+        def convert_object_to_int_tokens(df, token_dict):
+            """Converts object columns to integer tokens using a token dictionary."""
+            df = df.copy()
+            for col in df.select_dtypes(include="object").columns:
+                df[col] = df[col].map(token_dict)
+            return df
+
+        df = df.copy()  # Prevents changing the original DataFrame
+        self.len = len(df)
+        if config.target is not None:
+            self.target_df = pd.DataFrame(df.pop(config.target))
+        else:
+            self.target_df = None
         self.df_categorical = df.select_dtypes(include=["object"]).astype(str)
         self.df_categorical = convert_object_to_int_tokens(
             self.df_categorical, config.token_dict

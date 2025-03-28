@@ -10,4 +10,7 @@ from hephaestus.single_row_models.single_row_utils import (
     regression_actuals_preds,
     show_mask_pred,
 )
-from hephaestus.single_row_models.training import TabularRegressor
+from hephaestus.single_row_models.training import (
+    TabularRegressor,
+    MaskedTabularModeling,
+)

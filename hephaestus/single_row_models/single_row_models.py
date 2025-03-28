@@ -293,15 +293,16 @@ class MaskedTabularEncoder(nn.Module):
         super().__init__()
         self.d_model = d_model
         self.tokens = model_config.tokens
-
+        self.n_tokens = len(self.tokens)
+        self.model_config = model_config
         self.tabular_encoder = TabularEncoder(model_config, d_model, n_heads)
         self.mlm_decoder = nn.Sequential(nn.Linear(d_model, self.n_tokens))
         self.mnm_decoder = nn.Sequential(
             nn.Linear(
-                self.n_columns * self.d_model, self.d_model * 4
+                self.model_config.n_columns * self.d_model, self.d_model * 4
             ),  # Try making more complex
             nn.GELU(),
-            nn.Linear(self.d_model * 4, self.n_numeric_cols),
+            nn.Linear(self.d_model * 4, self.model_config.n_numeric_cols),
         )
 
         # self.apply(initialize_parameters)

@@ -82,9 +82,9 @@ Markdown("""### Model Initialization
 Initialize the model and create dataloaders for training and validation.
 """)
 # %%
-single_row_config = sr.SingleRowConfig.generate(df, "target")
-X = df[numeric_cols.drop("target")]
+X = df[df.columns.drop("target")]
 y = df["target"]
+single_row_config = sr.SingleRowConfig.generate(X)
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42
 )
