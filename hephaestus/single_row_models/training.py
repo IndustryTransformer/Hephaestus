@@ -135,6 +135,7 @@ class MaskedTabularModeling(L.LightningModule):
     def aggregate_loss(
         self, actual: NumericCategoricalData, predicted: NumericCategoricalData
     ):
+        actual = actual.inputs  # Remove the target from the NumericCategoricalData
         numeric_loss = self.numeric_loss_fn(actual.numeric, predicted.numeric)
         categorical_loss = self.categorical_loss_fn(
             actual.categorical, predicted.categorical
@@ -197,9 +198,12 @@ def mask_tensor(tensor, model, probability=0.8):
         raise ValueError(f"Task {tensor.dtype} not supported.")
 
     tensor = tensor.clone()
-    bit_mask = torch.rand(tensor.shape) > probability
+    bit_mask = torch.rand(tensor.shape, device=tensor.device) > probability
     if is_numeric:
         tensor[bit_mask] = torch.tensor(float("-Inf"))
     else:
-        tensor[bit_mask] = model.cat_mask_token
-    return tensor.to(model.device)
+        # Get the cat_mask_token and move it to the same device as the tensor
+        mask_token = model.cat_mask_token.to(tensor.device)
+        tensor[bit_mask] = mask_token
+    # Use the tensor's own device instead of model.device
+    return tensor
