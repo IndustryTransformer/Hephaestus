@@ -98,12 +98,14 @@ def tabular_collate_fn(batch):
         categorical_tensors = torch.stack([item.inputs.categorical for item in batch])
     else:
         categorical_tensors = None
-
-    target_tensors = torch.stack([item.target for item in batch])
-    if target_tensors.dim() == 1:
-        target_tensors = target_tensors.unsqueeze(
-            -1
-        )  # Ensure target tensors have shape (batch_size, 1)
+    if batch[0].target is not None:
+        target_tensors = torch.stack([item.target for item in batch])
+        if target_tensors.dim() == 1:
+            target_tensors = target_tensors.unsqueeze(
+                -1
+            )  # Ensure target tensors have shape (batch_size, 1)
+    else:
+        target_tensors = None
 
     return InputsTarget(
         inputs=NumericCategoricalData(
@@ -113,7 +115,7 @@ def tabular_collate_fn(batch):
     )
 
 
-class MaskedTabularModeling(L.LightningDataModule):
+class MaskedTabularModeling(L.LightningModule):
     def __init__(self, model_config, d_model, n_heads, lr=1e-3):
         super().__init__()
         # self.save_hyperparameters()
@@ -128,7 +130,7 @@ class MaskedTabularModeling(L.LightningDataModule):
         self.model = MaskedTabularEncoder(model_config, d_model, n_heads)
 
     def forward(self, x: NumericCategoricalData) -> NumericCategoricalData:
-        return self.model(x.numeric, x.categorical)
+        return self.model(x.inputs.numeric, x.inputs.categorical)
 
     def aggregate_loss(
         self, actual: NumericCategoricalData, predicted: NumericCategoricalData
@@ -153,9 +155,13 @@ class MaskedTabularModeling(L.LightningDataModule):
 
         return loss
 
+    def predict_step(self, batch: InputsTarget):
+        with torch.no_grad():
+            return self.forward(batch)
+
     def validation_step(self, x: NumericCategoricalData, probability: float = 0.8):
-        numeric = x.numeric
-        categorical = x.categorical
+        numeric = x.inputs.numeric
+        categorical = x.inputs.categorical
         numeric_masked = mask_tensor(numeric, self.model, probability)
         categorical_masked = mask_tensor(categorical, self.model, probability)
         predicted = self.model(numeric_masked, categorical_masked)
@@ -163,6 +169,23 @@ class MaskedTabularModeling(L.LightningDataModule):
         self.log("val_loss", loss)
 
         return loss
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=1e-5)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="min",
+            factor=0.1,
+            patience=3,  # Reduced from 10 to 3
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "monitor": "val_loss",
+                "frequency": 1,
+            },
+        }
 
 
 def mask_tensor(tensor, model, probability=0.8):

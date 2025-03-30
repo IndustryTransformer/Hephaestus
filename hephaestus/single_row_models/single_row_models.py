@@ -313,4 +313,4 @@ class MaskedTabularEncoder(nn.Module):
         numeric_out = out.view(out.size(0), -1)
         # print(f"numeric_out shape: {numeric_out.shape}")
         numeric_out = self.mnm_decoder(numeric_out)
-        return NumericCategoricalData(numeric_out=numeric_out, categorical_out=cat_out)
+        return NumericCategoricalData(numeric=numeric_out, categorical=cat_out)
