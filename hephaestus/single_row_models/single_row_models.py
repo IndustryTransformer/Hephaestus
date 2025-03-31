@@ -296,7 +296,9 @@ class MaskedTabularEncoder(nn.Module):
         self.n_tokens = len(self.tokens)
         self.model_config = model_config
         self.tabular_encoder = TabularEncoder(model_config, d_model, n_heads)
-        self.mlm_decoder = nn.Sequential(nn.Linear(d_model, self.n_tokens))
+        self.mlm_decoder = nn.Sequential(
+            nn.Linear(d_model, self.model_config.n_cat_cols)
+        )
         self.mnm_decoder = nn.Sequential(
             nn.Linear(
                 self.model_config.n_columns * self.d_model, self.d_model * 4
@@ -309,8 +311,11 @@ class MaskedTabularEncoder(nn.Module):
 
     def forward(self, num_inputs, cat_inputs):
         out = self.tabular_encoder(num_inputs, cat_inputs)
-        cat_out = self.mlm_decoder(out)
-        numeric_out = out.view(out.size(0), -1)
-        # print(f"numeric_out shape: {numeric_out.shape}")
+
+        # Ensure categorical output is logits
+        cat_out = self.mlm_decoder(out)  # Shape: [batch_size, seq_len, num_classes]
+
+        # No need to flatten here; keep shape as [batch_size, seq_len, num_classes]
+        numeric_out = out.view(out.size(0), -1)  # Flatten numeric output
         numeric_out = self.mnm_decoder(numeric_out)
         return NumericCategoricalData(numeric=numeric_out, categorical=cat_out)

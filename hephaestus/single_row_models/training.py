@@ -136,9 +136,25 @@ class MaskedTabularModeling(L.LightningModule):
         self, actual: NumericCategoricalData, predicted: NumericCategoricalData
     ):
         actual = actual.inputs  # Remove the target from the NumericCategoricalData
+        print(f"{actual.numeric.shape=}, {predicted.numeric.shape=}")
+        print(f"{actual.categorical.shape=}, {predicted.categorical.shape=}")
         numeric_loss = self.numeric_loss_fn(actual.numeric, predicted.numeric)
+
+        # Ensure actual.categorical is 1D and matches the sequence length
+        actual_categorical = actual.categorical.view(
+            -1
+        )  # Flatten to [batch_size * seq_len]
+
+        # Ensure predicted.categorical is logits and flattened correctly
+        batch_size, seq_len, num_classes = (
+            predicted.categorical.size()
+        )  # Extract dimensions
+        predicted_categorical = predicted.categorical.view(
+            batch_size * seq_len, num_classes
+        )
+
         categorical_loss = self.categorical_loss_fn(
-            actual.categorical, predicted.categorical
+            predicted_categorical, actual_categorical
         )
         return numeric_loss + categorical_loss
 
@@ -150,6 +166,7 @@ class MaskedTabularModeling(L.LightningModule):
         categorical_masked = mask_tensor(categorical, self.model, probability)
 
         predicted = self.model(numeric_masked, categorical_masked)
+
         loss = self.aggregate_loss(x, predicted)
         self.log("train_loss", loss)
         self.log("lr", self.optimizers().param_groups[0]["lr"])
