@@ -96,19 +96,19 @@ test_dataset = sr.TabularDS(X_test, single_row_config)
 mtm_model = sr.MaskedTabularModeling(
     single_row_config, d_model=D_MODEL, n_heads=N_HEADS, lr=LR
 )
-mtm_model.predict_step(train_dataset[0:10])
+mtm_model.predict_step(train_dataset[0:10].inputs)
 
 # %%
 train_dataloader = torch.utils.data.DataLoader(
     train_dataset,
     batch_size=BATCH_SIZE,
     shuffle=True,
-    collate_fn=sr.training.tabular_collate_fn,
+    collate_fn=sr.training.masked_tabular_collate_fn,
 )
 val_dataloader = torch.utils.data.DataLoader(
     test_dataset,
     batch_size=BATCH_SIZE,
-    collate_fn=sr.training.tabular_collate_fn,
+    collate_fn=sr.training.masked_tabular_collate_fn,
 )
 
 

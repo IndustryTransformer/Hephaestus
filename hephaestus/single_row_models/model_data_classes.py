@@ -25,7 +25,7 @@ class InputsTarget:
     """
 
     inputs: NumericCategoricalData
-    target: torch.Tensor
+    target: Optional[torch.Tensor] = None
 
 
 @dataclass

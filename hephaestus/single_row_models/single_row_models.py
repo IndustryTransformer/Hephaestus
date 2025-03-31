@@ -286,7 +286,7 @@ class TabularEncoderRegressor(nn.Module):
 class MaskedTabularEncoder(nn.Module):
     def __init__(
         self,
-        model_config,
+        model_config: SingleRowConfig,
         d_model=64,
         n_heads=4,
     ):
@@ -297,7 +297,16 @@ class MaskedTabularEncoder(nn.Module):
         self.model_config = model_config
         self.tabular_encoder = TabularEncoder(model_config, d_model, n_heads)
         self.mlm_decoder = nn.Sequential(
-            nn.Linear(d_model, self.model_config.n_cat_cols)
+            nn.Flatten(start_dim=1),  # n_columns * d_model * 2
+            nn.Linear(
+                self.model_config.n_columns * 128,
+                self.model_config.n_cat_cols * self.model_config.n_tokens,
+            ),
+            # nn.GELU(),
+            # nn.Dropout(0.2),
+            # nn.Linear(
+            #     d_model * 4, self.model_config.n_cat_cols * self.model_config.n_tokens
+            # ),
         )
         self.mnm_decoder = nn.Sequential(
             nn.Linear(
@@ -313,7 +322,11 @@ class MaskedTabularEncoder(nn.Module):
         out = self.tabular_encoder(num_inputs, cat_inputs)
 
         # Ensure categorical output is logits
-        cat_out = self.mlm_decoder(out)  # Shape: [batch_size, seq_len, num_classes]
+        cat_out = self.mlm_decoder(out)
+        cat_out = cat_out.view(
+            out.size(0), self.model_config.n_cat_cols, self.model_config.n_tokens
+        )
+        # cat_out = cat_out.permute(0, 2, 1)
 
         # No need to flatten here; keep shape as [batch_size, seq_len, num_classes]
         numeric_out = out.view(out.size(0), -1)  # Flatten numeric output

@@ -115,6 +115,28 @@ def tabular_collate_fn(batch):
     )
 
 
+def masked_tabular_collate_fn(batch):
+    """Custom collate function for NumericCategoricalData objects."""
+    numeric_tensors = torch.stack([item.inputs.numeric for item in batch])
+
+    if batch[0].inputs.categorical is not None:
+        categorical_tensors = torch.stack([item.inputs.categorical for item in batch])
+    else:
+        categorical_tensors = None
+    if batch[0].target is not None:
+        target_tensors = torch.stack([item.target for item in batch])
+        if target_tensors.dim() == 1:
+            target_tensors = target_tensors.unsqueeze(
+                -1
+            )  # Ensure target tensors have shape (batch_size, 1)
+    else:
+        target_tensors = None
+
+    return NumericCategoricalData(
+        numeric=numeric_tensors, categorical=categorical_tensors
+    )
+
+
 class MaskedTabularModeling(L.LightningModule):
     def __init__(self, model_config, d_model, n_heads, lr=1e-3):
         super().__init__()
@@ -130,14 +152,11 @@ class MaskedTabularModeling(L.LightningModule):
         self.model = MaskedTabularEncoder(model_config, d_model, n_heads)
 
     def forward(self, x: NumericCategoricalData) -> NumericCategoricalData:
-        return self.model(x.inputs.numeric, x.inputs.categorical)
+        return self.model(x.numeric, x.categorical)
 
     def aggregate_loss(
         self, actual: NumericCategoricalData, predicted: NumericCategoricalData
     ):
-        actual = actual.inputs  # Remove the target from the NumericCategoricalData
-        print(f"{actual.numeric.shape=}, {predicted.numeric.shape=}")
-        print(f"{actual.categorical.shape=}, {predicted.categorical.shape=}")
         numeric_loss = self.numeric_loss_fn(actual.numeric, predicted.numeric)
 
         # Ensure actual.categorical is 1D and matches the sequence length
@@ -178,8 +197,8 @@ class MaskedTabularModeling(L.LightningModule):
             return self.forward(batch)
 
     def validation_step(self, x: NumericCategoricalData, probability: float = 0.8):
-        numeric = x.inputs.numeric
-        categorical = x.inputs.categorical
+        numeric = x.numeric
+        categorical = x.categorical
         numeric_masked = mask_tensor(numeric, self.model, probability)
         categorical_masked = mask_tensor(categorical, self.model, probability)
         predicted = self.model(numeric_masked, categorical_masked)
