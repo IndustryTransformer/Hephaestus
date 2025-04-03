@@ -84,17 +84,18 @@ Initialize the model and create dataloaders for training and validation.
 # %%
 X = df[df.columns.drop("target")]
 y = df["target"]
-single_row_config = sr.SingleRowConfig.generate(X)
+model_config_mtm = sr.SingleRowConfig.generate(X)
+model_config_reg = sr.SingleRowConfig.generate(df, target="target")
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42
 )
 
-train_dataset = sr.TabularDS(X_train, single_row_config)
-test_dataset = sr.TabularDS(X_test, single_row_config)
+train_dataset = sr.TabularDS(X_train, model_config_mtm)
+test_dataset = sr.TabularDS(X_test, model_config_mtm)
 
 
 mtm_model = sr.MaskedTabularModeling(
-    single_row_config, d_model=D_MODEL, n_heads=N_HEADS, lr=LR
+    model_config_mtm, d_model=D_MODEL, n_heads=N_HEADS, lr=LR
 )
 mtm_model.predict_step(train_dataset[0:10].inputs)
 
@@ -120,11 +121,12 @@ Using PyTorch Lightning, we will train the model using the training and validati
 retrain_model = False
 pretrained_model_dir = Path("checkpoints/turbine_limited")
 pre_trained_models = list(pretrained_model_dir.glob("*.ckpt"))
-if retrain_model or LOGGER_VARIANT_NAME in [p.stem for p in pre_trained_models]:
-    print("Retraining model")
+# Check if a model with the exact name exists or if retraining is forced
+if retrain_model or not any(LOGGER_VARIANT_NAME in p.stem for p in pre_trained_models):
+    print("Retraining model or specified model not found.")
     run_trainer = True
 else:
-    print("Loading pre-trained model")
+    print("Attempting to load pre-trained model.")
     run_trainer = False
 
 
@@ -142,7 +144,7 @@ if run_trainer:
     )
     progress_bar = TQDMProgressBar(leave=False)
     trainer = L.Trainer(
-        max_epochs=200,
+        max_epochs=4,
         logger=logger,
         callbacks=[early_stopping, progress_bar, model_summary],
         log_every_n_steps=1,
@@ -157,18 +159,56 @@ if run_trainer:
             f"{LOGGER_VARIANT_NAME}_{trainer.logger.name}.ckpt",
         )
     )
-else:
-    # Load the pre-trained model
-    print("Loading pre-trained model")
-    mtm_model = mtm_model.load_from_checkpoint(
-        os.path.join(
-            "checkpoints",
-            "turbine_limited",
-            f"{LOGGER_VARIANT_NAME}_{trainer.logger.name}.ckpt",
+
+else:  # Find the checkpoint file matching the LOGGER_VARIANT_NAME prefix
+    # Ensure the directory exists before searching
+    pretrained_model_dir.mkdir(parents=True, exist_ok=True)
+
+    found_checkpoints = list(pretrained_model_dir.glob(f"{LOGGER_VARIANT_NAME}*.ckpt"))
+
+    if not found_checkpoints:
+        # Handle the case where no matching checkpoint is found
+        print(
+            f"📭 No checkpoint found starting with {LOGGER_VARIANT_NAME} in {pretrained_model_dir}. Training model instead."
         )
-    )
+        run_trainer = True  # Set to train if checkpoint not found
+    elif len(found_checkpoints) > 1:
+        # Handle ambiguity if multiple checkpoints match (e.g., load the latest)
+        # For now, let's load the first one found as an example
+        print(
+            f"‼️ Warning: Found multiple checkpoints for {LOGGER_VARIANT_NAME}. Loading the first one: {found_checkpoints[0]}"
+        )
+        checkpoint_path = found_checkpoints[0]
+        print(f"Loading checkpoint: {checkpoint_path}")
+        mtm_model = sr.MaskedTabularModeling.load_from_checkpoint(
+            checkpoint_path,
+            model_config=model_config_mtm,
+            d_model=D_MODEL,
+            n_heads=N_HEADS,
+            lr=LR,
+        )
+
+    else:
+        # Exactly one checkpoint found
+        checkpoint_path = found_checkpoints[0]
+        print(f"Loading checkpoint: {checkpoint_path}")
+        mtm_model = sr.MaskedTabularModeling.load_from_checkpoint(checkpoint_path)
+
+# %%
+Markdown("### Fine tuning the model")
+# %%
+regressor = sr.TabularRegressor(
+    model_config=model_config_reg, d_model=D_MODEL, n_heads=N_HEADS, lr=LR
+)
+regressor.model.tabular_encoder = mtm_model.model.tabular_encoder
+
+# %%
+reg_out = regressor.predict_step(train_dataset[0:10])
+print(f"{reg_out=}")
 
 Markdown("""### Run inference on the entire inference dataloader""")
+
+
 # %%
 y = []
 y_hat = []
