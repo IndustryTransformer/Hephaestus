@@ -117,27 +117,56 @@ Markdown("""### Model Training
 Using PyTorch Lightning, we will train the model using the training and validation
 """)
 
-logger_time = dt.now().strftime("%Y-%m-%dT%H:%M:%S")
-logger_name = f"{logger_time}_{LOGGER_VARIANT_NAME}"
-print(f"Using logger name: {logger_name}")
-logger = TensorBoardLogger(
-    "runs",
-    name=logger_name,
-)
-model_summary = ModelSummary(max_depth=3)
-early_stopping = EarlyStopping(
-    monitor="val_loss", patience=15, min_delta=0.001, mode="min"
-)
-progress_bar = TQDMProgressBar(leave=False)
-trainer = L.Trainer(
-    max_epochs=200,
-    logger=logger,
-    callbacks=[early_stopping, progress_bar, model_summary],
-    log_every_n_steps=1,
-)
-trainer.fit(
-    mtm_model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader
-)
+retrain_model = False
+pretrained_model_dir = Path("checkpoints/turbine_limited")
+pre_trained_models = list(pretrained_model_dir.glob("*.ckpt"))
+if retrain_model or LOGGER_VARIANT_NAME in [p.stem for p in pre_trained_models]:
+    print("Retraining model")
+    run_trainer = True
+else:
+    print("Loading pre-trained model")
+    run_trainer = False
+
+
+if run_trainer:
+    logger_time = dt.now().strftime("%Y-%m-%dT%H:%M:%S")
+    logger_name = f"{logger_time}_{LOGGER_VARIANT_NAME}"
+    print(f"Using logger name: {logger_name}")
+    logger = TensorBoardLogger(
+        "runs",
+        name=logger_name,
+    )
+    model_summary = ModelSummary(max_depth=3)
+    early_stopping = EarlyStopping(
+        monitor="val_loss", patience=15, min_delta=0.001, mode="min"
+    )
+    progress_bar = TQDMProgressBar(leave=False)
+    trainer = L.Trainer(
+        max_epochs=200,
+        logger=logger,
+        callbacks=[early_stopping, progress_bar, model_summary],
+        log_every_n_steps=1,
+    )
+    trainer.fit(
+        mtm_model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader
+    )
+    trainer.save_checkpoint(
+        os.path.join(
+            "checkpoints",
+            "turbine_limited",
+            f"{LOGGER_VARIANT_NAME}_{trainer.logger.name}.ckpt",
+        )
+    )
+else:
+    # Load the pre-trained model
+    print("Loading pre-trained model")
+    mtm_model = mtm_model.load_from_checkpoint(
+        os.path.join(
+            "checkpoints",
+            "turbine_limited",
+            f"{LOGGER_VARIANT_NAME}_{trainer.logger.name}.ckpt",
+        )
+    )
 
 Markdown("""### Run inference on the entire inference dataloader""")
 # %%
