@@ -34,6 +34,7 @@ from sklearn.preprocessing import StandardScaler
 
 import hephaestus.single_row_models as sr
 from hephaestus.single_row_models.plotting_utils import plot_prediction_analysis
+import altair as alt
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -47,7 +48,7 @@ N_HEADS = 4
 LR = 0.0001
 BATCH_SIZE = 64  # Smaller batch sizes lead to better predictions because outliers are
 # better trained on.
-name = "SmallBatch"
+name = "MTM_Test"
 LOGGER_VARIANT_NAME = f"{name}_D{D_MODEL}_H{N_HEADS}_LR{LR}"
 
 
@@ -82,14 +83,17 @@ Markdown("""### Model Initialization
 Initialize the model and create dataloaders for training and validation.
 """)
 # %%
-X = df[df.columns.drop("target")]
-y = df["target"]
-model_config_mtm = sr.SingleRowConfig.generate(X)
-model_config_reg = sr.SingleRowConfig.generate(df, target="target")
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
+X_setup = df[df.columns.drop("target")]
+# y = df["target"]
 
+model_config_mtm = sr.SingleRowConfig.generate(X_setup)
+model_config_reg = sr.SingleRowConfig.generate(df, target="target")
+df_train, df_test = train_test_split(df, test_size=0.2, random_state=42)
+
+X_train = df_train.drop(columns=["target"])
+y_train = df_train["target"]
+X_test = df_test.drop(columns=["target"])
+y_test = df_test["target"]
 train_dataset = sr.TabularDS(X_train, model_config_mtm)
 test_dataset = sr.TabularDS(X_test, model_config_mtm)
 
@@ -144,7 +148,7 @@ if run_trainer:
     )
     progress_bar = TQDMProgressBar(leave=False)
     trainer = L.Trainer(
-        max_epochs=4,
+        max_epochs=200,
         logger=logger,
         callbacks=[early_stopping, progress_bar, model_summary],
         log_every_n_steps=1,
@@ -195,8 +199,8 @@ else:  # Find the checkpoint file matching the LOGGER_VARIANT_NAME prefix
         mtm_model = sr.MaskedTabularModeling.load_from_checkpoint(checkpoint_path)
 
 # %%
-Markdown("### Fine tuning the model")
-# %%
+
+Markdown("### Init Regressor")
 regressor = sr.TabularRegressor(
     model_config=model_config_reg, d_model=D_MODEL, n_heads=N_HEADS, lr=LR
 )
@@ -205,6 +209,52 @@ regressor.model.tabular_encoder = mtm_model.model.tabular_encoder
 # %%
 reg_out = regressor.predict_step(train_dataset[0:10])
 print(f"{reg_out=}")
+# %%
+Markdown("### Fine tuning the regressor")
+
+train_df_10 = df_train.sample(frac=0.10, random_state=42)
+regressor_ds_10 = sr.TabularDS(train_df_10, model_config_reg)
+regressor_ds_val_full = sr.TabularDS(df_test, model_config_reg)
+
+train_dataloader_10 = torch.utils.data.DataLoader(
+    regressor_ds_10,
+    batch_size=BATCH_SIZE,
+    shuffle=True,
+    collate_fn=sr.training.tabular_collate_fn,
+)
+test_data_loader_full = torch.utils.data.DataLoader(
+    regressor_ds_val_full,
+    batch_size=BATCH_SIZE,
+    collate_fn=sr.training.tabular_collate_fn,
+)
+
+logger_time = dt.now().strftime("%Y-%m-%dT%H:%M:%S")
+logger_name = f"{logger_time}_Regressor_fine_tune_{LOGGER_VARIANT_NAME}"
+print(f"Using logger name: {logger_name}")
+logger = TensorBoardLogger(
+    "runs",
+    name=logger_name,
+)
+model_summary = ModelSummary(max_depth=3)
+early_stopping = EarlyStopping(
+    monitor="val_loss", patience=15, min_delta=0.001, mode="min"
+)
+progress_bar = TQDMProgressBar(leave=False)
+trainer = L.Trainer(
+    max_epochs=200,
+    logger=logger,
+    callbacks=[early_stopping, progress_bar, model_summary],
+    log_every_n_steps=1,
+)
+
+trainer.fit(
+    regressor,
+    train_dataloaders=train_dataloader_10,
+    val_dataloaders=test_data_loader_full,
+)
+
+
+# %%
 
 Markdown("""### Run inference on the entire inference dataloader""")
 
@@ -212,9 +262,9 @@ Markdown("""### Run inference on the entire inference dataloader""")
 # %%
 y = []
 y_hat = []
-for batch in train_dataloader:
+for batch in test_data_loader_full:
     y.append(batch.target)
-    preds = mtm_model.predict_step(batch)
+    preds = regressor.predict_step(batch)
     y_hat.append(preds)
 
 y = torch.cat(y, dim=0).squeeze().numpy()
@@ -250,13 +300,18 @@ y = df["target"]
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42
 )
+train_len = len(X_train)
+train_len_10 = int(train_len * 0.1)
+X_train = X_train.iloc[:train_len_10]
+y_train = y_train.iloc[:train_len_10]
+
 linear_model = LinearRegression()
 
 linear_model.fit(X_train, y_train)
 y_pred_lr = linear_model.predict(X_test)
-mse_linear = mean_squared_error(y_test, y_pred_lr)
-rmse = np.sqrt(mse_linear)
-Markdown(f"Linear Regression MSE: {mse_linear:.3f} | RMSE: {rmse:.3f}")
+mse_lr = mean_squared_error(y_test, y_pred_lr)
+rmse_lr = np.sqrt(mse_lr)
+Markdown(f"Linear Regression MSE: {mse_lr:.3f} | RMSE: {rmse_lr:.3f}")
 # %% Plot the results
 res_df_lr = pd.DataFrame({"Actual": y_test, "Predicted": y_pred_lr})
 plot_prediction_analysis(
@@ -281,8 +336,8 @@ model_rf = model_rf.fit(X_train, y_train)
 
 y_pred_rf = model_rf.predict(X_test)
 mse_rf = mean_squared_error(y_test, y_pred_rf)
-
-Markdown(f"Random Forest MSE: {mse_rf:.3f}")
+rmse_rf = np.sqrt(mse_rf)
+Markdown(f"Random Forest MSE: {mse_rf:.3f}, RMSE: {rmse_rf:.3f}")
 
 # %% PLot the results
 res_df_rf = pd.DataFrame({"Actual": y_test, "Predicted": y_pred_rf})
@@ -299,4 +354,26 @@ plot_prediction_analysis(
 # %%
 
 
+# %%
+# Prepare data for plotting
+mse_data = pd.DataFrame(
+    {
+        "Model": ["Hephaestus", "Linear Regression", "Random Forest"],
+        "MSE": [mean_squared_error(y, y_hat), mse_lr, mse_rf],
+    }
+)
+
+# Create the Altair bar chart
+mse_chart = (
+    alt.Chart(mse_data)
+    .mark_bar()
+    .encode(
+        x=alt.X("Model", title="Model"),
+        y=alt.Y("MSE", title="Mean Squared Error"),
+        color="Model",
+    )
+    .properties(title="MSE Comparison Across Models")
+)
+
+mse_chart.show()
 # %%
