@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    #vis.vega-embed {
+      width: 100%;
+      display: flex;
+    }
+
+    #vis.vega-embed details,
+    #vis.vega-embed details summary {
+      position: relative;
+    }
+  </style>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/vega-lite@5.20.1"></script>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+</head>
+<body>
+  <div id="vis"></div>
+  <script>
+    (function(vegaEmbed) {
+      var spec = {"config": {"view": {"continuousWidth": 300, "continuousHeight": 300}}, "layer": [{"data": {"name": "data-2a881776b9de90460feee09794414d68"}, "mark": {"type": "line", "point": true}, "encoding": {"tooltip": [{"field": "Label Ratio", "type": "quantitative"}, {"field": "Improvement (%)", "type": "quantitative"}, {"field": "Best Traditional Model", "type": "nominal"}], "x": {"field": "Label Ratio", "scale": {"type": "log"}, "title": "Fraction of Labeled Data", "type": "quantitative"}, "y": {"field": "Improvement (%)", "title": "Improvement (%)", "type": "quantitative"}}, "title": "Hephaestus Performance Improvement over Traditional Models"}, {"data": {"name": "data-a0a55d106695e8d630baff0f16eee66d"}, "mark": {"type": "rule", "color": "gray", "strokeDash": [3, 3]}, "encoding": {"y": {"field": "y", "type": "quantitative"}}}], "height": 400, "width": 600, "$schema": "https://vega.github.io/schema/vega-lite/v5.20.1.json", "datasets": {"data-2a881776b9de90460feee09794414d68": [{"Label Ratio": 0.01, "Hephaestus MSE": 0.2729865610599518, "Best Traditional Model": "Random Forest", "Best Traditional MSE": 0.3630260343700618, "Improvement (%)": 24.802483785040472}, {"Label Ratio": 0.05, "Hephaestus MSE": 0.2070818543434143, "Best Traditional Model": "Random Forest", "Best Traditional MSE": 0.24771187915774268, "Improvement (%)": 16.402130149137985}, {"Label Ratio": 0.1, "Hephaestus MSE": 0.18058502674102783, "Best Traditional Model": "Random Forest", "Best Traditional MSE": 0.21230256625342994, "Improvement (%)": 14.939781497761187}, {"Label Ratio": 0.25, "Hephaestus MSE": 0.14500319957733154, "Best Traditional Model": "Random Forest", "Best Traditional MSE": 0.17171763245384794, "Improvement (%)": 15.557186815801435}, {"Label Ratio": 0.5, "Hephaestus MSE": 0.09879584610462189, "Best Traditional Model": "Random Forest", "Best Traditional MSE": 0.13919877975624775, "Improvement (%)": 29.025350453772518}, {"Label Ratio": 1.0, "Hephaestus MSE": 0.09274991601705551, "Best Traditional Model": "Random Forest", "Best Traditional MSE": 0.1119427704347617, "Improvement (%)": 17.14523800256618}], "data-a0a55d106695e8d630baff0f16eee66d": [{"y": 0}]}};
+      var embedOpt = {"mode": "vega-lite"};
+
+      function showError(el, error){
+          el.innerHTML = ('<div style="color:red;">'
+                          + '<p>JavaScript Error: ' + error.message + '</p>'
+                          + "<p>This usually means there's a typo in your chart specification. "
+                          + "See the javascript console for the full traceback.</p>"
+                          + '</div>');
+          throw error;
+      }
+      const el = document.getElementById('vis');
+      vegaEmbed("#vis", spec, embedOpt)
+        .catch(error => showError(el, error));
+    })(vegaEmbed);
+
+  </script>
+</body>
+</html>

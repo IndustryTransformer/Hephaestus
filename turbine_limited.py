@@ -305,7 +305,7 @@ def train_hephaestus_model(
     y_hat = torch.cat(y_hat, dim=0).squeeze().numpy()
 
     # Calculate metrics
-    mse = mean_squared_error(y, y_test)
+    mse = mean_squared_error(y, y_hat)
     rmse = np.sqrt(mse)
 
     # Return model and metrics
@@ -519,29 +519,72 @@ mse_chart = (
     )
 )
 
-mse_chart.save("result_images/model_performance_comparison.html")
-mse_chart.show()
+# Add a baseline rule at the minimum MSE value for each model
+min_mse_by_model = results_df.groupby("Model")["MSE"].min().reset_index()
+
+baseline_rules = (
+    alt.Chart(min_mse_by_model)
+    .mark_rule(strokeDash=[2, 2])
+    .encode(y="MSE:Q", color=alt.Color("Model:N"), tooltip=["Model", "MSE"])
+)
+
+combined_chart = mse_chart + baseline_rules
+combined_chart.save("result_images/model_performance_comparison.html")
+combined_chart.show()
 
 # %%
 # Plot a bar chart showing MSE for specific label ratios (e.g., 0.1, 0.5, 1.0)
 selected_ratios = [0.1, 0.5, 1.0]
 filtered_df = results_df[results_df["Label Ratio"].isin(selected_ratios)]
 
-bar_chart = (
-    alt.Chart(filtered_df)
-    .mark_bar()
-    .encode(
-        x=alt.X("Model:N", title="Model"),
-        y=alt.Y("MSE:Q", title="Mean Squared Error"),
-        color="Model:N",
-        column=alt.Column("Label Ratio:N", title="Fraction of Labeled Data"),
-        tooltip=["Model", "Label Ratio", "MSE", "RMSE"],
-    )
-    .properties(title="MSE Comparison at Different Label Ratios", width=200)
+# Calculate the min MSE for each label ratio to highlight the best model
+best_models = filtered_df.loc[filtered_df.groupby("Label Ratio")["MSE"].idxmin()]
+best_models["is_best"] = True
+filtered_df = pd.merge(
+    filtered_df,
+    best_models[["Model", "Label Ratio", "is_best"]],
+    on=["Model", "Label Ratio"],
+    how="left",
+)
+filtered_df["is_best"] = filtered_df["is_best"].fillna(False)
+
+# Create the bar chart with highlight for best model
+# Create a base chart first, then apply faceting
+base = alt.Chart(filtered_df).properties(
+    title="MSE Comparison at Different Label Ratios", width=200
 )
 
-bar_chart.save("result_images/model_performance_bars.html")
-bar_chart.show()
+# Create the bar chart
+bar_chart = base.mark_bar().encode(
+    x=alt.X("Model:N", title="Model"),
+    y=alt.Y("MSE:Q", title="Mean Squared Error"),
+    color=alt.Color("Model:N"),
+    tooltip=["Model", "Label Ratio", "MSE", "RMSE"],
+    opacity=alt.condition(alt.datum.is_best, alt.value(1), alt.value(0.6)),
+    strokeWidth=alt.condition(alt.datum.is_best, alt.value(2), alt.value(0)),
+    stroke=alt.condition(alt.datum.is_best, alt.value("black"), alt.value(None)),
+)
+
+# Add text labels for the best model
+best_model_text = base.mark_text(
+    align="center", baseline="top", dy=5, fontSize=10
+).encode(
+    x=alt.X("Model:N"),
+    y=alt.Y("MSE:Q"),
+    text=alt.Text("Model:N"),
+    opacity=alt.condition(alt.datum.is_best, alt.value(1), alt.value(0)),
+)
+
+# Layer the visualizations before faceting
+combined_layer = alt.layer(bar_chart, best_model_text)
+
+# Apply faceting after layering
+combined_bar_chart = combined_layer.facet(
+    column=alt.Column("Label Ratio:N", title="Fraction of Labeled Data")
+)
+
+combined_bar_chart.save("result_images/model_performance_bars.html")
+combined_bar_chart.show()
 
 # %%
 # Plot individual model visualizations for the 10% labeled data case
@@ -619,4 +662,73 @@ mse_chart_10 = (
 
 mse_chart_10.save("result_images/model_performance_10.png")
 mse_chart_10.show()
+
+# %%
+Markdown("""## Performance Improvement Analysis
+
+Calculate how much better Hephaestus performs compared to traditional models at each data fraction.
+""")
+
+# Calculate performance improvement percentages
+improvement_rows = []
+
+for fraction in data_fractions:
+    # Get results for this fraction
+    hep_result = next(r for r in hephaestus_results if r["label_ratio"] == fraction)
+    lr_result = next(r for r in lr_results if r["label_ratio"] == fraction)
+    rf_result = next(r for r in rf_results if r["label_ratio"] == fraction)
+
+    # Calculate best traditional model MSE at this fraction
+    trad_mse = min(lr_result["mse"], rf_result["mse"])
+    best_trad_model = (
+        "Linear Regression" if lr_result["mse"] < rf_result["mse"] else "Random Forest"
+    )
+
+    # Calculate improvement percentage
+    improvement_pct = ((trad_mse - hep_result["mse"]) / trad_mse) * 100
+
+    improvement_rows.append(
+        {
+            "Label Ratio": fraction,
+            "Hephaestus MSE": hep_result["mse"],
+            "Best Traditional Model": best_trad_model,
+            "Best Traditional MSE": trad_mse,
+            "Improvement (%)": improvement_pct,
+        }
+    )
+
+improvement_df = pd.DataFrame(improvement_rows)
+print(improvement_df)
+
+# %%
+# Plot improvement percentage vs data fraction
+improvement_chart = (
+    alt.Chart(improvement_df)
+    .mark_line(point=True)
+    .encode(
+        x=alt.X(
+            "Label Ratio:Q",
+            title="Fraction of Labeled Data",
+            scale=alt.Scale(type="log"),
+        ),
+        y=alt.Y("Improvement (%):Q", title="Improvement (%)"),
+        tooltip=["Label Ratio", "Improvement (%)", "Best Traditional Model"],
+    )
+    .properties(
+        title="Hephaestus Performance Improvement over Traditional Models",
+        width=600,
+        height=400,
+    )
+)
+
+# Add a zero line to show threshold where Hephaestus becomes better
+zero_line = (
+    alt.Chart(pd.DataFrame({"y": [0]}))
+    .mark_rule(strokeDash=[3, 3], color="gray")
+    .encode(y="y")
+)
+
+improvement_chart_with_line = improvement_chart + zero_line
+improvement_chart_with_line.save("result_images/performance_improvement.html")
+improvement_chart_with_line.show()
 # %%
