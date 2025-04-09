@@ -18,6 +18,9 @@ from pathlib import Path
 
 # ruff: noqa: E402
 import pandas as pd
+import altair as alt
+
+
 import pytorch_lightning as L  # noqa: N812
 import torch
 from pytorch_lightning.callbacks import (
@@ -34,7 +37,6 @@ from sklearn.preprocessing import StandardScaler
 
 import hephaestus.single_row_models as sr
 from hephaestus.single_row_models.plotting_utils import plot_prediction_analysis
-import altair as alt
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -50,7 +52,7 @@ BATCH_SIZE = 64  # Smaller batch sizes lead to better predictions because outlie
 # better trained on.
 name = "MTM_Test"
 LOGGER_VARIANT_NAME = f"{name}_D{D_MODEL}_H{N_HEADS}_LR{LR}"
-
+LABEL_RATIO = 1.0
 
 # Load and preprocess the train_dataset (assuming you have a CSV file)
 csv_files = glob.glob("data/nox/*.csv")
@@ -74,7 +76,7 @@ numeric_cols = df.select_dtypes(include=[float, int]).columns
 # numeric_cols = numeric_cols.drop("target")
 df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
 # df["target"] = df["target"] + 100
-df["cat_column"] = "category"
+df["cat_column"] = "category"  # Dummy category for bugs in data loader
 df.head()
 
 # %%
@@ -86,15 +88,17 @@ Initialize the model and create dataloaders for training and validation.
 X_setup = df[df.columns.drop("target")]
 # y = df["target"]
 
-model_config_mtm = sr.SingleRowConfig.generate(X_setup)
-model_config_reg = sr.SingleRowConfig.generate(df, target="target")
+model_config_mtm = sr.SingleRowConfig.generate(X_setup)  # Full dataset - target
+model_config_reg = sr.SingleRowConfig.generate(
+    df, target="target"
+)  # Full dataset with target
 df_train, df_test = train_test_split(df, test_size=0.2, random_state=42)
 
-X_train = df_train.drop(columns=["target"])
-y_train = df_train["target"]
+X_train_sub_set = df_train.drop(columns=["target"])
+y_train_sub_set = df_train["target"]
 X_test = df_test.drop(columns=["target"])
 y_test = df_test["target"]
-train_dataset = sr.TabularDS(X_train, model_config_mtm)
+train_dataset = sr.TabularDS(X_train_sub_set, model_config_mtm)
 test_dataset = sr.TabularDS(X_test, model_config_mtm)
 
 
@@ -212,12 +216,15 @@ print(f"{reg_out=}")
 # %%
 Markdown("### Fine tuning the regressor")
 
-train_df_10 = df_train.sample(frac=0.10, random_state=42)
-regressor_ds_10 = sr.TabularDS(train_df_10, model_config_reg)
+train_df_sub_set = df_train.sample(frac=LABEL_RATIO, random_state=42)
+X_train_sub_set = train_df_sub_set.drop(columns=["target"])
+y_train_sub_set = train_df_sub_set["target"]
+
+regressor_ds_subset = sr.TabularDS(train_df_sub_set, model_config_reg)
 regressor_ds_val_full = sr.TabularDS(df_test, model_config_reg)
 
 train_dataloader_10 = torch.utils.data.DataLoader(
-    regressor_ds_10,
+    regressor_ds_subset,
     batch_size=BATCH_SIZE,
     shuffle=True,
     collate_fn=sr.training.tabular_collate_fn,
@@ -274,7 +281,7 @@ print(f"Mean Squared Error: {mean_squared_error(y, y_hat)}")
 
 res_df = pd.DataFrame({"Actual": y, "Predicted": y_hat})
 
-
+mse_hep = mean_squared_error(y, y_hat)
 Markdown("""### Plot the results""")
 
 plot_prediction_analysis(
@@ -292,23 +299,24 @@ We will compare the Hephaestus model with the following Scikit Learn models:
 ### Linear Regression
 """)
 # %%
-if "target" in numeric_cols:
-    X = df[numeric_cols.drop("target")]
-else:
-    X = df[numeric_cols]
-y = df["target"]
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
-train_len = len(X_train)
-train_len_10 = int(train_len * 0.1)
-X_train = X_train.iloc[:train_len_10]
-y_train = y_train.iloc[:train_len_10]
-
+# if "target" in numeric_cols:
+#     X = df[numeric_cols.drop("target")]
+# else:
+#     X = df[numeric_cols]
+# y = df["target"]
+# X_train_sub_set, X_test, y_train_sub_set, y_test = train_test_split(
+#     X, y, test_size=0.2, random_state=42
+# )
+# train_len = len(X_train_sub_set)
+# train_len_10 = int(train_len * 0.1)
+# X_train_sub_set = X_train_sub_set.iloc[:train_len_10]
+# y_train_sub_set = y_train_sub_set.iloc[:train_len_10]
+X_train_sub_set_skl = X_train_sub_set.select_dtypes(include=[np.number])
+X_test_skl = X_test.select_dtypes(include=[np.number])
 linear_model = LinearRegression()
 
-linear_model.fit(X_train, y_train)
-y_pred_lr = linear_model.predict(X_test)
+linear_model.fit(X_train_sub_set_skl, y_train_sub_set)
+y_pred_lr = linear_model.predict(X_test_skl)
 mse_lr = mean_squared_error(y_test, y_pred_lr)
 rmse_lr = np.sqrt(mse_lr)
 Markdown(f"Linear Regression MSE: {mse_lr:.3f} | RMSE: {rmse_lr:.3f}")
@@ -330,11 +338,11 @@ see if it performs better than the Linear Regression model and the Hephaestus mo
 model_rf = RandomForestRegressor()
 
 model_rf = RandomForestRegressor(random_state=0)
-model_rf = model_rf.fit(X_train, y_train)
+model_rf = model_rf.fit(X_train_sub_set_skl, y_train_sub_set)
 
 # %%
 
-y_pred_rf = model_rf.predict(X_test)
+y_pred_rf = model_rf.predict(X_test_skl)
 mse_rf = mean_squared_error(y_test, y_pred_rf)
 rmse_rf = np.sqrt(mse_rf)
 Markdown(f"Random Forest MSE: {mse_rf:.3f}, RMSE: {rmse_rf:.3f}")
@@ -358,8 +366,16 @@ plot_prediction_analysis(
 # Prepare data for plotting
 mse_data = pd.DataFrame(
     {
-        "Model": ["Hephaestus", "Linear Regression", "Random Forest"],
-        "MSE": [mean_squared_error(y, y_hat), mse_lr, mse_rf],
+        "Model": [
+            "Linear Regression",
+            "Random Forest",
+            "Hephaestus",
+        ],
+        "MSE": [
+            mse_lr,
+            mse_rf,
+            mse_hep,
+        ],
     }
 )
 
@@ -368,11 +384,13 @@ mse_chart = (
     alt.Chart(mse_data)
     .mark_bar()
     .encode(
-        x=alt.X("Model", title="Model"),
+        x=alt.X("Model", title="Model", sort=mse_data["Model"].tolist()),
         y=alt.Y("MSE", title="Mean Squared Error"),
         color="Model",
     )
-    .properties(title="MSE Comparison Across Models")
+    .properties(
+        title=f"MSE Comparison Across Models with only {(LABEL_RATIO*100)}% of data labled"
+    )
 )
 
 mse_chart.show()
