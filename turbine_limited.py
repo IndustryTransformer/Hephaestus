@@ -214,157 +214,382 @@ regressor.model.tabular_encoder = mtm_model.model.tabular_encoder
 reg_out = regressor.predict_step(train_dataset[0:10])
 print(f"{reg_out=}")
 # %%
-Markdown("### Fine tuning the regressor")
+Markdown("""## Define Model Training Functions
 
-train_df_sub_set = df_train.sample(frac=LABEL_RATIO, random_state=42)
-X_train_sub_set = train_df_sub_set.drop(columns=["target"])
-y_train_sub_set = train_df_sub_set["target"]
-
-regressor_ds_subset = sr.TabularDS(train_df_sub_set, model_config_reg)
-regressor_ds_val_full = sr.TabularDS(df_test, model_config_reg)
-
-train_dataloader_10 = torch.utils.data.DataLoader(
-    regressor_ds_subset,
-    batch_size=BATCH_SIZE,
-    shuffle=True,
-    collate_fn=sr.training.tabular_collate_fn,
-)
-test_data_loader_full = torch.utils.data.DataLoader(
-    regressor_ds_val_full,
-    batch_size=BATCH_SIZE,
-    collate_fn=sr.training.tabular_collate_fn,
-)
-
-logger_time = dt.now().strftime("%Y-%m-%dT%H:%M:%S")
-logger_name = f"{logger_time}_Regressor_fine_tune_{LOGGER_VARIANT_NAME}"
-print(f"Using logger name: {logger_name}")
-logger = TensorBoardLogger(
-    "runs",
-    name=logger_name,
-)
-model_summary = ModelSummary(max_depth=3)
-early_stopping = EarlyStopping(
-    monitor="val_loss", patience=15, min_delta=0.001, mode="min"
-)
-progress_bar = TQDMProgressBar(leave=False)
-trainer = L.Trainer(
-    max_epochs=200,
-    logger=logger,
-    callbacks=[early_stopping, progress_bar, model_summary],
-    log_every_n_steps=1,
-)
-
-trainer.fit(
-    regressor,
-    train_dataloaders=train_dataloader_10,
-    val_dataloaders=test_data_loader_full,
-)
+We will define functions to train each model with different percentages of labeled data.
+Each function will return model metrics for comparison.
+""")
 
 
 # %%
+def train_hephaestus_model(
+    df_train, df_test, model_config_mtm, model_config_reg, label_ratio=1.0
+):
+    """
+    Train the Hephaestus model on a subset of labeled data.
 
-Markdown("""### Run inference on the entire inference dataloader""")
+    Args:
+        df_train: Training dataframe
+        df_test: Test dataframe
+        model_config_mtm: Model configuration for masked tabular modeling
+        model_config_reg: Model configuration for regression
+        label_ratio: Percentage of labeled data to use for training
+
+    Returns:
+        Dictionary containing the trained model and performance metrics
+    """
+    # Train on subset of data
+    train_df_sub_set = df_train.sample(frac=label_ratio, random_state=42)
+    # X_train_sub_set = train_df_sub_set.drop(columns=["target"])
+    # y_train_sub_set = train_df_sub_set["target"]
+
+    # Create datasets and dataloaders
+    regressor_ds_subset = sr.TabularDS(train_df_sub_set, model_config_reg)
+    regressor_ds_val_full = sr.TabularDS(df_test, model_config_reg)
+
+    train_dataloader = torch.utils.data.DataLoader(
+        regressor_ds_subset,
+        batch_size=BATCH_SIZE,
+        shuffle=True,
+        collate_fn=sr.training.tabular_collate_fn,
+    )
+    test_data_loader = torch.utils.data.DataLoader(
+        regressor_ds_val_full,
+        batch_size=BATCH_SIZE,
+        collate_fn=sr.training.tabular_collate_fn,
+    )
+
+    # Initialize regressor with pre-trained encoder
+    regressor = sr.TabularRegressor(
+        model_config=model_config_reg, d_model=D_MODEL, n_heads=N_HEADS, lr=LR
+    )
+    regressor.model.tabular_encoder = mtm_model.model.tabular_encoder
+
+    # Training configuration
+    logger_time = dt.now().strftime("%Y-%m-%dT%H:%M:%S")
+    logger_name = (
+        f"{logger_time}_Regressor_fine_tune_{LOGGER_VARIANT_NAME}_{label_ratio}"
+    )
+    print(f"Using logger name: {logger_name}")
+    logger = TensorBoardLogger("runs", name=logger_name)
+
+    model_summary = ModelSummary(max_depth=3)
+    early_stopping = EarlyStopping(
+        monitor="val_loss", patience=15, min_delta=0.001, mode="min"
+    )
+    progress_bar = TQDMProgressBar(leave=False)
+
+    trainer = L.Trainer(
+        max_epochs=200,
+        logger=logger,
+        callbacks=[early_stopping, progress_bar, model_summary],
+        log_every_n_steps=1,
+    )
+
+    # Train the model
+    trainer.fit(
+        regressor,
+        train_dataloaders=train_dataloader,
+        val_dataloaders=test_data_loader,
+    )
+
+    # Evaluate on test set
+    y = []
+    y_hat = []
+    for batch in test_data_loader:
+        y.append(batch.target)
+        preds = regressor.predict_step(batch)
+        y_hat.append(preds)
+
+    y = torch.cat(y, dim=0).squeeze().numpy()
+    y_hat = torch.cat(y_hat, dim=0).squeeze().numpy()
+
+    # Calculate metrics
+    mse = mean_squared_error(y, y_test)
+    rmse = np.sqrt(mse)
+
+    # Return model and metrics
+    return {
+        "model": regressor,
+        "mse": mse,
+        "rmse": rmse,
+        "y_true": y,
+        "y_pred": y_hat,
+        "label_ratio": label_ratio,
+    }
 
 
 # %%
-y = []
-y_hat = []
-for batch in test_data_loader_full:
-    y.append(batch.target)
-    preds = regressor.predict_step(batch)
-    y_hat.append(preds)
+def train_linear_regression(df_train, df_test, label_ratio=1.0):
+    """
+    Train a Linear Regression model on a subset of labeled data.
 
-y = torch.cat(y, dim=0).squeeze().numpy()
-y_hat = torch.cat(y_hat, dim=0).squeeze().numpy()
-print(y.shape, y_hat.shape)
-print(f"Mean Squared Error: {mean_squared_error(y, y_hat)}")
+    Args:
+        df_train: Training dataframe
+        df_test: Test dataframe
+        label_ratio: Percentage of labeled data to use for training
 
-res_df = pd.DataFrame({"Actual": y, "Predicted": y_hat})
+    Returns:
+        Dictionary containing the trained model and performance metrics
+    """
+    # Train on subset of data
+    train_df_sub_set = df_train.sample(frac=label_ratio, random_state=42)
+    X_train_sub_set = train_df_sub_set.drop(columns=["target"])
+    y_train_sub_set = train_df_sub_set["target"]
 
-mse_hep = mean_squared_error(y, y_hat)
-Markdown("""### Plot the results""")
+    # Use only numeric columns for sklearn models
+    X_train_sub_set_skl = X_train_sub_set.select_dtypes(include=[np.number])
+    X_test_skl = df_test.drop(columns=["target"]).select_dtypes(include=[np.number])
+    y_test = df_test["target"]
 
+    # Train the model
+    linear_model = LinearRegression()
+    linear_model.fit(X_train_sub_set_skl, y_train_sub_set)
+
+    # Evaluate
+    y_pred = linear_model.predict(X_test_skl)
+    mse = mean_squared_error(y_test, y_pred)
+    rmse = np.sqrt(mse)
+
+    # Return model and metrics
+    return {
+        "model": linear_model,
+        "mse": mse,
+        "rmse": rmse,
+        "y_true": y_test,
+        "y_pred": y_pred,
+        "label_ratio": label_ratio,
+    }
+
+
+# %%
+def train_random_forest(df_train, df_test, label_ratio=1.0):
+    """
+    Train a Random Forest model on a subset of labeled data.
+
+    Args:
+        df_train: Training dataframe
+        df_test: Test dataframe
+        label_ratio: Percentage of labeled data to use for training
+
+    Returns:
+        Dictionary containing the trained model and performance metrics
+    """
+    # Train on subset of data
+    train_df_sub_set = df_train.sample(frac=label_ratio, random_state=42)
+    X_train_sub_set = train_df_sub_set.drop(columns=["target"])
+    y_train_sub_set = train_df_sub_set["target"]
+
+    # Use only numeric columns for sklearn models
+    X_train_sub_set_skl = X_train_sub_set.select_dtypes(include=[np.number])
+    X_test_skl = df_test.drop(columns=["target"]).select_dtypes(include=[np.number])
+    y_test = df_test["target"]
+
+    # Train the model
+    rf_model = RandomForestRegressor(random_state=0)
+    rf_model.fit(X_train_sub_set_skl, y_train_sub_set)
+
+    # Evaluate
+    y_pred = rf_model.predict(X_test_skl)
+    mse = mean_squared_error(y_test, y_pred)
+    rmse = np.sqrt(mse)
+
+    # Return model and metrics
+    return {
+        "model": rf_model,
+        "mse": mse,
+        "rmse": rmse,
+        "y_true": y_test,
+        "y_pred": y_pred,
+        "label_ratio": label_ratio,
+    }
+
+
+# %%
+Markdown("""## Evaluate Models on Different Data Fractions
+
+We'll train and evaluate each model on different fractions of labeled data.
+""")
+
+# %%
+# Define the data fractions to test
+data_fractions = [0.01, 0.05, 0.1, 0.25, 0.5, 1.0]
+
+# Lists to store results
+hephaestus_results = []
+lr_results = []
+rf_results = []
+
+# Train and evaluate models on each data fraction
+for fraction in data_fractions:
+    print(f"\nTraining with {fraction*100}% of labeled data:")
+
+    # Train Hephaestus model
+    print("Training Hephaestus model...")
+    hep_result = train_hephaestus_model(
+        df_train, df_test, model_config_mtm, model_config_reg, label_ratio=fraction
+    )
+    hephaestus_results.append(hep_result)
+
+    # Train Linear Regression model
+    print("Training Linear Regression model...")
+    lr_result = train_linear_regression(df_train, df_test, label_ratio=fraction)
+    lr_results.append(lr_result)
+
+    # Train Random Forest model
+    print("Training Random Forest model...")
+    rf_result = train_random_forest(df_train, df_test, label_ratio=fraction)
+    rf_results.append(rf_result)
+
+    print(f"Results with {fraction*100}% of labeled data:")
+    print(f"  Hephaestus MSE: {hep_result['mse']:.3f}, RMSE: {hep_result['rmse']:.3f}")
+    print(
+        f"  Linear Regression MSE: {lr_result['mse']:.3f}, RMSE: {lr_result['rmse']:.3f}"
+    )
+    print(f"  Random Forest MSE: {rf_result['mse']:.3f}, RMSE: {rf_result['rmse']:.3f}")
+
+# %%
+Markdown("""## Visualize the Results
+
+Create dataframes and visualizations to show model performance across different data fractions.
+""")
+
+# %%
+# Combine results into dataframes
+results_rows = []
+
+# Add Hephaestus results
+for result in hephaestus_results:
+    results_rows.append(
+        {
+            "Model": "Hephaestus",
+            "Label Ratio": result["label_ratio"],
+            "MSE": result["mse"],
+            "RMSE": result["rmse"],
+        }
+    )
+
+# Add Linear Regression results
+for result in lr_results:
+    results_rows.append(
+        {
+            "Model": "Linear Regression",
+            "Label Ratio": result["label_ratio"],
+            "MSE": result["mse"],
+            "RMSE": result["rmse"],
+        }
+    )
+
+# Add Random Forest results
+for result in rf_results:
+    results_rows.append(
+        {
+            "Model": "Random Forest",
+            "Label Ratio": result["label_ratio"],
+            "MSE": result["mse"],
+            "RMSE": result["rmse"],
+        }
+    )
+
+# Create dataframe
+results_df = pd.DataFrame(results_rows)
+
+# Print the results dataframe
+print(results_df)
+
+# %%
+# Plot MSE vs. Label Ratio
+mse_chart = (
+    alt.Chart(results_df)
+    .mark_line(point=True)
+    .encode(
+        x=alt.X(
+            "Label Ratio:Q",
+            title="Fraction of Labeled Data",
+            scale=alt.Scale(type="log"),
+        ),
+        y=alt.Y("MSE:Q", title="Mean Squared Error"),
+        color=alt.Color("Model:N"),
+        tooltip=["Model", "Label Ratio", "MSE", "RMSE"],
+    )
+    .properties(
+        title="MSE Comparison Across Models with Different Amounts of Labeled Data",
+        width=600,
+        height=400,
+    )
+)
+
+mse_chart.save("result_images/model_performance_comparison.html")
+mse_chart.show()
+
+# %%
+# Plot a bar chart showing MSE for specific label ratios (e.g., 0.1, 0.5, 1.0)
+selected_ratios = [0.1, 0.5, 1.0]
+filtered_df = results_df[results_df["Label Ratio"].isin(selected_ratios)]
+
+bar_chart = (
+    alt.Chart(filtered_df)
+    .mark_bar()
+    .encode(
+        x=alt.X("Model:N", title="Model"),
+        y=alt.Y("MSE:Q", title="Mean Squared Error"),
+        color="Model:N",
+        column=alt.Column("Label Ratio:N", title="Fraction of Labeled Data"),
+        tooltip=["Model", "Label Ratio", "MSE", "RMSE"],
+    )
+    .properties(title="MSE Comparison at Different Label Ratios", width=200)
+)
+
+bar_chart.save("result_images/model_performance_bars.html")
+bar_chart.show()
+
+# %%
+# Plot individual model visualizations for the 10% labeled data case
+ratio_10_percent = 0.1
+hep_result_10 = next(
+    r for r in hephaestus_results if r["label_ratio"] == ratio_10_percent
+)
+lr_result_10 = next(r for r in lr_results if r["label_ratio"] == ratio_10_percent)
+rf_result_10 = next(r for r in rf_results if r["label_ratio"] == ratio_10_percent)
+
+# Create result dataframes
+res_df = pd.DataFrame(
+    {"Actual": hep_result_10["y_true"], "Predicted": hep_result_10["y_pred"]}
+)
+res_df_lr = pd.DataFrame(
+    {"Actual": lr_result_10["y_true"], "Predicted": lr_result_10["y_pred"]}
+)
+res_df_rf = pd.DataFrame(
+    {"Actual": rf_result_10["y_true"], "Predicted": rf_result_10["y_pred"]}
+)
+
+# %% Plot individual model results
 plot_prediction_analysis(
     df=res_df,
-    name="Hephaestus",
+    name="Hephaestus (10% data)",
     y_col="Actual",
     y_hat_col="Predicted",
 )
 # %%
-Markdown("""## Compare with Scikit Learn Models
-We will compare the Hephaestus model with the following Scikit Learn models:
-- Linear Regression
-- Random Forest
-
-### Linear Regression
-""")
-# %%
-# if "target" in numeric_cols:
-#     X = df[numeric_cols.drop("target")]
-# else:
-#     X = df[numeric_cols]
-# y = df["target"]
-# X_train_sub_set, X_test, y_train_sub_set, y_test = train_test_split(
-#     X, y, test_size=0.2, random_state=42
-# )
-# train_len = len(X_train_sub_set)
-# train_len_10 = int(train_len * 0.1)
-# X_train_sub_set = X_train_sub_set.iloc[:train_len_10]
-# y_train_sub_set = y_train_sub_set.iloc[:train_len_10]
-X_train_sub_set_skl = X_train_sub_set.select_dtypes(include=[np.number])
-X_test_skl = X_test.select_dtypes(include=[np.number])
-linear_model = LinearRegression()
-
-linear_model.fit(X_train_sub_set_skl, y_train_sub_set)
-y_pred_lr = linear_model.predict(X_test_skl)
-mse_lr = mean_squared_error(y_test, y_pred_lr)
-rmse_lr = np.sqrt(mse_lr)
-Markdown(f"Linear Regression MSE: {mse_lr:.3f} | RMSE: {rmse_lr:.3f}")
-# %% Plot the results
-res_df_lr = pd.DataFrame({"Actual": y_test, "Predicted": y_pred_lr})
 plot_prediction_analysis(
     df=res_df_lr,
-    name="Linear Regression",
+    name="Linear Regression (10% data)",
     y_col="Actual",
     y_hat_col="Predicted",
     it_color="scikit",
 )
-# %%
-Markdown("""### Random Forest
-
-Random Forest is a more complex model that can capture non-linear relationships. We will
-see if it performs better than the Linear Regression model and the Hephaestus model.
-""")
-model_rf = RandomForestRegressor()
-
-model_rf = RandomForestRegressor(random_state=0)
-model_rf = model_rf.fit(X_train_sub_set_skl, y_train_sub_set)
-
-# %%
-
-y_pred_rf = model_rf.predict(X_test_skl)
-mse_rf = mean_squared_error(y_test, y_pred_rf)
-rmse_rf = np.sqrt(mse_rf)
-Markdown(f"Random Forest MSE: {mse_rf:.3f}, RMSE: {rmse_rf:.3f}")
-
-# %% PLot the results
-res_df_rf = pd.DataFrame({"Actual": y_test, "Predicted": y_pred_rf})
-
 # %%
 plot_prediction_analysis(
     df=res_df_rf,
-    name="Random Forest",
+    name="Random Forest (10% data)",
     y_col="Actual",
     y_hat_col="Predicted",
     it_color="scikit",
 )
 
 # %%
-
-
-# %%
-# Prepare data for plotting
-mse_data = pd.DataFrame(
+# Create a combined bar chart for the 10% case
+mse_data_10 = pd.DataFrame(
     {
         "Model": [
             "Linear Regression",
@@ -372,26 +597,26 @@ mse_data = pd.DataFrame(
             "Hephaestus",
         ],
         "MSE": [
-            mse_lr,
-            mse_rf,
-            mse_hep,
+            lr_result_10["mse"],
+            rf_result_10["mse"],
+            hep_result_10["mse"],
         ],
     }
 )
 
-# Create the Altair bar chart
-mse_chart = (
-    alt.Chart(mse_data)
+mse_chart_10 = (
+    alt.Chart(mse_data_10)
     .mark_bar()
     .encode(
-        x=alt.X("Model", title="Model", sort=mse_data["Model"].tolist()),
+        x=alt.X("Model", title="Model", sort=mse_data_10["Model"].tolist()),
         y=alt.Y("MSE", title="Mean Squared Error"),
         color="Model",
     )
     .properties(
-        title=f"MSE Comparison Across Models with only {(LABEL_RATIO*100)}% of data labled"
+        title=f"MSE Comparison Across Models with only {(ratio_10_percent*100)}% of data labeled"
     )
 )
 
-mse_chart.show()
+mse_chart_10.save("result_images/model_performance_10.png")
+mse_chart_10.show()
 # %%
