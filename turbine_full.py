@@ -45,7 +45,8 @@ We will use the following parameters for the Hephaestus model:
 D_MODEL = 128
 N_HEADS = 4
 LR = 0.0001
-BATCH_SIZE = 64
+BATCH_SIZE = 64  # Smaller batch sizes lead to better predictions because outliers are
+# bettertrained on.
 name = "SmallBatch"
 LOGGER_VARIANT_NAME = f"{name}_D{D_MODEL}_H{N_HEADS}_LR{LR}"
 

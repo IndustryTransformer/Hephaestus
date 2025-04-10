@@ -1,3 +1,4 @@
+from typing import Optional
 from dataclasses import dataclass
 
 import numpy as np
@@ -24,7 +25,7 @@ class InputsTarget:
     """
 
     inputs: NumericCategoricalData
-    target: torch.Tensor
+    target: Optional[torch.Tensor] = None
 
 
 @dataclass
@@ -73,7 +74,9 @@ class SingleRowConfig:
     target: str = None
 
     @classmethod
-    def generate(cls, df: pd.DataFrame, target: str = "target") -> "SingleRowConfig":
+    def generate(
+        cls, df: pd.DataFrame, target: Optional[str] = None
+    ) -> "SingleRowConfig":
         """
         Generate a TimeSeriesConfig object based on the given DataFrame.
 
@@ -179,8 +182,7 @@ class SingleRowConfig:
 
 # %%
 class TabularDS(Dataset):
-    """
-    Dataset class for time series data.
+    """Dataset class for time series data.
 
     Args:
         df (pd.DataFrame): The DataFrame containing the time series data.
@@ -204,7 +206,10 @@ class TabularDS(Dataset):
 
         df = df.copy()  # Prevents changing the original DataFrame
         self.len = len(df)
-        self.target_df = pd.DataFrame(df.pop(config.target))
+        if config.target is not None:
+            self.target_df = pd.DataFrame(df.pop(config.target))
+        else:
+            self.target_df = None
         self.df_categorical = df.select_dtypes(include=["object"]).astype(str)
         self.df_categorical = convert_object_to_int_tokens(
             self.df_categorical, config.token_dict

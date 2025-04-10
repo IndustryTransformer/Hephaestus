@@ -45,6 +45,7 @@ dev-dependencies = [
     "nbconvert>=7.16.6",
     "pre-commit>=4.0.1",
     "standard-imghdr>=3.13.0",
+    "vl-convert-python>=1.7.0",
     "vulture>=2.14", # python 1.13 fix for tensorboard
     "xgboost>=2.1.4",
 ]
