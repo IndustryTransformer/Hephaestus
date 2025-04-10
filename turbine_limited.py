@@ -529,7 +529,8 @@ baseline_rules = (
 )
 
 combined_chart = mse_chart + baseline_rules
-combined_chart.save("result_images/model_performance_comparison.html")
+# Save as PNG instead of HTML
+combined_chart.save("result_images/model_performance_comparison.png")
 combined_chart.show()
 
 # %%
@@ -583,7 +584,7 @@ combined_bar_chart = combined_layer.facet(
     column=alt.Column("Label Ratio:N", title="Fraction of Labeled Data")
 )
 
-combined_bar_chart.save("result_images/model_performance_bars.html")
+combined_bar_chart.save("result_images/model_performance_bars.png")
 combined_bar_chart.show()
 
 # %%
@@ -729,6 +730,6 @@ zero_line = (
 )
 
 improvement_chart_with_line = improvement_chart + zero_line
-improvement_chart_with_line.save("result_images/performance_improvement.html")
+improvement_chart_with_line.save("result_images/performance_improvement.png")
 improvement_chart_with_line.show()
 # %%
