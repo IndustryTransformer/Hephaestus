@@ -59,7 +59,7 @@ class FeatureProcessorClass:
         # Aggregate stats
         self.agg_stats = ["mean"]  # , 'min', 'max', 'std', 'median']
 
-        # Categorical columns (specify for XGBoost)
+        # Categorical columns that should be treated as strings
         self.category_columns = [
             "county",
             "is_business",
@@ -67,6 +67,11 @@ class FeatureProcessorClass:
             "is_consumption",
             "data_block_id",
         ]
+        # Fix here: Remove the extra tuple wrapping
+        self.product_dict = {0: "Combined", 1: "Fixed", 2: "General service", 3: "Spot"}
+
+        # Ensure these are treated as strings in the __call__ method
+        self.string_columns = self.category_columns.copy()
 
     def create_new_column_names(self, df, suffix, columns_no_change):
         """Change column names by given suffix, keep columns_no_change, and return back the data"""
@@ -228,7 +233,14 @@ class FeatureProcessorClass:
         return gas
 
     def __call__(
-        self, data, client, historical_weather, forecast_weather, electricity, gas
+        self,
+        data,
+        client,
+        historical_weather,
+        forecast_weather,
+        electricity,
+        gas,
+        idx_date: int,
     ):
         """Processing of features from all datasets, merge together and return features for dataframe df"""
         # Create features for relevant dataset
@@ -246,8 +258,21 @@ class FeatureProcessorClass:
         df = df.merge(electricity, how="left", on=self.electricity_join)
         df = df.merge(gas, how="left", on=self.gas_join)
 
-        # Change columns to categorical for XGBoost
-        df[self.category_columns] = df[self.category_columns].astype("category")
+        df["is_business"] = df.is_business.replace({0: "Residential", 1: "Business"})
+        df["product_type"] = df.product_type.replace(self.product_dict)
+        df["is_consumption"] = df.is_consumption.replace(
+            {0: "Consumption", 1: "Production"}
+        )
+        df = df.dropna()
+
+        # Create a new column 'idx' that increments every idx_date days
+        # Use ordinal attribute instead of n
+        df["idx"] = (
+            df["datetime"].dt.to_period("D").apply(lambda x: x.ordinal // idx_date)
+        ).astype(int)
+
+        # Remove all columns with datetime type
+        df = df.drop(columns=df.select_dtypes(include=["datetime"]).columns)
         return df
 
 
@@ -260,6 +285,8 @@ data = feature_processor(
     forecast_weather.copy(),
     electricity.copy(),
     gas.copy(),
+    idx_date=14,
 )
+
 
 # %%
