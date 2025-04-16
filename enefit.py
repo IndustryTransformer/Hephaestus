@@ -11,7 +11,7 @@ import os
 import icecream
 import pandas as pd
 from icecream import ic
-
+import hephaestus as hp
 
 # %%
 icecream.install()
@@ -267,9 +267,13 @@ class FeatureProcessorClass:
 
         # Create a new column 'idx' that increments every idx_date days
         # Use ordinal attribute instead of n
-        df["idx"] = (
-            df["datetime"].dt.to_period("D").apply(lambda x: x.ordinal // idx_date)
-        ).astype(int)
+        df["idx"] = df["datetime"].dt.to_period("D").apply(lambda x: x.ordinal)
+        # max_idx = df["idx"].max()
+        min_idx = df["idx"].min()
+        df["idx"] = df["idx"] - min_idx
+        df["idx"] = df["idx"] // idx_date
+        # Convert to int
+        df["idx"] = df["idx"].astype(int)
 
         # Remove all columns with datetime type
         df = df.drop(columns=df.select_dtypes(include=["datetime"]).columns)
@@ -278,7 +282,7 @@ class FeatureProcessorClass:
 
 # %%
 feature_processor = FeatureProcessorClass()
-data = feature_processor(
+df = feature_processor(
     train.copy(),
     client.copy(),
     historical_weather.copy(),
@@ -289,4 +293,14 @@ data = feature_processor(
 )
 
 
+# %%
+time_series_config = hp.TimeSeriesConfig.generate(df=df)
+# %%
+train_idx = int(df.idx.max() * 0.8)
+train_df = df.loc[df.idx < train_idx].copy()
+test_df = df.loc[df.idx >= train_idx].copy()
+# %%
+train_ds = hp.TimeSeriesDS(train_df, time_series_config)
+test_ds = hp.TimeSeriesDS(test_df, time_series_config)
+len(train_ds), len(test_ds)
 # %%
