@@ -114,51 +114,51 @@ class FeatureProcessorClass:
         )
         return client
 
-    def create_historical_weather_features(self, historical_weather):
-        """⌛🌤️ Create historical weather features 🌤️⌛"""
+    # def create_historical_weather_features(self, historical_weather):
+    #     """⌛🌤️ Create historical weather features 🌤️⌛"""
 
-        # To datetime
-        historical_weather["datetime"] = pd.to_datetime(historical_weather["datetime"])
+    #     # To datetime
+    #     historical_weather["datetime"] = pd.to_datetime(historical_weather["datetime"])
 
-        # Add county
-        historical_weather[self.lat_lon_columns] = (
-            historical_weather[self.lat_lon_columns].astype(float).round(1)
-        )
-        historical_weather = historical_weather.merge(
-            location, how="left", on=self.lat_lon_columns
-        )
+    #     # Add county
+    #     historical_weather[self.lat_lon_columns] = (
+    #         historical_weather[self.lat_lon_columns].astype(float).round(1)
+    #     )
+    #     historical_weather = historical_weather.merge(
+    #         location, how="left", on=self.lat_lon_columns
+    #     )
 
-        # Modify column names - specify suffix
-        historical_weather = self.create_new_column_names(
-            historical_weather,
-            suffix="_h",
-            columns_no_change=self.lat_lon_columns + self.weather_join,
-        )
+    #     # Modify column names - specify suffix
+    #     historical_weather = self.create_new_column_names(
+    #         historical_weather,
+    #         suffix="_h",
+    #         columns_no_change=self.lat_lon_columns + self.weather_join,
+    #     )
 
-        # Group by & calculate aggregate stats
-        agg_columns = [
-            col
-            for col in historical_weather.columns
-            if col not in self.lat_lon_columns + self.weather_join
-        ]
-        agg_dict = {agg_col: self.agg_stats for agg_col in agg_columns}
-        historical_weather = (
-            historical_weather.groupby(self.weather_join).agg(agg_dict).reset_index()
-        )
+    #     # Group by & calculate aggregate stats
+    #     agg_columns = [
+    #         col
+    #         for col in historical_weather.columns
+    #         if col not in self.lat_lon_columns + self.weather_join
+    #     ]
+    #     agg_dict = {agg_col: self.agg_stats for agg_col in agg_columns}
+    #     historical_weather = (
+    #         historical_weather.groupby(self.weather_join).agg(agg_dict).reset_index()
+    #     )
 
-        # Flatten the multi column aggregates
-        historical_weather = self.flatten_multi_index_columns(historical_weather)
+    #     # Flatten the multi column aggregates
+    #     historical_weather = self.flatten_multi_index_columns(historical_weather)
 
-        # Test set has 1 day offset for hour<11 and 2 day offset for hour>11
-        historical_weather["hour_h"] = historical_weather["datetime"].dt.hour
-        historical_weather["datetime"] = historical_weather.apply(
-            lambda x: x["datetime"] + pd.DateOffset(1)
-            if x["hour_h"] < 11
-            else x["datetime"] + pd.DateOffset(2),
-            axis=1,
-        )
+    #     # Test set has 1 day offset for hour<11 and 2 day offset for hour>11
+    #     historical_weather["hour_h"] = historical_weather["datetime"].dt.hour
+    #     historical_weather["datetime"] = historical_weather.apply(
+    #         lambda x: x["datetime"] + pd.DateOffset(1)
+    #         if x["hour_h"] < 11
+    #         else x["datetime"] + pd.DateOffset(2),
+    #         axis=1,
+    #     )
 
-        return historical_weather
+    #     return historical_weather
 
     def create_forecast_weather_features(self, forecast_weather):
         """🔮🌤️ Create forecast weather features 🌤️🔮"""
@@ -199,7 +199,7 @@ class FeatureProcessorClass:
         agg_dict = {agg_col: self.agg_stats for agg_col in agg_columns}
         forecast_weather = (
             forecast_weather.groupby(self.weather_join).agg(agg_dict).reset_index()
-        )
+        )  # leaving agg dict right now but could be worth removing as a test
 
         # Flatten the multi column aggregates
         forecast_weather = self.flatten_multi_index_columns(forecast_weather)
@@ -214,22 +214,22 @@ class FeatureProcessorClass:
         electricity["datetime"] = electricity["forecast_date"] + pd.DateOffset(1)
 
         # Modify column names - specify suffix
-        electricity = self.create_new_column_names(
-            electricity, suffix="_electricity", columns_no_change=self.electricity_join
-        )
+        # electricity = self.create_new_column_names(
+        #     electricity, suffix="_electricity", columns_no_change=self.electricity_join
+        # )
         return electricity
 
     def create_gas_features(self, gas):
         """⛽ Create gas prices features ⛽"""
-        # Mean gas price
-        gas["mean_price_per_mwh"] = (
-            gas["lowest_price_per_mwh"] + gas["highest_price_per_mwh"]
-        ) / 2
+        # # Mean gas price
+        # gas["mean_price_per_mwh"] = (
+        #     gas["lowest_price_per_mwh"] + gas["highest_price_per_mwh"]
+        # ) / 2
 
-        # Modify column names - specify suffix
-        gas = self.create_new_column_names(
-            gas, suffix="_gas", columns_no_change=self.gas_join
-        )
+        # # Modify column names - specify suffix
+        # gas = self.create_new_column_names(
+        #     gas, suffix="_gas", columns_no_change=self.gas_join
+        # )
         return gas
 
     def __call__(
@@ -246,14 +246,14 @@ class FeatureProcessorClass:
         # Create features for relevant dataset
         data = self.create_data_features(data)
         client = self.create_client_features(client)
-        historical_weather = self.create_historical_weather_features(historical_weather)
+        # historical_weather = self.create_historical_weather_features(historical_weather)
         forecast_weather = self.create_forecast_weather_features(forecast_weather)
         electricity = self.create_electricity_features(electricity)
         gas = self.create_gas_features(gas)
 
         # 🔗 Merge all datasets into one df 🔗
         df = data.merge(client, how="left", on=self.client_join)
-        df = df.merge(historical_weather, how="left", on=self.weather_join)
+        # df = df.merge(historical_weather, how="left", on=self.weather_join)
         df = df.merge(forecast_weather, how="left", on=self.weather_join)
         df = df.merge(electricity, how="left", on=self.electricity_join)
         df = df.merge(gas, how="left", on=self.gas_join)
@@ -276,7 +276,21 @@ class FeatureProcessorClass:
         df["idx"] = df["idx"].astype(int)
 
         # Remove all columns with datetime type
+        # df["datetime"] = df["datetime"].to_string()
         df = df.drop(columns=df.select_dtypes(include=["datetime"]).columns)
+        date_cols = [i for i in df.columns if "date" in i]
+        date_cols.remove("date_client")
+        df = df.drop(columns=date_cols)
+        # rename date_client to date
+        df = df.rename(columns={"date_client": "date"})
+        # Convert all numeric columns to float32
+        df = df.astype(
+            {col: "float32" for col in df.select_dtypes(include=["number"]).columns}
+        )
+        # Convert only object columns to strings
+        # df[df.select_dtypes(include=["object"]).columns] = df.select_dtypes(
+        #     include=["object"]
+        # ).astype(str)
         return df
 
 
@@ -289,9 +303,9 @@ df = feature_processor(
     forecast_weather.copy(),
     electricity.copy(),
     gas.copy(),
-    idx_date=14,
+    idx_date=2,
 )
-
+df.tail()
 
 # %%
 time_series_config = hp.TimeSeriesConfig.generate(df=df)
@@ -303,4 +317,16 @@ test_df = df.loc[df.idx >= train_idx].copy()
 train_ds = hp.TimeSeriesDS(train_df, time_series_config)
 test_ds = hp.TimeSeriesDS(test_df, time_series_config)
 len(train_ds), len(test_ds)
+# %%
+train_ds[0]
+# %%
+forecast_weather.loc[
+    (forecast_weather.origin_datetime == "2021-09-01 00:00:00+00:00")
+    & (forecast_weather.forecast_datetime == "2021-09-01 01:00:00+00:00")
+].groupby(["latitude", "longitude"]).size().reset_index(name="count")
+
+# %%
+train.loc[train.datetime == "2021-09-01 00:00:00"].groupby(
+    ["county", "is_business", "product_type", "is_consumption"]
+).size().reset_index(name="count")
 # %%
