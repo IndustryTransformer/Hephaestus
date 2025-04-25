@@ -38,11 +38,18 @@ from sklearn.preprocessing import StandardScaler
 import hephaestus.single_row_models as sr
 from hephaestus.single_row_models.plotting_utils import plot_prediction_analysis
 
+import torch
+import pytorch_lightning as L # noqa: N812
+# ... other imports ...
+
+# Set precision for Tensor Cores (choose 'high' or 'medium')
+torch.set_float32_matmul_precision('high')
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
-Markdown("""## Hephaestus Parameters
-We will use the following parameters for the Hephaestus model:
+Markdown("""## tabNCT Parameters
+We will use the following parameters for the tabNCT model:
 """)
 
 D_MODEL = 128
@@ -226,7 +233,7 @@ def train_hephaestus_model(
     df_train, df_test, model_config_mtm, model_config_reg, label_ratio=1.0
 ):
     """
-    Train the Hephaestus model on a subset of labeled data.
+    Train the tabNCT model on a subset of labeled data.
 
     Args:
         df_train: Training dataframe
@@ -424,8 +431,8 @@ rf_results = []
 for fraction in data_fractions:
     print(f"\nTraining with {fraction*100}% of labeled data:")
 
-    # Train Hephaestus model
-    print("Training Hephaestus model...")
+    # Train tabNCT model
+    print("Training tabNCT model...")
     hep_result = train_hephaestus_model(
         df_train, df_test, model_config_mtm, model_config_reg, label_ratio=fraction
     )
@@ -442,7 +449,7 @@ for fraction in data_fractions:
     rf_results.append(rf_result)
 
     print(f"Results with {fraction*100}% of labeled data:")
-    print(f"  Hephaestus MSE: {hep_result['mse']:.3f}, RMSE: {hep_result['rmse']:.3f}")
+    print(f"  tabNCT MSE: {hep_result['mse']:.3f}, RMSE: {hep_result['rmse']:.3f}")
     print(
         f"  Linear Regression MSE: {lr_result['mse']:.3f}, RMSE: {lr_result['rmse']:.3f}"
     )
@@ -458,11 +465,11 @@ Create dataframes and visualizations to show model performance across different 
 # Combine results into dataframes
 results_rows = []
 
-# Add Hephaestus results
+# Add tabNCT results
 for result in hephaestus_results:
     results_rows.append(
         {
-            "Model": "Hephaestus",
+            "Model": "tabNCT",
             "Label Ratio": result["label_ratio"],
             "MSE": result["mse"],
             "RMSE": result["rmse"],
@@ -610,7 +617,7 @@ res_df_rf = pd.DataFrame(
 # %% Plot individual model results
 plot_prediction_analysis(
     df=res_df,
-    name="Hephaestus (10% data)",
+    name="tabNCT (10% data)",
     y_col="Actual",
     y_hat_col="Predicted",
 )
@@ -638,7 +645,7 @@ mse_data_10 = pd.DataFrame(
         "Model": [
             "Linear Regression",
             "Random Forest",
-            "Hephaestus",
+            "tabNCT",
         ],
         "MSE": [
             lr_result_10["mse"],
@@ -667,7 +674,7 @@ mse_chart_10.show()
 # %%
 Markdown("""## Performance Improvement Analysis
 
-Calculate how much better Hephaestus performs compared to traditional models at each data fraction.
+Calculate how much better tabNCT performs compared to traditional models at each data fraction.
 """)
 
 # Calculate performance improvement percentages
@@ -691,7 +698,7 @@ for fraction in data_fractions:
     improvement_rows.append(
         {
             "Label Ratio": fraction,
-            "Hephaestus MSE": hep_result["mse"],
+            "tabNCT MSE": hep_result["mse"],
             "Best Traditional Model": best_trad_model,
             "Best Traditional MSE": trad_mse,
             "Improvement (%)": improvement_pct,
@@ -716,13 +723,13 @@ improvement_chart = (
         tooltip=["Label Ratio", "Improvement (%)", "Best Traditional Model"],
     )
     .properties(
-        title="Hephaestus Performance Improvement over Traditional Models",
+        title="tabNCT Performance Improvement over Traditional Models",
         width=600,
         height=400,
     )
 )
 
-# Add a zero line to show threshold where Hephaestus becomes better
+# Add a zero line to show threshold where tabNCT becomes better
 zero_line = (
     alt.Chart(pd.DataFrame({"y": [0]}))
     .mark_rule(strokeDash=[3, 3], color="gray")

@@ -173,7 +173,7 @@ class MaskedTabularModeling(L.LightningModule):
         )
 
         categorical_loss = self.categorical_loss_fn(
-            predicted_categorical, actual_categorical
+            predicted_categorical, actual_categorical.long()
         )
         return numeric_loss + categorical_loss
 
