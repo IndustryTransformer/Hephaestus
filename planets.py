@@ -27,6 +27,7 @@ from hephaestus.timeseries_models import tabular_collate_fn
 
 # %%
 torch.set_default_dtype(torch.float32)
+torch.set_float32_matmul_precision("medium")
 # %%
 icecream.install()
 ic_disable = True  # Global variable to disable ic
@@ -193,6 +194,7 @@ df_comp = hp.show_results_df(
     dataset=train_ds,
     idx=0,
 )
+
 
 # %%
 hp.plot_col_error(df_comp, "planet0_x")

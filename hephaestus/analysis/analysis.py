@@ -131,6 +131,10 @@ def show_results_df(
     input_df = pd.concat([input_categorical, input_numeric], axis=1)
     output_df = pd.concat([output_categorical, output_numeric], axis=1)
 
+    # Model predicts the next time step, so we need to shift the output DataFrame
+    # to align with the input DataFrame
+    output_df = output_df.iloc[:-1].reset_index(drop=True)
+    input_df = input_df.iloc[1:].reset_index(drop=True)
     return DFComparison(input_df, output_df)
 
 
