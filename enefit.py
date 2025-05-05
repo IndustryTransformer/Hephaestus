@@ -4,14 +4,38 @@
 #
 # ## Load Libs
 #
-
 # %%
 import os
+from datetime import datetime as dt
 
 import icecream
 import pandas as pd
+import pytorch_lightning as L
+import torch
 from icecream import ic
+from pytorch_lightning.callbacks import EarlyStopping
+from pytorch_lightning.loggers import TensorBoardLogger
+from torch.utils.data import DataLoader
+
 import hephaestus as hp
+from hephaestus.timeseries_models import tabular_collate_fn
+
+# %%
+
+# %%
+print(f"PyTorch version: {torch.__version__}")
+print(f"CUDA available: {torch.cuda.is_available()}")
+if torch.cuda.is_available():
+    print(f"CUDA version: {torch.version.cuda}")
+    print(f"GPU device: {torch.cuda.get_device_name(0)}")
+elif torch.backends.mps.is_available():
+    print("MPS available")
+else:
+    print("CUDA not available. Checking why...")
+    import os
+
+    print(f"CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'Not set')}")
+
 
 # %%
 icecream.install()
@@ -330,3 +354,35 @@ train.loc[train.datetime == "2021-09-01 00:00:00"].groupby(
     ["county", "is_business", "product_type", "is_consumption"]
 ).size().reset_index(name="count")
 # %%
+N_HEADS = 8 * 4
+# tabular_decoder = TimeSeriesDecoder(time_series_config, d_model=512, n_heads=N_HEADS)
+tabular_decoder = hp.TabularDecoder(time_series_config, d_model=512, n_heads=N_HEADS)
+# %%
+logger = TensorBoardLogger("runs", name=f"{dt.now()}_tabular_decoder")
+early_stopping = EarlyStopping(monitor="val_loss", patience=3, mode="min")
+trainer = L.Trainer(max_epochs=2, logger=logger, callbacks=[early_stopping])
+train_dl = DataLoader(
+    train_ds,
+    batch_size=32,
+    shuffle=True,
+    collate_fn=tabular_collate_fn,
+    num_workers=7,
+    persistent_workers=True,
+)
+test_dl = DataLoader(
+    test_ds,
+    batch_size=32,
+    shuffle=False,
+    collate_fn=tabular_collate_fn,
+    num_workers=7,
+    persistent_workers=True,
+)
+trainer.fit(tabular_decoder, train_dl, test_dl)
+
+# %%
+df_comp = hp.show_results_df(
+    model=tabular_decoder,
+    time_series_config=time_series_config,
+    dataset=train_ds,
+    idx=0,
+)
