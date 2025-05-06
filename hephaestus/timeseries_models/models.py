@@ -257,7 +257,7 @@ class TimeSeriesTransformer(nn.Module):
             ]
         )
 
-        self.pos_encoder = PositionalEncoding(max_len=1024, d_pos_encoding=d_model)
+        self.pos_encoder = PositionalEncoding(max_len=8192, d_pos_encoding=d_model)
 
     def process_numeric(self, numeric_inputs: torch.Tensor) -> ProcessedEmbeddings:
         """Processes the numeric inputs for the transformer model."""

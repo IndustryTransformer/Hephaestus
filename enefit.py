@@ -20,6 +20,7 @@ from torch.utils.data import DataLoader
 import hephaestus as hp
 from hephaestus.timeseries_models import tabular_collate_fn
 
+torch.set_float32_matmul_precision("medium")
 # %%
 
 # %%
@@ -235,7 +236,7 @@ class FeatureProcessorClass:
         electricity["forecast_date"] = pd.to_datetime(electricity["forecast_date"])
 
         # Test set has 1 day offset
-        electricity["datetime"] = electricity["forecast_date"] + pd.DateOffset(1)
+        electricity["datetime"] = electricity["forecast_date"] + pd.DateOffset(n=1)
 
         # Modify column names - specify suffix
         # electricity = self.create_new_column_names(
@@ -304,7 +305,7 @@ class FeatureProcessorClass:
         df = df.drop(columns=df.select_dtypes(include=["datetime"]).columns)
         date_cols = [i for i in df.columns if "date" in i]
         date_cols.remove("date_client")
-        df = df.drop(columns=date_cols)
+        # df = df.drop(columns=date_cols)
         # rename date_client to date
         df = df.rename(columns={"date_client": "date"})
         # Convert all numeric columns to float32
@@ -363,7 +364,7 @@ early_stopping = EarlyStopping(monitor="val_loss", patience=3, mode="min")
 trainer = L.Trainer(max_epochs=2, logger=logger, callbacks=[early_stopping])
 train_dl = DataLoader(
     train_ds,
-    batch_size=32,
+    batch_size=8,
     shuffle=True,
     collate_fn=tabular_collate_fn,
     num_workers=7,
@@ -371,7 +372,7 @@ train_dl = DataLoader(
 )
 test_dl = DataLoader(
     test_ds,
-    batch_size=32,
+    batch_size=8,
     shuffle=False,
     collate_fn=tabular_collate_fn,
     num_workers=7,
