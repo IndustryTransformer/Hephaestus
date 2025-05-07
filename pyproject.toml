@@ -15,6 +15,7 @@ dependencies = [
     "pip>=24.3.1",
     "polars>=1.24.0",
     "pre-commit>=4.0.1",
+    "py7zr>=0.22.0",
     "pyarrow>=18.1.0",
     "ruff>=0.8.0",
     "scikit-learn>=1.6.1",

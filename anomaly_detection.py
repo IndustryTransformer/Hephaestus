@@ -11,11 +11,9 @@ import icecream
 import pandas as pd
 import torch
 from pathlib import Path
-import py7zr
 
 from icecream import ic
 
-import hephaestus as hp
 
 torch.set_float32_matmul_precision("medium")
 # %%
@@ -45,6 +43,8 @@ ic.configureOutput(includeContext=True, contextAbsPath=True)
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # %%
+# Define the columns
+
 # Define the columns
 columns = (
     ["timestamp"]
@@ -146,73 +146,10 @@ def create_raw_dataframe(data_path):
     return df
 
 
-def extract_7z_files(archive_dir, target_dir):
-    """
-    Extracts 7z archive files into the target directory.
-
-    Args:
-        archive_dir (Path): Directory containing 7z archive files
-        target_dir (Path): Directory where files should be extracted
-
-    Returns:
-        bool: True if extraction was successful, False otherwise
-    """
-    try:
-        # Find all 7z archive parts
-        archive_parts = sorted(archive_dir.glob("*.7z.*"))
-
-        if not archive_parts:
-            print(f"No 7z archive parts found in {archive_dir}")
-            return False
-
-        # Create target directory if it doesn't exist
-        target_dir.mkdir(parents=True, exist_ok=True)
-
-        # Check if data is already extracted
-        if any(target_dir.iterdir()):
-            print(f"Data appears to be already extracted in {target_dir}")
-            return True
-
-        print(f"Extracting 7z archives from {archive_dir} to {target_dir}...")
-
-        # With py7zr, we only need to open the first part
-        first_part = str(archive_parts[0])
-        with py7zr.SevenZipFile(first_part, "r") as archive:
-            archive.extractall(path=target_dir)
-
-        print("Extraction completed successfully")
-        return True
-
-    except Exception as e:
-        print(f"Error extracting 7z archives: {e}")
-        return False
-
-
-data_path = Path("./data/3w_dataset")  # Base path to the data
-extracted_data_path = data_path / "extracted"  # Path for extracted data
-
-# Extract 7z archives if needed
-if not extract_7z_files(data_path, extracted_data_path):
-    print("Failed to extract 7z archives. Please check the archive files.")
-else:
-    # Use the extracted data path
-    raw_df = create_raw_dataframe(extracted_data_path)
-    if raw_df is not None:
-        print(raw_df.head())
-        print(raw_df.info())
-
-    df = raw_df.copy() if raw_df is not None else None
-
-# %%
-time_series_config = hp.TimeSeriesConfig.generate(df=df)
-# %%
-train_idx = int(df.idx.max() * 0.8)
-train_df = df.loc[df.idx < train_idx].copy()
-test_df = df.loc[df.idx >= train_idx].copy()
-# %%
-train_ds = hp.TimeSeriesDS(train_df, time_series_config)
-test_ds = hp.TimeSeriesDS(test_df, time_series_config)
-len(train_ds), len(test_ds)
-# %%
-train_ds[0]
+# Example usage:
+data_path = Path("./data/3w_dataset/data")  # Point to the extracted data directory
+raw_df = create_raw_dataframe(data_path)
+if raw_df is not None:
+    print(raw_df.head())
+    print(raw_df.info())
 # %%
