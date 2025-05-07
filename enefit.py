@@ -139,52 +139,6 @@ class FeatureProcessorClass:
         )
         return client
 
-    # def create_historical_weather_features(self, historical_weather):
-    #     """⌛🌤️ Create historical weather features 🌤️⌛"""
-
-    #     # To datetime
-    #     historical_weather["datetime"] = pd.to_datetime(historical_weather["datetime"])
-
-    #     # Add county
-    #     historical_weather[self.lat_lon_columns] = (
-    #         historical_weather[self.lat_lon_columns].astype(float).round(1)
-    #     )
-    #     historical_weather = historical_weather.merge(
-    #         location, how="left", on=self.lat_lon_columns
-    #     )
-
-    #     # Modify column names - specify suffix
-    #     historical_weather = self.create_new_column_names(
-    #         historical_weather,
-    #         suffix="_h",
-    #         columns_no_change=self.lat_lon_columns + self.weather_join,
-    #     )
-
-    #     # Group by & calculate aggregate stats
-    #     agg_columns = [
-    #         col
-    #         for col in historical_weather.columns
-    #         if col not in self.lat_lon_columns + self.weather_join
-    #     ]
-    #     agg_dict = {agg_col: self.agg_stats for agg_col in agg_columns}
-    #     historical_weather = (
-    #         historical_weather.groupby(self.weather_join).agg(agg_dict).reset_index()
-    #     )
-
-    #     # Flatten the multi column aggregates
-    #     historical_weather = self.flatten_multi_index_columns(historical_weather)
-
-    #     # Test set has 1 day offset for hour<11 and 2 day offset for hour>11
-    #     historical_weather["hour_h"] = historical_weather["datetime"].dt.hour
-    #     historical_weather["datetime"] = historical_weather.apply(
-    #         lambda x: x["datetime"] + pd.DateOffset(1)
-    #         if x["hour_h"] < 11
-    #         else x["datetime"] + pd.DateOffset(2),
-    #         axis=1,
-    #     )
-
-    #     return historical_weather
-
     def create_forecast_weather_features(self, forecast_weather):
         """🔮🌤️ Create forecast weather features 🌤️🔮"""
 
