@@ -114,7 +114,7 @@ train_dl = DataLoader(
     batch_size=32,
     shuffle=True,
     collate_fn=tabular_collate_fn,
-    num_workers=7,
+    num_workers=1,
     persistent_workers=True,
 )
 test_dl = DataLoader(
@@ -122,7 +122,7 @@ test_dl = DataLoader(
     batch_size=32,
     shuffle=False,
     collate_fn=tabular_collate_fn,
-    num_workers=7,
+    num_workers=1,
     persistent_workers=True,
 )
 trainer.fit(tabular_decoder, train_dl, test_dl)

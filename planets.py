@@ -41,7 +41,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 print(f"PyTorch version: {torch.__version__}")
 print(f"CUDA available: {torch.cuda.is_available()}")
 if torch.cuda.is_available():
-    print(f"CUDA version: {torch.version.cuda}")
+    print(f"CUDA version: {torch.version.cuda}")  # type: ignore
     print(f"GPU device: {torch.cuda.get_device_name(0)}")
 elif torch.backends.mps.is_available():
     print("MPS available")
@@ -174,7 +174,7 @@ train_dl = DataLoader(
     batch_size=32,
     shuffle=True,
     collate_fn=tabular_collate_fn,
-    num_workers=7,
+    num_workers=1,
     persistent_workers=True,
 )
 test_dl = DataLoader(
@@ -182,7 +182,7 @@ test_dl = DataLoader(
     batch_size=32,
     shuffle=False,
     collate_fn=tabular_collate_fn,
-    num_workers=7,
+    num_workers=1,
     persistent_workers=True,
 )
 trainer.fit(tabular_decoder, train_dl, test_dl)
