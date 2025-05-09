@@ -198,3 +198,15 @@ class TabularDecoder(L.LightningModule):
         output_df = pd.concat([output_categorical, output_numeric], axis=1)
 
         return DFComparison(input_df, output_df)
+
+
+class TabularTransformer(L.LightningModule):
+    def __init__(self, time_series_config, d_model, n_heads):
+        super().__init__()
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.model = TimeSeriesDecoder(time_series_config, self.d_model, self.n_heads)
+
+    def forward(self, x):
+        out = self.model(x.numeric, x.categorical)
+        

@@ -166,7 +166,7 @@ N_HEADS = 8 * 4
 tabular_decoder = hp.TabularDecoder(time_series_config, d_model=512, n_heads=N_HEADS)
 
 # %%
-logger = TensorBoardLogger("runs", name=f"{dt.now()}_tabular_decoder")
+logger = TensorBoardLogger("runs", name=f"{dt.now()}_tabular_decoder_planets")
 early_stopping = EarlyStopping(monitor="val_loss", patience=3, mode="min")
 trainer = L.Trainer(max_epochs=2, logger=logger, callbacks=[early_stopping])
 train_dl = DataLoader(

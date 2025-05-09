@@ -16,7 +16,9 @@ from icecream import ic
 from IPython.display import Markdown  # noqa: F401
 from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
+from torch.utils import tensorboard
 from torch.utils.data import DataLoader
+from sklearn.preprocessing import StandardScaler
 
 import hephaestus as hp
 from hephaestus.timeseries_models import tabular_collate_fn
@@ -88,8 +90,12 @@ df["class"] = df["class"].map(events_names)
 
 # %%
 df["dummy_category"] = "dummy"
-
-df["idx"] = df.index // 64
+df["dummy_category_2"] = "dummy2"
+df = df.drop(columns=["timestamp"]) # Eventually convert to numeric with sin/cos
+scaler = StandardScaler()
+numeric_cols = df.select_dtypes(include=[float, int]).columns
+df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+df["idx"] = df.index // 128
 
 # %%
 time_series_config = hp.TimeSeriesConfig.generate(df=df)
@@ -125,6 +131,10 @@ test_dl = DataLoader(
     num_workers=1,
     persistent_workers=True,
 )
+
+# Test prediction
+tabular_decoder.predict_step(train_ds[0:10])
+# %%
 trainer.fit(tabular_decoder, train_dl, test_dl)
 
 # %%
