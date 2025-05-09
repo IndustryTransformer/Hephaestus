@@ -6,14 +6,20 @@
 #
 # %%
 import os
+from datetime import datetime as dt
 
 import icecream
 import pandas as pd
+import pytorch_lightning as L
 import torch
-from pathlib import Path
-
 from icecream import ic
+from IPython.display import Markdown  # noqa: F401
+from pytorch_lightning.callbacks import EarlyStopping
+from pytorch_lightning.loggers import TensorBoardLogger
+from torch.utils.data import DataLoader
 
+import hephaestus as hp
+from hephaestus.timeseries_models import tabular_collate_fn
 
 torch.set_float32_matmul_precision("medium")
 # %%
@@ -22,7 +28,7 @@ torch.set_float32_matmul_precision("medium")
 print(f"PyTorch version: {torch.__version__}")
 print(f"CUDA available: {torch.cuda.is_available()}")
 if torch.cuda.is_available():
-    print(f"CUDA version: {torch.version.cuda}")
+    print(f"CUDA version: {torch.version.cuda}")  # type: ignore
     print(f"GPU device: {torch.cuda.get_device_name(0)}")
 elif torch.backends.mps.is_available():
     print("MPS available")
@@ -62,94 +68,63 @@ columns = (
 )
 
 
-def class_and_file_generator(data_path, real=False, simulated=False, drawn=False):
-    """
-    Generates class codes and file paths based on directory structure and file names.
+df = pd.read_parquet("data/3w_dataset/3w_dataset.parquet")
+# %%
+# Create a dictionary mapping numeric class values to event names
+events_names = {
+    0: "Normal",
+    1: "Abrupt Increase of BSW",
+    2: "Spurious Closure of DHSV",
+    3: "Severe Slugging",
+    4: "Flow Instability",
+    5: "Rapid Productivity Loss",
+    6: "Quick Restriction in PCK",
+    7: "Scaling in PCK",
+    8: "Hydrate in Production Line",
+}
 
-    Args:
-        data_path (Path): The root directory containing the data.
-        real (bool, optional): If True, only yields real data files. Defaults to False.
-        simulated (bool, optional): If True, only yields simulated data files. Defaults to False.
-        drawn (bool, optional): If True, only yields drawn data files. Defaults to False.
+# Apply the mapping to the 'class' column
+df["class"] = df["class"].map(events_names)
 
-    Yields:
-        tuple: (class_code, instance_path) for each qualifying file.
-    """
-    for class_path in data_path.iterdir():
-        if class_path.is_dir():
-            class_code = int(class_path.stem)
-            for instance_path in class_path.iterdir():
-                if instance_path.suffix == ".csv":
-                    if (
-                        (simulated and instance_path.stem.startswith("SIMULATED"))
-                        or (drawn and instance_path.stem.startswith("DRAWN"))
-                        or (
-                            real
-                            and (not instance_path.stem.startswith("SIMULATED"))
-                            and (not instance_path.stem.startswith("DRAWN"))
-                        )
-                    ):
-                        yield class_code, instance_path
+# %%
+df["dummy_category"] = "dummy"
 
+df["idx"] = df.index // 64
 
-def load_instance(instance_path):
-    """
-    Loads a single CSV file into a Pandas DataFrame.
+# %%
+time_series_config = hp.TimeSeriesConfig.generate(df=df)
+train_idx = int(df.idx.max() * 0.8)
+train_df = df.loc[df.idx < train_idx].copy()
+test_df = df.loc[df.idx >= train_idx].copy()
+# del df
+train_ds = hp.TimeSeriesDS(train_df, time_series_config)
+test_ds = hp.TimeSeriesDS(test_df, time_series_config)
+print(len(train_ds), len(test_ds))
 
-    Args:
-        instance_path (Path): Path to the CSV file.
+# %%
+N_HEADS = 8 * 4
+# tabular_decoder = TimeSeriesDecoder(time_series_config, d_model=512, n_heads=N_HEADS)
+tabular_decoder = hp.TabularDecoder(time_series_config, d_model=512, n_heads=N_HEADS)
 
-    Returns:
-        pd.DataFrame: DataFrame containing the data from the CSV file.  Raises
-        an exception if the columns in the CSV file do not match the expected
-        columns.
-    """
-    try:
-        df = pd.read_csv(instance_path, sep=",", header=0)
-        # crucial check of the columns.
-        assert (
-            df.columns == columns
-        ).all(), f"Invalid columns in the file {instance_path}: {df.columns.tolist()}"
-        return df
-    except Exception as e:
-        raise Exception(f"Error reading file {instance_path}: {e}")
+logger = TensorBoardLogger("runs", name=f"{dt.now()}_tabular_decoder")
+early_stopping = EarlyStopping(monitor="val_loss", patience=3, mode="min")
+trainer = L.Trainer(max_epochs=2, logger=logger, callbacks=[early_stopping])
+train_dl = DataLoader(
+    train_ds,
+    batch_size=32,
+    shuffle=True,
+    collate_fn=tabular_collate_fn,
+    num_workers=7,
+    persistent_workers=True,
+)
+test_dl = DataLoader(
+    test_ds,
+    batch_size=32,
+    shuffle=False,
+    collate_fn=tabular_collate_fn,
+    num_workers=7,
+    persistent_workers=True,
+)
+trainer.fit(tabular_decoder, train_dl, test_dl)
 
-
-def create_raw_dataframe(data_path):
-    """
-    Loads all CSV files from the specified directory and its subdirectories
-    into a single Pandas DataFrame.  It only loads "real" data (i.e., not
-    simulated or drawn).  It converts the 'timestamp' column to datetime.
-
-    Args:
-        data_path (Path): Path to the root directory containing the data.
-
-    Returns:
-        pd.DataFrame: A DataFrame containing all the data, or None if no data
-                      is found.
-    """
-    data = []
-    for class_code, instance_path in class_and_file_generator(data_path, real=True):
-        try:
-            df_instance = load_instance(instance_path)
-            data.append(df_instance)  # Append the DataFrame, not the path
-        except Exception as e:
-            print(f"Error processing {instance_path}: {e}")  # keep processing.
-
-    if not data:
-        print("No data found.")
-        return None
-
-    # Concatenate all the dataframes
-    df = pd.concat(data, ignore_index=True)
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    return df
-
-
-# Example usage:
-data_path = Path("./data/3w_dataset/data")  # Point to the extracted data directory
-raw_df = create_raw_dataframe(data_path)
-if raw_df is not None:
-    print(raw_df.head())
-    print(raw_df.info())
 # %%
