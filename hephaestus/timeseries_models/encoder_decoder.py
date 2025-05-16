@@ -1,11 +1,12 @@
-import torch
-import torch.nn as nn
+from __future__ import annotations
+
 import pytorch_lightning as L
-from typing import Optional, Dict
+import torch
+from torch import nn
 
 from hephaestus.timeseries_models.model_data_classes import (
-    TimeSeriesConfig,
     NumericCategoricalData,
+    TimeSeriesConfig,
 )
 from hephaestus.timeseries_models.models import (
     TimeSeriesTransformer,
@@ -13,8 +14,7 @@ from hephaestus.timeseries_models.models import (
 
 
 class TabularEncoderDecoder(L.LightningModule):
-    """
-    Encoder-Decoder architecture for anomaly detection.
+    """Encoder-Decoder architecture for anomaly detection.
 
     The encoder processes input features (numeric and categorical),
     while the decoder predicts the anomaly class using causal masking.
@@ -24,6 +24,7 @@ class TabularEncoderDecoder(L.LightningModule):
         d_model (int): Dimension of the model embeddings
         n_heads (int): Number of attention heads
         learning_rate (float): Learning rate for optimization
+
     """
 
     def __init__(
@@ -49,16 +50,13 @@ class TabularEncoderDecoder(L.LightningModule):
             n_heads=self.n_heads,
         )
 
-        # Decoder - processes encoded representation and predicts the class
-        self.decoder = TimeSeriesTransformer(
-            config=self.config,
-            d_model=self.d_model,
-            n_heads=self.n_heads,
-        )
-
         # Output projection for classification
-        n_classes = len(config.object_tokens)
-        self.class_predictor = nn.Linear(self.d_model, n_classes)
+        n_classes = len(config.classification_values)
+        self.class_predictor = nn.Sequential(
+            nn.Linear(self.d_model, self.d_model * 2),
+            nn.ReLU(),
+            nn.Linear(self.d_model * 2, n_classes),
+        )
 
         # Cross-entropy loss for classification
         self.loss_fn = nn.CrossEntropyLoss(ignore_index=-100)
@@ -69,13 +67,12 @@ class TabularEncoderDecoder(L.LightningModule):
     def forward(
         self,
         input_numeric: torch.Tensor,
-        input_categorical: Optional[torch.Tensor] = None,
-        target_numeric: Optional[torch.Tensor] = None,
-        target_categorical: Optional[torch.Tensor] = None,
+        input_categorical: torch.Tensor | None = None,
+        target_numeric: torch.Tensor | None = None,
+        target_categorical: torch.Tensor | None = None,
         deterministic: bool = False,
-    ) -> Dict[str, torch.Tensor]:
-        """
-        Forward pass of the encoder-decoder model.
+    ) -> dict[str, torch.Tensor]:
+        """Forward pass of the encoder-decoder model.
 
         Args:
             input_numeric: Numeric input features
@@ -86,6 +83,10 @@ class TabularEncoderDecoder(L.LightningModule):
 
         Returns:
             Dictionary containing predicted class logits and encoder outputs
+
+        Raises:
+            ValueError: If 'class' column is not found in categorical columns
+
         """
         # Encoder pass - no causal masking in encoder
         encoder_output = self.encoder(
@@ -99,7 +100,6 @@ class TabularEncoderDecoder(L.LightningModule):
         if target_numeric is None and target_categorical is None:
             # Extract only the class column from encoder outputs
             # Assume class column is at a specific position in the model
-            batch_size, _, seq_len, _ = encoder_output.shape
 
             # Use last token from sequence dimension for classification
             class_features = encoder_output[:, self.class_token_index, -1, :]
@@ -117,10 +117,6 @@ class TabularEncoderDecoder(L.LightningModule):
             deterministic=deterministic,
             causal_mask=True,  # Use causal masking in decoder
         )
-
-        # Extract features for class prediction
-        # Use the class column from categorical inputs
-        batch_size, n_cols, seq_len, _ = decoder_output.shape
 
         # Find column index for class prediction (using class token from config)
         class_column_idx = None

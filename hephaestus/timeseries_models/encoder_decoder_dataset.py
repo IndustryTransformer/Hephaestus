@@ -1,6 +1,5 @@
-import torch
 import pandas as pd
-from typing import Tuple
+import torch
 from torch.utils.data import Dataset
 
 from hephaestus.timeseries_models.model_data_classes import TimeSeriesConfig
@@ -8,8 +7,7 @@ from hephaestus.utils.numeric_categorical import NumericCategoricalData
 
 
 class EncoderDecoderDataset(Dataset):
-    """
-    Dataset class for encoder-decoder models with feature inputs and classification targets.
+    """Dataset class for encoder-decoder models with feature inputs and classification targets.
 
     This dataset separates inputs (features) from targets (class labels), allowing
     for encoder-decoder architectures where the encoder processes features and the
@@ -26,6 +24,7 @@ class EncoderDecoderDataset(Dataset):
         df_input_numeric (pd.DataFrame): DataFrame of input numeric columns
         df_target_categorical (pd.DataFrame): DataFrame of target categorical columns
         df_target_numeric (pd.DataFrame): DataFrame of target numeric columns
+
     """
 
     def __init__(
@@ -51,6 +50,9 @@ class EncoderDecoderDataset(Dataset):
         # All numeric columns except the target become input features
         self.df_numeric = df.select_dtypes(include="number")
 
+        self.classification_values = df[
+            self.target_col
+        ].unique()  # TODO Fix this for regression as
         # Separate inputs and targets
         self._separate_inputs_targets()
 
@@ -122,7 +124,7 @@ class EncoderDecoderDataset(Dataset):
 
         return batch
 
-    def __getitem__(self, idx) -> Tuple[NumericCategoricalData, NumericCategoricalData]:
+    def __getitem__(self, idx) -> tuple[NumericCategoricalData, NumericCategoricalData]:
         """
         Get item(s) from the dataset.
 
@@ -148,7 +150,7 @@ class EncoderDecoderDataset(Dataset):
 
     def _get_single_item(
         self, set_idx
-    ) -> Tuple[NumericCategoricalData, NumericCategoricalData]:
+    ) -> tuple[NumericCategoricalData, NumericCategoricalData]:
         """Get a single item from the dataset by actual index value."""
         # Get input features
         input_numeric = self._get_tensor_from_df("df_input_numeric", set_idx)
@@ -173,7 +175,7 @@ class EncoderDecoderDataset(Dataset):
 
     def _collate_batch(
         self, items
-    ) -> Tuple[NumericCategoricalData, NumericCategoricalData]:
+    ) -> tuple[NumericCategoricalData, NumericCategoricalData]:
         """
         Collate a list of (inputs, targets) tuples into a batch.
 

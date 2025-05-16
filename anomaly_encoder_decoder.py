@@ -1,6 +1,7 @@
 # %% [markdown]
 # # 3W Anomaly Detection with Encoder-Decoder Architecture
-# [Data](https://github.com/ricardovvargas/3w_dataset) is a time series dataset for anomaly detection.
+# [Data](https://github.com/ricardovvargas/3w_dataset) is a time series dataset for
+# anomaly detection.
 #
 # ## Load Libraries
 #
@@ -8,18 +9,18 @@
 import os
 from datetime import datetime as dt
 
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import pytorch_lightning as L
+import seaborn as sns
 import torch
 from icecream import ic
 from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
-from torch.utils.data import DataLoader
-from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import classification_report, confusion_matrix
-import matplotlib.pyplot as plt
-import seaborn as sns
-import numpy as np
+from sklearn.preprocessing import StandardScaler
+from torch.utils.data import DataLoader
 
 import hephaestus as hp
 from hephaestus.timeseries_models.encoder_decoder import TabularEncoderDecoder
@@ -34,7 +35,7 @@ torch.set_float32_matmul_precision("medium")
 print(f"PyTorch version: {torch.__version__}")
 print(f"CUDA available: {torch.cuda.is_available()}")
 if torch.cuda.is_available():
-    print(f"CUDA version: {torch.version.cuda}")  # type: ignore
+    print(f"CUDA version: {torch.version.cuda}")
     print(f"GPU device: {torch.cuda.get_device_name(0)}")
 elif torch.backends.mps.is_available():
     print("MPS available")
@@ -55,20 +56,18 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # %%
 # Define the columns
-columns = (
-    ["timestamp"]
-    + [
-        "P-PDG",
-        "P-TPT",
-        "T-TPT",
-        "P-MON-CKP",
-        "T-JUS-CKP",
-        "P-JUS-CKGL",
-        "T-JUS-CKGL",
-        "QGL",
-    ]
-    + ["class"]
-)
+columns = [
+    "timestamp",
+    "P-PDG",
+    "P-TPT",
+    "T-TPT",
+    "P-MON-CKP",
+    "T-JUS-CKP",
+    "P-JUS-CKGL",
+    "T-JUS-CKGL",
+    "QGL",
+    "class",
+]
 
 # Load the dataset
 df = pd.read_parquet("data/3w_dataset/3w_dataset.parquet")
