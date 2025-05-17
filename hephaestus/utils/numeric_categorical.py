@@ -27,7 +27,8 @@ class NumericCategoricalData:
         Returns:
             NumericCategoricalData: Self with tensors moved to the specified device
         """
-        self.numeric = self.numeric.to(device)
+        if self.numeric is not None:
+            self.numeric = self.numeric.to(device)
         if self.categorical is not None:
             self.categorical = self.categorical.to(device)
         return self

@@ -108,13 +108,14 @@ df["idx"] = df.index // 128
 # ## Create Encoder-Decoder Dataset
 
 # %%
-# Generate TimeSeriesConfig
-time_series_config = hp.TimeSeriesConfig.generate(df=df)
+# Generate TimeSeriesConfig (exclude 'class' from input features)
+time_series_config = hp.TimeSeriesConfig.generate(df=df, target="class")
 
 # Split into train and test sets
 train_idx = int(df.idx.max() * 0.8)
 train_df = df.loc[df.idx < train_idx].copy()
 test_df = df.loc[df.idx >= train_idx].copy()
+
 
 # Create encoder-decoder datasets
 train_ds = EncoderDecoderDataset(train_df, time_series_config, target_col="class")
@@ -139,6 +140,7 @@ encoder_decoder_model = TabularEncoderDecoder(
     d_model=D_MODEL,
     n_heads=N_HEADS,
     learning_rate=LEARNING_RATE,
+    classification_values=train_ds.classification_values,
 )
 
 # Setup training with PyTorch Lightning
@@ -180,8 +182,7 @@ trainer.fit(encoder_decoder_model, train_dl, test_dl)
 # %% [markdown]
 # ## Evaluate the Model
 
-# %%
-# Make predictions on test data
+# %%    # Make predictions on test data
 predictions = []
 targets = []
 
@@ -189,7 +190,7 @@ for batch in test_dl:
     inputs, target_batch = batch
     pred_output = encoder_decoder_model.predict_step(batch, batch_idx=0)
 
-    # Get class predictions
+    # Get class predictions for all elements in the sequence
     batch_preds = pred_output["class_predictions"].cpu().numpy()
 
     # Get target classes from categorical targets
@@ -199,8 +200,9 @@ for batch in test_dl:
             class_col_idx = i
             break
 
-    batch_targets = target_batch.categorical[:, class_col_idx, 0].cpu().numpy()
+    batch_targets = target_batch.categorical[:, class_col_idx, :].cpu().numpy()
 
+    # Flatten the predictions and targets
     predictions.extend(batch_preds.flatten())
     targets.extend(batch_targets.flatten())
 

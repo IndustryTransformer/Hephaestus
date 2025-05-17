@@ -17,13 +17,14 @@ class TabularEncoderDecoder(L.LightningModule):
     """Encoder-Decoder architecture for anomaly detection.
 
     The encoder processes input features (numeric and categorical),
-    while the decoder predicts the anomaly class using causal masking.
+    while a simple feed-forward network predicts the anomaly class.
 
     Args:
         config (TimeSeriesConfig): Configuration for the time series model
         d_model (int): Dimension of the model embeddings
         n_heads (int): Number of attention heads
         learning_rate (float): Learning rate for optimization
+        classification_values (list, optional): List of classification values
 
     """
 
@@ -33,15 +34,17 @@ class TabularEncoderDecoder(L.LightningModule):
         d_model: int = 512,
         n_heads: int = 32,
         learning_rate: float = 1e-4,
+        classification_values=None,
     ):
         super().__init__()
         self.config = config
         self.d_model = d_model
         self.n_heads = n_heads
         self.learning_rate = learning_rate
+        self.classification_values = classification_values
 
-        # Class index in token dictionary for target prediction
-        self.class_token_index = config.token_dict["class"]
+        # Class index for the only categorical target (class)
+        # self.class_token_index = 0
 
         # Encoder - processes all input features
         self.encoder = TimeSeriesTransformer(
@@ -51,7 +54,18 @@ class TabularEncoderDecoder(L.LightningModule):
         )
 
         # Output projection for classification
-        n_classes = len(config.classification_values)
+        if classification_values is not None:
+            n_classes = len(classification_values)
+        else:
+            # Fallback to number of unique values in the class token
+            # Try to infer from token dictionary
+            class_tokens = [
+                k
+                for k in config.token_dict
+                if isinstance(k, str) and (k.startswith("Normal") or k in ["class"])
+            ]
+            n_classes = len(class_tokens) if class_tokens else 9  # Default to 9 classes
+
         self.class_predictor = nn.Sequential(
             nn.Linear(self.d_model, self.d_model * 2),
             nn.ReLU(),
@@ -66,78 +80,49 @@ class TabularEncoderDecoder(L.LightningModule):
 
     def forward(
         self,
-        input_numeric: torch.Tensor,
+        input_numeric: torch.Tensor | None = None,
         input_categorical: torch.Tensor | None = None,
-        target_numeric: torch.Tensor | None = None,
-        target_categorical: torch.Tensor | None = None,
         deterministic: bool = False,
     ) -> dict[str, torch.Tensor]:
-        """Forward pass of the encoder-decoder model.
+        """Forward pass of the model.
 
         Args:
-            input_numeric: Numeric input features
+            input_numeric: Numeric input features (optional)
             input_categorical: Categorical input features (optional)
-            target_numeric: Numeric target values (optional)
-            target_categorical: Categorical target values (optional)
+            target_numeric: Numeric target values (not used in simplified model)
+            target_categorical: Categorical target values (not used in simplified model)
             deterministic: Whether to use deterministic forward pass
 
         Returns:
             Dictionary containing predicted class logits and encoder outputs
-
-        Raises:
-            ValueError: If 'class' column is not found in categorical columns
-
         """
-        # Encoder pass - no causal masking in encoder
+        # Verify that at least one of the inputs is not None
+        if input_numeric is None and input_categorical is None:
+            raise ValueError(
+                "At least one of input_numeric or input_categorical must be provided"
+            )
+
+        # Encoder pass - no causal masking
         encoder_output = self.encoder(
             numeric_inputs=input_numeric,
             categorical_inputs=input_categorical,
             deterministic=deterministic,
-            causal_mask=False,  # No causal masking in encoder
+            causal_mask=False,  # No causal masking
         )
 
-        # For predictions (not training), we only need encoder outputs
-        if target_numeric is None and target_categorical is None:
-            # Extract only the class column from encoder outputs
-            # Assume class column is at a specific position in the model
+        # Extract features for classification - get features for each element/row
 
-            # Use last token from sequence dimension for classification
-            class_features = encoder_output[:, self.class_token_index, -1, :]
-            class_logits = self.class_predictor(class_features)
+        # Get features for the class token across all sequence positions
+        # features = encoder_output[:, self.class_token_index, :, :]
+        # Shape: [batch_size, seq_len, d_model]
 
-            return {
-                "class_logits": class_logits,
-                "encoder_output": encoder_output,
-            }
-
-        # Decoder pass with causal masking
-        decoder_output = self.decoder(
-            numeric_inputs=target_numeric,
-            categorical_inputs=target_categorical,
-            deterministic=deterministic,
-            causal_mask=True,  # Use causal masking in decoder
-        )
-
-        # Find column index for class prediction (using class token from config)
-        class_column_idx = None
-        for i, col_name in enumerate(self.config.categorical_col_tokens):
-            if col_name == "class":
-                class_column_idx = i
-                break
-
-        if class_column_idx is None:
-            raise ValueError("'class' column not found in categorical columns")
-
-        # Extract features from the class column
-        class_features = decoder_output[:, class_column_idx, :, :]
-
-        # Apply classification head to predict class logits
-        class_logits = self.class_predictor(class_features)
+        # Apply classification head to predict class logits for each element
+        class_logits = self.class_predictor(encoder_output)
+        # Shape: [batch_size, seq_len, n_classes]
 
         return {
             "class_logits": class_logits,
             "encoder_output": encoder_output,
-            "decoder_output": decoder_output,
         }
 
     def training_step(self, batch, batch_idx):
@@ -148,8 +133,6 @@ class TabularEncoderDecoder(L.LightningModule):
         outputs = self(
             input_numeric=inputs.numeric,
             input_categorical=inputs.categorical,
-            target_numeric=targets.numeric,
-            target_categorical=targets.categorical,
             deterministic=False,
         )
 
@@ -169,9 +152,9 @@ class TabularEncoderDecoder(L.LightningModule):
         target_classes = targets.categorical[:, class_col_idx, :]
 
         # Reshape for cross-entropy loss
-        batch_size, seq_len, n_classes = class_logits.shape
-        class_logits = class_logits.view(-1, n_classes)
-        target_classes = target_classes.view(-1)
+        _, _, n_classes = class_logits.shape
+        class_logits = class_logits.reshape(-1, n_classes)
+        target_classes = target_classes.reshape(-1)
 
         # Calculate loss
         loss = self.loss_fn(class_logits, target_classes)
@@ -194,8 +177,6 @@ class TabularEncoderDecoder(L.LightningModule):
         outputs = self(
             input_numeric=inputs.numeric,
             input_categorical=inputs.categorical,
-            target_numeric=targets.numeric,
-            target_categorical=targets.categorical,
             deterministic=True,
         )
 
@@ -203,21 +184,11 @@ class TabularEncoderDecoder(L.LightningModule):
         class_logits = outputs["class_logits"]
 
         # Find target classes from categorical targets
-        class_col_idx = None
-        for i, col_name in enumerate(self.config.categorical_col_tokens):
-            if col_name == "class":
-                class_col_idx = i
-                break
-
-        if class_col_idx is None:
-            raise ValueError("'class' column not found in categorical columns")
-
-        target_classes = targets.categorical[:, class_col_idx, :]
 
         # Reshape for cross-entropy loss
-        batch_size, seq_len, n_classes = class_logits.shape
-        class_logits = class_logits.view(-1, n_classes)
-        target_classes = target_classes.view(-1)
+        _, _, n_classes = class_logits.shape
+        class_logits = class_logits.reshape(-1, n_classes)
+        target_classes = target_classes.reshape(-1)
 
         # Calculate loss
         loss = self.loss_fn(class_logits, target_classes)
@@ -243,13 +214,27 @@ class TabularEncoderDecoder(L.LightningModule):
         if isinstance(batch, NumericCategoricalData):
             inputs = batch
 
+            # Handle numeric inputs if present
+            numeric_input = None
+            if inputs.numeric is not None:
+                numeric_input = (
+                    inputs.numeric.unsqueeze(0)
+                    if inputs.numeric.dim() == 2
+                    else inputs.numeric
+                )
+
+            # Handle categorical inputs if present
+            categorical_input = None
+            if inputs.categorical is not None:
+                categorical_input = (
+                    inputs.categorical.unsqueeze(0)
+                    if inputs.categorical.dim() == 2
+                    else inputs.categorical
+                )
+
             outputs = self(
-                input_numeric=inputs.numeric.unsqueeze(0)
-                if inputs.numeric.dim() == 2
-                else inputs.numeric,
-                input_categorical=inputs.categorical.unsqueeze(0)
-                if inputs.categorical is not None and inputs.categorical.dim() == 2
-                else inputs.categorical,
+                input_numeric=numeric_input,
+                input_categorical=categorical_input,
                 deterministic=True,
             )
 
@@ -267,9 +252,15 @@ class TabularEncoderDecoder(L.LightningModule):
         else:
             inputs = batch
 
+        # Prepare inputs with proper checks
+        numeric_input = inputs.numeric if hasattr(inputs, "numeric") else None
+        categorical_input = (
+            inputs.categorical if hasattr(inputs, "categorical") else None
+        )
+
         outputs = self(
-            input_numeric=inputs.numeric,
-            input_categorical=inputs.categorical,
+            input_numeric=numeric_input,
+            input_categorical=categorical_input,
             deterministic=True,
         )
 

@@ -69,28 +69,38 @@ class EncoderDecoderDataset(Dataset):
 
     def _separate_inputs_targets(self):
         """Separates the inputs (features) from targets (class labels)."""
-        # Inputs: All features except the target column
+        # Initialize input dataframes as copies of the full numeric/categorical dfs
+        self.df_input_numeric = self.df_numeric.copy()
+        self.df_input_categorical = self.df_categorical.copy()
+
+        # Initialize target dataframes. They will be populated if the target is found.
+        # Ensure they have the same index as the main dataframes.
+        # If self.df_numeric or self.df_categorical is empty, their index will be empty,
+        # leading to empty target dataframes, which is handled by _get_tensor_from_df.
+        self.df_target_numeric = pd.DataFrame(index=self.df_numeric.index)
+        self.df_target_categorical = pd.DataFrame(index=self.df_categorical.index)
+
         if self.target_col in self.df_categorical.columns:
-            # Create copies to avoid modifying the originals
-            self.df_input_categorical = self.df_categorical.copy()
+            # Target is categorical
             self.df_target_categorical = self.df_categorical[[self.target_col]].copy()
-
-            # Remove target column from input features
-            self.df_input_categorical = self.df_input_categorical.drop(
-                columns=[self.target_col]
-            )
+            # Remove target column from input categorical features, if it exists there
+            if self.target_col in self.df_input_categorical.columns:
+                self.df_input_categorical = self.df_input_categorical.drop(
+                    columns=[self.target_col]
+                )
         elif self.target_col in self.df_numeric.columns:
-            # Create copies to avoid modifying the originals
-            self.df_input_numeric = self.df_numeric.copy()
+            # Target is numeric
             self.df_target_numeric = self.df_numeric[[self.target_col]].copy()
-
-            # Remove target column from input features
-            self.df_input_numeric = self.df_input_numeric.drop(
-                columns=[self.target_col]
-            )
+            # Remove target column from input numeric features, if it exists there
+            if self.target_col in self.df_input_numeric.columns:
+                self.df_input_numeric = self.df_input_numeric.drop(
+                    columns=[self.target_col]
+                )
         else:
             raise ValueError(
-                f"Target column '{self.target_col}' not found in DataFrame"
+                f"Target column '{self.target_col}' not found in DataFrame columns. "
+                f"Available numeric columns: {self.df_numeric.columns.tolist()}. "
+                f"Available categorical columns: {self.df_categorical.columns.tolist()}."
             )
 
     def __len__(self):
@@ -132,7 +142,8 @@ class EncoderDecoderDataset(Dataset):
             idx: Integer index or slice object
 
         Returns:
-            Tuple containing (inputs, targets), where both are NumericCategoricalData objects
+            Tuple containing (inputs, targets), where both are NumericCategoricalData
+            objects
         """
         # Handle slice indexing
         if isinstance(idx, slice):

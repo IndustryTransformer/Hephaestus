@@ -259,8 +259,13 @@ class TimeSeriesTransformer(nn.Module):
 
         self.pos_encoder = PositionalEncoding(max_len=8192, d_pos_encoding=d_model)
 
-    def process_numeric(self, numeric_inputs: torch.Tensor) -> ProcessedEmbeddings:
+    def process_numeric(
+        self, numeric_inputs: Optional[torch.Tensor]
+    ) -> ProcessedEmbeddings:
         """Processes the numeric inputs for the transformer model."""
+        if numeric_inputs is None:
+            return ProcessedEmbeddings(value_embeddings=None, column_embeddings=None)
+
         device = numeric_inputs.device
         batch_size, num_cols, seq_len = numeric_inputs.shape
         base_indices = torch.arange(num_cols, device=device)
@@ -411,6 +416,12 @@ class TimeSeriesTransformer(nn.Module):
         self, numeric: ProcessedEmbeddings, categorical: ProcessedEmbeddings
     ) -> ProcessedEmbeddings:
         """Combines numeric and categorical embeddings."""
+        # Handle None inputs
+        if numeric is None:
+            numeric = ProcessedEmbeddings(None, None)
+        if categorical is None:
+            categorical = ProcessedEmbeddings(None, None)
+
         if (
             numeric.value_embeddings is not None
             and categorical.value_embeddings is not None
@@ -456,7 +467,8 @@ class TimeSeriesTransformer(nn.Module):
         elif categorical_inputs is not None:
             mask_input = categorical_inputs
         else:
-            raise ValueError("No numeric or categorical inputs provided.")
+            # If both inputs are None, return None (no masking needed)
+            return None
 
         # Create causal mask (lower triangular)
         seq_len = mask_input.size(2)
@@ -488,10 +500,13 @@ class TimeSeriesTransformer(nn.Module):
         causal_mask: bool = True,
     ):
         """Forward pass of the transformer model."""
-        device = numeric_inputs.device
+        # Get device from parameters
         device = next(self.parameters()).device
-        numeric_inputs = numeric_inputs.to(device, dtype=torch.float32)
+
         # Ensure all inputs are on the same device
+        if numeric_inputs is not None:
+            numeric_inputs = numeric_inputs.to(device, dtype=torch.float32)
+
         if categorical_inputs is not None:
             categorical_inputs = categorical_inputs.to(device, dtype=torch.float32)
 
@@ -500,7 +515,7 @@ class TimeSeriesTransformer(nn.Module):
             numeric_inputs = torch.tensor(
                 numeric_inputs,
                 dtype=torch.float32,
-                device=next(self.parameters()).device,
+                device=device,
             )
 
         if categorical_inputs is not None and not isinstance(
@@ -509,12 +524,18 @@ class TimeSeriesTransformer(nn.Module):
             categorical_inputs = torch.tensor(
                 categorical_inputs,
                 dtype=torch.float32,
-                device=next(self.parameters()).device,
+                device=device,
             )
 
-        ic(numeric_inputs.shape, categorical_inputs.shape)
-        processed_numeric = self.process_numeric(numeric_inputs)
-        processed_categorical = self.process_categorical(categorical_inputs)
+        # Process inputs
+        processed_numeric = (
+            self.process_numeric(numeric_inputs) if numeric_inputs is not None else None
+        )
+        processed_categorical = (
+            self.process_categorical(categorical_inputs)
+            if categorical_inputs is not None
+            else None
+        )
 
         combined_inputs = self.combine_inputs(processed_numeric, processed_categorical)
 

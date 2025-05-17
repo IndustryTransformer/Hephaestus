@@ -56,12 +56,14 @@ class TimeSeriesConfig:
     n_columns: int = None
 
     @classmethod
-    def generate(cls, df: pd.DataFrame) -> "TimeSeriesConfig":
+    def generate(cls, df: pd.DataFrame, target: str = None) -> "TimeSeriesConfig":
         """
         Generate a TimeSeriesConfig object based on the given DataFrame.
 
         Args:
             df (pd.DataFrame): The DataFrame containing the data.
+            target (str, optional):
+                The name of the target column to exclude from input features.
 
         Returns:
             TimeSeriesConfig: The generated TimeSeriesConfig object.
@@ -86,12 +88,24 @@ class TimeSeriesConfig:
         cls_dict["numeric_mask"] = "[NUMERIC_MASK]"
         numeric_mask = cls_dict["numeric_mask"]
         # Remove check on idx
-        cls_dict["numeric_col_tokens"] = [
-            col_name for col_name in df.select_dtypes(include="number").columns
-        ]
-        cls_dict["categorical_col_tokens"] = [
-            col_name for col_name in df.select_dtypes(include="object").columns
-        ]
+        if target is not None:
+            cls_dict["numeric_col_tokens"] = [
+                col_name
+                for col_name in df.select_dtypes(include="number").columns
+                if col_name != target
+            ]
+            cls_dict["categorical_col_tokens"] = [
+                col_name
+                for col_name in df.select_dtypes(include="object").columns
+                if col_name != target
+            ]
+        else:
+            cls_dict["numeric_col_tokens"] = [
+                col_name for col_name in df.select_dtypes(include="number").columns
+            ]
+            cls_dict["categorical_col_tokens"] = [
+                col_name for col_name in df.select_dtypes(include="object").columns
+            ]
         # Get all the unique values in the categorical columns and add them to the tokens
         unique_values_per_column = df_categorical.apply(pd.Series.unique).values
         flattened_unique_values = np.concatenate(unique_values_per_column).tolist()
@@ -125,7 +139,7 @@ class TimeSeriesConfig:
         numeric_mask_token = tokens.index(numeric_mask)
         cls_dict["numeric_mask_token"] = numeric_mask_token
         # Make custom vocab by splitting on snake case, camel case, spaces and numbers
-        reservoir_vocab = [split_complex_word(word) for word in token_dict.keys()]
+        reservoir_vocab = [split_complex_word(word) for word in token_dict]
         # flatten the list, make a set and then list again
         reservoir_vocab = list(
             set([item for sublist in reservoir_vocab for item in sublist])
