@@ -107,57 +107,43 @@ class TabularEncoderDecoder(L.LightningModule):
             numeric_inputs=input_numeric,
             categorical_inputs=input_categorical,
             deterministic=deterministic,
-            causal_mask=False,  # No causal masking
-        )
+            causal_mask=False,
+        )  # [batch, num_features, seq_len, d_model]
 
-        # Extract features for classification - get features for each element/row
+        batch_size, num_features, seq_len, d_model = encoder_output.shape
 
-        # Get features for the class token across all sequence positions
-        # features = encoder_output[:, self.class_token_index, :, :]
-        # Shape: [batch_size, seq_len, d_model]
+        # Pool across features (mean or max)
+        pooled = encoder_output.mean(dim=1)  # [batch, seq_len, d_model]
+        # pooled = encoder_output.max(dim=1).values  # Alternative: max pooling
 
-        # Apply classification head to predict class logits for each element
-        class_logits = self.class_predictor(encoder_output)
-        # Shape: [batch_size, seq_len, n_classes]
+        # Flatten for FC: [batch * seq_len, d_model]
+        x = pooled.contiguous().view(-1, d_model)  # [batch * seq_len, d_model]
 
-        return {
-            "class_logits": class_logits,
-            "encoder_output": encoder_output,
-        }
+        # Pass through FC
+        class_logits = self.class_predictor(x)  # [batch * seq_len, n_classes]
+
+        # Reshape back: [batch, 1, seq_len, n_classes]
+        class_logits = class_logits.view(batch_size, 1, seq_len, -1)
+        class_logits = class_logits.permute(0, 3, 1, 2)
+        return class_logits  # [batch, 1, seq_len, n_classes]
 
     def training_step(self, batch, batch_idx):
         """Training step for Lightning module."""
         inputs, targets = batch
 
         # Forward pass
-        outputs = self(
+        class_logits = self(
             input_numeric=inputs.numeric,
             input_categorical=inputs.categorical,
             deterministic=False,
         )
 
-        # Get class logits and target classes
-        class_logits = outputs["class_logits"]
+        target_classes = batch[1].categorical
 
-        # Find target classes from categorical targets
-        class_col_idx = None
-        for i, col_name in enumerate(self.config.categorical_col_tokens):
-            if col_name == "class":
-                class_col_idx = i
-                break
-
-        if class_col_idx is None:
-            raise ValueError("'class' column not found in categorical columns")
-
-        target_classes = targets.categorical[:, class_col_idx, :]
-
-        # Reshape for cross-entropy loss
-        _, _, n_classes = class_logits.shape
-        class_logits = class_logits.reshape(-1, n_classes)
-        target_classes = target_classes.reshape(-1)
-
+        print(f"Debug - Class logits shape: {class_logits.shape}")
+        print(f"Debug - Target classes shape: {target_classes.shape}")
         # Calculate loss
-        loss = self.loss_fn(class_logits, target_classes)
+        loss = self.loss_fn(class_logits, target_classes.long())
 
         # Calculate accuracy
         predictions = torch.argmax(class_logits, dim=-1)
@@ -172,26 +158,29 @@ class TabularEncoderDecoder(L.LightningModule):
     def validation_step(self, batch, batch_idx):
         """Validation step for Lightning module."""
         inputs, targets = batch
-
+        print(
+            f"inputs.numeric shape: {inputs.numeric.shape if inputs.numeric is not None else None}"
+        )
+        print(
+            f"inputs.categorical shape: {inputs.categorical.shape if inputs.categorical is not None else None}"
+        )
+        print(
+            f"targets.categorical shape: {targets.categorical.shape if hasattr(targets, 'categorical') else None}"
+        )
         # Forward pass
-        outputs = self(
+        class_logits = self(
             input_numeric=inputs.numeric,
             input_categorical=inputs.categorical,
             deterministic=True,
         )
 
-        # Get class logits and target classes
-        class_logits = outputs["class_logits"]
-
-        # Find target classes from categorical targets
-
-        # Reshape for cross-entropy loss
-        _, _, n_classes = class_logits.shape
-        class_logits = class_logits.reshape(-1, n_classes)
-        target_classes = target_classes.reshape(-1)
+        # Extract the actual shapes
+        target_classes = targets.categorical
+        print(f"Debug - Class logits original shape: {class_logits.shape}")
+        print(f"Debug - Targets categorical shape: {target_classes.shape}")
 
         # Calculate loss
-        loss = self.loss_fn(class_logits, target_classes)
+        loss = self.loss_fn(class_logits, target_classes.long())
 
         # Calculate accuracy
         predictions = torch.argmax(class_logits, dim=-1)
@@ -211,60 +200,16 @@ class TabularEncoderDecoder(L.LightningModule):
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         """Prediction step for Lightning module."""
         # For single item prediction
-        if isinstance(batch, NumericCategoricalData):
-            inputs = batch
 
-            # Handle numeric inputs if present
-            numeric_input = None
-            if inputs.numeric is not None:
-                numeric_input = (
-                    inputs.numeric.unsqueeze(0)
-                    if inputs.numeric.dim() == 2
-                    else inputs.numeric
-                )
-
-            # Handle categorical inputs if present
-            categorical_input = None
-            if inputs.categorical is not None:
-                categorical_input = (
-                    inputs.categorical.unsqueeze(0)
-                    if inputs.categorical.dim() == 2
-                    else inputs.categorical
-                )
-
-            outputs = self(
-                input_numeric=numeric_input,
-                input_categorical=categorical_input,
-                deterministic=True,
-            )
-
-            class_logits = outputs["class_logits"]
-            predictions = torch.argmax(class_logits, dim=-1)
-
-            return {
-                "class_predictions": predictions,
-                "class_logits": class_logits,
-            }
-
-        # For batch prediction
-        if isinstance(batch, tuple) and len(batch) == 2:
-            inputs, _ = batch
-        else:
-            inputs = batch
-
-        # Prepare inputs with proper checks
-        numeric_input = inputs.numeric if hasattr(inputs, "numeric") else None
-        categorical_input = (
-            inputs.categorical if hasattr(inputs, "categorical") else None
-        )
+        inputs = batch[0]
 
         outputs = self(
-            input_numeric=numeric_input,
-            input_categorical=categorical_input,
+            input_numeric=inputs.numeric,
+            input_categorical=inputs.categorical,
             deterministic=True,
         )
 
-        class_logits = outputs["class_logits"]
+        class_logits = outputs
         predictions = torch.argmax(class_logits, dim=-1)
 
         return {
