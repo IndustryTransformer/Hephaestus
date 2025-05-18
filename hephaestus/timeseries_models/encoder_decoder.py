@@ -138,13 +138,16 @@ class TabularEncoderDecoder(L.LightningModule):
             deterministic=False,
         )
 
-        target_classes = batch[1].categorical
+        target_classes = targets.categorical  # [batch, seq_len]
+        class_logits = class_logits.squeeze(2)  # [batch, n_classes, seq_len]
 
-        print(f"Debug - Class logits shape: {class_logits.shape}")
-        print(f"Debug - Target classes shape: {target_classes.shape}")
+        # Flatten for loss
+        class_logits = class_logits.permute(0, 2, 1).reshape(
+            -1, class_logits.size(1)
+        )  # [batch*seq_len, n_classes]
+        target_classes = target_classes.reshape(-1)  # [batch*seq_len]
+
         # Calculate loss
-        print("Class Logits: ", class_logits)
-        print("Target Classes: ", target_classes)
         loss = self.loss_fn(class_logits, target_classes.long())
 
         # Calculate accuracy
@@ -160,15 +163,7 @@ class TabularEncoderDecoder(L.LightningModule):
     def validation_step(self, batch, batch_idx):
         """Validation step for Lightning module."""
         inputs, targets = batch
-        print(
-            f"inputs.numeric shape: {inputs.numeric.shape if inputs.numeric is not None else None}"
-        )
-        print(
-            f"inputs.categorical shape: {inputs.categorical.shape if inputs.categorical is not None else None}"
-        )
-        print(
-            f"targets.categorical shape: {targets.categorical.shape if hasattr(targets, 'categorical') else None}"
-        )
+
         # Forward pass
         class_logits = self(
             input_numeric=inputs.numeric,
@@ -176,14 +171,16 @@ class TabularEncoderDecoder(L.LightningModule):
             deterministic=True,
         )
 
-        # Extract the actual shapes
-        target_classes = targets.categorical
-        print(f"Debug - Class logits original shape: {class_logits.shape}")
-        print(f"Debug - Targets categorical shape: {target_classes.shape}")
+        target_classes = targets.categorical  # [batch, seq_len]
+        class_logits = class_logits.squeeze(2)  # [batch, n_classes, seq_len]
+
+        # Flatten for loss
+        class_logits = class_logits.permute(0, 2, 1).reshape(
+            -1, class_logits.size(1)
+        )  # [batch*seq_len, n_classes]
+        target_classes = target_classes.reshape(-1)  # [batch*seq_len]
 
         # Calculate loss
-        print("Class Logits: ", class_logits)
-        print("Target Classes: ", target_classes)
         loss = self.loss_fn(class_logits, target_classes.long())
 
         # Calculate accuracy

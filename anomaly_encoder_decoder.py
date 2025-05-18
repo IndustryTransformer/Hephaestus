@@ -144,7 +144,7 @@ encoder_decoder_model = TabularEncoderDecoder(
     d_model=D_MODEL,
     n_heads=N_HEADS,
     learning_rate=LEARNING_RATE,
-    classification_values=train_ds.classification_values,
+    classification_values=list(events_names.values()),
 )
 
 # Setup training with PyTorch Lightning
