@@ -143,6 +143,8 @@ class TabularEncoderDecoder(L.LightningModule):
         print(f"Debug - Class logits shape: {class_logits.shape}")
         print(f"Debug - Target classes shape: {target_classes.shape}")
         # Calculate loss
+        print("Class Logits: ", class_logits)
+        print("Target Classes: ", target_classes)
         loss = self.loss_fn(class_logits, target_classes.long())
 
         # Calculate accuracy
@@ -180,6 +182,8 @@ class TabularEncoderDecoder(L.LightningModule):
         print(f"Debug - Targets categorical shape: {target_classes.shape}")
 
         # Calculate loss
+        print("Class Logits: ", class_logits)
+        print("Target Classes: ", target_classes)
         loss = self.loss_fn(class_logits, target_classes.long())
 
         # Calculate accuracy

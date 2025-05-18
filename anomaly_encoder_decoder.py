@@ -116,10 +116,14 @@ train_idx = int(df.idx.max() * 0.8)
 train_df = df.loc[df.idx < train_idx].copy()
 test_df = df.loc[df.idx >= train_idx].copy()
 
-
+event_targets = {v: k for k, v in events_names.items()}
 # Create encoder-decoder datasets
-train_ds = EncoderDecoderDataset(train_df, time_series_config, target_col="class")
-test_ds = EncoderDecoderDataset(test_df, time_series_config, target_col="class")
+train_ds = EncoderDecoderDataset(
+    train_df, time_series_config, target_col="class", target_values=event_targets
+)
+test_ds = EncoderDecoderDataset(
+    test_df, time_series_config, target_col="class", target_values=event_targets
+)
 
 print(f"Training samples: {len(train_ds)}, Test samples: {len(test_ds)}")
 

@@ -31,6 +31,7 @@ class EncoderDecoderDataset(Dataset):
         self,
         df: pd.DataFrame,
         config: TimeSeriesConfig,
+        target_values: dict,
         target_col: str = "class",
     ):
         self.max_seq_len = df.groupby("idx").size().max()
@@ -43,18 +44,23 @@ class EncoderDecoderDataset(Dataset):
 
         # Convert categorical columns to integer tokens
         df_categorical = df.select_dtypes(include=["object"]).astype(str)
+
+        series_target_categorical = df_categorical[self.target_col].copy()
+        series_target_categorical = series_target_categorical.map(target_values)
+        self.df_target_categorical = series_target_categorical.to_frame()
+        df_categorical = df_categorical.drop(columns=[self.target_col])
         self.df_categorical = self._convert_object_to_int_tokens(
             df_categorical, config.token_dict
         )
 
         # All numeric columns except the target become input features
         self.df_numeric = df.select_dtypes(include="number")
-
+        self.df_input_numeric = self.df_numeric.copy()
+        self.df_input_categorical = self.df_categorical.copy()
         self.classification_values = df[
             self.target_col
         ].unique()  # TODO Fix this for regression as
         # Separate inputs and targets
-        self._separate_inputs_targets()
 
         # Store unique indices and config
         self.unique_indices = sorted(df.index.unique())
@@ -66,42 +72,6 @@ class EncoderDecoderDataset(Dataset):
         for col in df.select_dtypes(include="object").columns:
             df[col] = df[col].map(token_dict)
         return df
-
-    def _separate_inputs_targets(self):
-        """Separates the inputs (features) from targets (class labels)."""
-        # Initialize input dataframes as copies of the full numeric/categorical dfs
-        self.df_input_numeric = self.df_numeric.copy()
-        self.df_input_categorical = self.df_categorical.copy()
-
-        # Initialize target dataframes. They will be populated if the target is found.
-        # Ensure they have the same index as the main dataframes.
-        # If self.df_numeric or self.df_categorical is empty, their index will be empty,
-        # leading to empty target dataframes, which is handled by _get_tensor_from_df.
-        self.df_target_numeric = pd.DataFrame(index=self.df_numeric.index)
-        self.df_target_categorical = pd.DataFrame(index=self.df_categorical.index)
-
-        if self.target_col in self.df_categorical.columns:
-            # Target is categorical
-            self.df_target_categorical = self.df_categorical[[self.target_col]].copy()
-            # Remove target column from input categorical features, if it exists there
-            if self.target_col in self.df_input_categorical.columns:
-                self.df_input_categorical = self.df_input_categorical.drop(
-                    columns=[self.target_col]
-                )
-        elif self.target_col in self.df_numeric.columns:
-            # Target is numeric
-            self.df_target_numeric = self.df_numeric[[self.target_col]].copy()
-            # Remove target column from input numeric features, if it exists there
-            if self.target_col in self.df_input_numeric.columns:
-                self.df_input_numeric = self.df_input_numeric.drop(
-                    columns=[self.target_col]
-                )
-        else:
-            raise ValueError(
-                f"Target column '{self.target_col}' not found in DataFrame columns. "
-                f"Available numeric columns: {self.df_numeric.columns.tolist()}. "
-                f"Available categorical columns: {self.df_categorical.columns.tolist()}."
-            )
 
     def __len__(self):
         """Return the length of the dataset."""
