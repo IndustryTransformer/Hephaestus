@@ -20,6 +20,7 @@ from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.preprocessing import StandardScaler
+from torch import nn
 from torch.utils.data import DataLoader
 
 import hephaestus as hp
@@ -83,11 +84,15 @@ events_names = {
     6: "Quick Restriction in PCK",
     7: "Scaling in PCK",
     8: "Hydrate in Production Line",
+    9: "missing",
 }
 
 # Apply the mapping to the 'class' column
+df["class"] = df["class"].fillna(9)  # IDK why this didn't filter
 df["class"] = df["class"].map(events_names)
-
+print(f"DF shape: {df.shape[0]:,} rows, {df.shape[1]:,} columns")
+df = df.loc[df["class"].notna()]
+print(f"DF shape after filtering: {df.shape[0]:,} rows, {df.shape[1]:,} columns")
 # %%
 # Add some categorical columns for demonstration
 df["dummy_category"] = "dummy"
@@ -135,7 +140,7 @@ print(f"Training samples: {len(train_ds)}, Test samples: {len(test_ds)}")
 N_HEADS = 8 * 4
 D_MODEL = 512
 LEARNING_RATE = 1e-4
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 MAX_EPOCHS = 10
 
 # Create the encoder-decoder model
@@ -175,9 +180,33 @@ test_dl = DataLoader(
     persistent_workers=True,
 )
 
+
+# %% [markdown]
+# ## Test model forward step
+# %%
+inputs, targets = train_ds[0:32]
+# Forward pass through the model
+output = encoder_decoder_model(
+    input_numeric=inputs.numeric,
+    input_categorical=inputs.categorical,
+    deterministic=True,  # Set to True for inference
+)
+loss = nn.CrossEntropyLoss()
+# Calculate loss
+target_classes = targets.categorical  # [batch, seq_len]
+class_logits = output.squeeze(2)  # [batch, n_classes, seq_len]
+# Flatten for loss
+class_logits = class_logits.permute(0, 2, 1).reshape(
+    -1, class_logits.size(1)
+)  # [batch*seq_len, n_classes]
+target_classes = target_classes.reshape(-1)  # [batch*seq_len]
+# Calculate loss
+loss_value = loss(class_logits, target_classes.long())
+print(f"Output shape: {output.shape}")
+print(f"Loss value: {loss_value.item()}")
 # Test a prediction before training
-sample_batch = next(iter(train_dl))
-encoder_decoder_model.predict_step(sample_batch, batch_idx=0)
+# sample_batch = next(iter(train_dl))
+# encoder_decoder_model.predict_step(sample_batch, batch_idx=0)
 
 # %%
 # Train the model
@@ -297,4 +326,11 @@ except Exception as e:
     print(f"Could not load decoder-only model for comparison: {e}")
     print("Skipping comparison...")
 
+# %%
+nan_list = []
+for idx, batch in enumerate(train_ds):
+    inputs, targets = batch
+    if torch.isnan(targets.categorical.float()).any():
+        print(f"Found NaN values in targets.categorical at batch {idx}")
+        nan_list.append(idx)
 # %%

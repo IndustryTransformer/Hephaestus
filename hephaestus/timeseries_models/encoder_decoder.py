@@ -146,8 +146,22 @@ class TabularEncoderDecoder(L.LightningModule):
             -1, class_logits.size(1)
         )  # [batch*seq_len, n_classes]
         target_classes = target_classes.reshape(-1)  # [batch*seq_len]
-
+        valid_mask = ~torch.isnan(target_classes)  # Mask for valid targets
+        target_classes = target_classes[valid_mask]  # Remove NaNs
+        class_logits = class_logits[valid_mask]
         # Calculate loss
+
+        # if torch.isnan(class_logits).any():
+        #     print(
+        #         "NaNs found in class_logits at indices:",
+        #         torch.nonzero(torch.isnan(class_logits)),
+        #     )
+        # if torch.isnan(target_classes).any():
+        #     print(
+        #         "NaNs found in target_classes at indices:",
+        #         torch.nonzero(torch.isnan(target_classes)),
+        #     )
+
         loss = self.loss_fn(class_logits, target_classes.long())
 
         # Calculate accuracy
