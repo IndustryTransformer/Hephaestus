@@ -214,22 +214,26 @@ class TabularEncoderDecoder(L.LightningModule):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
         return optimizer
 
-    def predict_step(self, batch, batch_idx, dataloader_idx=0):
-        """Prediction step for Lightning module."""
-        # For single item prediction
+    def predict_step(self, batch, batch_idx=0, dataloader_idx=0):
+        """Prediction step for Lightning module.
 
-        inputs = batch[0]
+        Returns predictions and targets for evaluation.
+        """
+        # Extract inputs and targets from batch
+        inputs, targets = batch
 
+        # Forward pass
         outputs = self(
             input_numeric=inputs.numeric,
             input_categorical=inputs.categorical,
             deterministic=True,
         )
 
+        # Get predictions
         class_logits = outputs
-        predictions = torch.argmax(class_logits, dim=-1)
+        predictions = torch.argmax(class_logits, dim=1)  # [batch, seq_len, 1]
 
-        return {
-            "class_predictions": predictions,
-            "class_logits": class_logits,
-        }
+        # Extract targets for comparison
+        target_classes = targets.categorical  # [batch, seq_len]
+
+        return {"predictions": predictions, "targets": target_classes}

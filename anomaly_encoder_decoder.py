@@ -9,12 +9,12 @@
 import os
 from datetime import datetime as dt
 
-import matplotlib.pyplot as plt
+import altair as alt
 import numpy as np
 import pandas as pd
 import pytorch_lightning as L
-import seaborn as sns
 import torch
+from IPython.display import display
 from icecream import ic
 from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -119,6 +119,7 @@ time_series_config = hp.TimeSeriesConfig.generate(df=df, target="class")
 # Split into train and test sets
 train_idx = int(df.idx.max() * 0.8)
 train_df = df.loc[df.idx < train_idx].copy()
+train_df = train_df.head(10000)  # Limit to 10k samples for faster training
 test_df = df.loc[df.idx >= train_idx].copy()
 
 event_targets = {v: k for k, v in events_names.items()}
@@ -140,8 +141,8 @@ print(f"Training samples: {len(train_ds)}, Test samples: {len(test_ds)}")
 N_HEADS = 8 * 4
 D_MODEL = 512
 LEARNING_RATE = 1e-4
-BATCH_SIZE = 16
-MAX_EPOCHS = 10
+BATCH_SIZE = 64
+MAX_EPOCHS = 1
 
 # Create the encoder-decoder model
 encoder_decoder_model = TabularEncoderDecoder(
@@ -213,124 +214,141 @@ print(f"Loss value: {loss_value.item()}")
 trainer.fit(encoder_decoder_model, train_dl, test_dl)
 
 # %% [markdown]
-# ## Evaluate the Model
+# ## Evaluate
+# %%
+# Use PyTorch Lightning's built-in prediction functionality for efficiency
+print("Starting prediction with PyTorch Lightning...")
 
-# %%    # Make predictions on test data
-predictions = []
-targets = []
+# Using the trainer's predict method is much faster than manual looping
+predictions_list = trainer.predict(encoder_decoder_model, test_dl)
 
-for batch in test_dl:
-    inputs, target_batch = batch
-    pred_output = encoder_decoder_model.predict_step(batch, batch_idx=0)
+# Process all predictions at once
+all_preds = []
+all_targets = []
 
-    # Get class predictions for all elements in the sequence
-    batch_preds = pred_output["class_predictions"].cpu().numpy()
+# Extract predictions and targets from each batch result
+for pred_batch in predictions_list:
+    batch_preds = pred_batch["predictions"]  # [batch, seq_len]
+    batch_targets = pred_batch["targets"]  # [batch, seq_len]
 
-    # Get target classes from categorical targets
-    class_col_idx = None
-    for i, col_name in enumerate(time_series_config.categorical_col_tokens):
-        if col_name == "class":
-            class_col_idx = i
-            break
+    # Flatten predictions and targets
+    batch_preds = batch_preds.reshape(-1).cpu().numpy()
+    batch_targets = batch_targets.reshape(-1).cpu().numpy()
 
-    batch_targets = target_batch.categorical[:, class_col_idx, :].cpu().numpy()
+    # Filter out any NaN targets
+    valid_mask = ~np.isnan(batch_targets)
+    batch_preds = batch_preds[valid_mask]
+    batch_targets = batch_targets[valid_mask]
 
-    # Flatten the predictions and targets
-    predictions.extend(batch_preds.flatten())
-    targets.extend(batch_targets.flatten())
+    all_preds.extend(batch_preds)
+    all_targets.extend(batch_targets)
 
-# Convert token indices back to class names
-id_to_class = {
-    v: k for k, v in time_series_config.token_dict.items() if k in events_names.values()
-}
+print(f"Done predicting! Collected {len(all_preds):,} predictions.")
 
-pred_classes = [id_to_class.get(p) for p in predictions]
-target_classes = [id_to_class.get(t) for t in targets]
+# Convert to numpy arrays
+predictions = np.array(all_preds).astype(int)
+targets = np.array(all_targets).astype(int)
 
-# Print classification report
-print("\nClassification Report:")
-print(classification_report(target_classes, pred_classes))
+# %%
+print(f"Total predictions: {len(predictions):,}")
+# Create confusion matrix
+cm = confusion_matrix(targets, predictions)
 
-# Plot confusion matrix
-plt.figure(figsize=(12, 10))
-cm = confusion_matrix(target_classes, pred_classes, normalize="true")
-sns.heatmap(
-    cm,
-    annot=True,
-    fmt=".2f",
-    cmap="Blues",
-    xticklabels=events_names.values(),
-    yticklabels=events_names.values(),
+# Map numeric classes back to event names for better readability
+class_names = list(events_names.values())
+
+# Create DataFrame for Altair visualization
+cm_df = pd.DataFrame(cm, index=class_names, columns=class_names)
+cm_df = cm_df.reset_index().melt(id_vars="index")
+cm_df.columns = ["true", "predicted", "count"]
+
+# Create heatmap using Altair
+confusion_chart = (
+    alt.Chart(cm_df)
+    .mark_rect()
+    .encode(
+        x=alt.X("predicted:N", title="Predicted"),
+        y=alt.Y("true:N", title="True"),
+        color=alt.Color("count:Q", scale=alt.Scale(scheme="blues")),
+        tooltip=["true", "predicted", "count"],
+    )
+    .properties(
+        title="Confusion Matrix",
+        width=400,
+        height=400,
+    )
 )
-plt.title("Normalized Confusion Matrix")
-plt.xlabel("Predicted Label")
-plt.ylabel("True Label")
-plt.tight_layout()
-plt.savefig("result_images/anomaly_confusion_matrix.png")
-plt.show()
+
+# Add text overlay for cell values
+text_overlay = (
+    alt.Chart(cm_df)
+    .mark_text(color="black")
+    .encode(
+        x=alt.X("predicted:N"),
+        y=alt.Y("true:N"),
+        text=alt.Text("count:Q", format=",d"),
+    )
+)
+
+# Combine charts
+confusion_plot = confusion_chart + text_overlay
+
+# Display chart
+print("Confusion Matrix created")
+# To display the chart in the notebook, uncomment the line below
+# display(confusion_plot)
 
 # %% [markdown]
-# ## Compare with Previous Decoder-Only Model
+# ## Calculate Accuracy and Other Metrics
 
 # %%
-# Load a pre-trained decoder-only model if available
-try:
-    decoder_only_path = "checkpoints/tabular_decoder_anomaly.ckpt"
-    decoder_only_model = hp.TabularDecoder.load_from_checkpoint(
-        decoder_only_path, config=time_series_config
+# Calculate overall accuracy
+accuracy = np.mean(predictions == targets)
+print(f"Overall accuracy: {accuracy:.4f}")
+
+# Get per-class metrics
+
+print("\nClassification Report:")
+print(classification_report(targets, predictions, target_names=class_names))
+
+# Create a normalized confusion matrix for better visualization
+cm_norm = cm.astype("float") / cm.sum(axis=1)[:, np.newaxis]
+cm_norm_df = pd.DataFrame(cm_norm, index=class_names, columns=class_names)
+cm_norm_df = cm_norm_df.reset_index().melt(id_vars="index")
+cm_norm_df.columns = ["true", "predicted", "percentage"]
+
+# Create normalized confusion matrix heatmap
+norm_confusion_chart = (
+    alt.Chart(cm_norm_df)
+    .mark_rect()
+    .encode(
+        x=alt.X("predicted:N", title="Predicted"),
+        y=alt.Y("true:N", title="True"),
+        color=alt.Color("percentage:Q", scale=alt.Scale(scheme="blues")),
+        tooltip=["true", "predicted", alt.Tooltip("percentage:Q", format=".2%")],
     )
+    .properties(
+        title="Normalized Confusion Matrix",
+        width=400,
+        height=400,
+    )
+)
 
-    # Make predictions with decoder-only model
-    decoder_predictions = []
+# Add text overlay for percentage values
+norm_text_overlay = (
+    alt.Chart(cm_norm_df)
+    .mark_text(color="black")
+    .encode(
+        x=alt.X("predicted:N"),
+        y=alt.Y("true:N"),
+        text=alt.Text("percentage:Q", format=".2%"),
+    )
+)
 
-    for batch in test_dl:
-        inputs, targets = batch
-        # Combine inputs for decoder-only model
-        combined_inputs = hp.NumericCategoricalData(
-            numeric=inputs.numeric, categorical=inputs.categorical
-        )
+# Combine charts
+norm_confusion_plot = norm_confusion_chart + norm_text_overlay
 
-        decoder_output = decoder_only_model.predict_step(combined_inputs)
-        # Extract class predictions
-        # This will depend on your decoder implementation
-
-        # Add to predictions list
-        decoder_predictions.extend(decoder_output.cpu().numpy().flatten())
-
-    # Compare results
-    print("\nEncoder-Decoder vs Decoder-Only Accuracy:")
-    encoder_decoder_acc = (np.array(predictions) == np.array(targets)).mean()
-    decoder_only_acc = (np.array(decoder_predictions) == np.array(targets)).mean()
-
-    print(f"Encoder-Decoder: {encoder_decoder_acc:.4f}")
-    print(f"Decoder-Only: {decoder_only_acc:.4f}")
-
-    # Plot comparison
-    plt.figure(figsize=(8, 6))
-    models = ["Encoder-Decoder", "Decoder-Only"]
-    accuracies = [encoder_decoder_acc, decoder_only_acc]
-
-    plt.bar(models, accuracies, color=["#3498db", "#e74c3c"])
-    plt.ylabel("Accuracy")
-    plt.title("Model Comparison")
-    plt.ylim(0, 1.0)
-
-    for i, v in enumerate(accuracies):
-        plt.text(i, v + 0.01, f"{v:.4f}", ha="center")
-
-    plt.tight_layout()
-    plt.savefig("result_images/anomaly_model_comparison.png")
-    plt.show()
-
-except Exception as e:
-    print(f"Could not load decoder-only model for comparison: {e}")
-    print("Skipping comparison...")
-
-# %%
-nan_list = []
-for idx, batch in enumerate(train_ds):
-    inputs, targets = batch
-    if torch.isnan(targets.categorical.float()).any():
-        print(f"Found NaN values in targets.categorical at batch {idx}")
-        nan_list.append(idx)
-# %%
+# Display normalized confusion matrix
+print("Normalized Confusion Matrix created")
+# To display the chart in the notebook, uncomment the line below
+# display(norm_confusion_plot)
