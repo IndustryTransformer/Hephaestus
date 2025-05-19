@@ -193,7 +193,9 @@ class TabularEncoderDecoder(L.LightningModule):
             -1, class_logits.size(1)
         )  # [batch*seq_len, n_classes]
         target_classes = target_classes.reshape(-1)  # [batch*seq_len]
-
+        valid_mask = ~torch.isnan(target_classes)
+        target_classes = target_classes[valid_mask]
+        class_logits = class_logits[valid_mask]
         # Calculate loss
         loss = self.loss_fn(class_logits, target_classes.long())
 
