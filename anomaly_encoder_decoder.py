@@ -14,8 +14,8 @@ import numpy as np
 import pandas as pd
 import pytorch_lightning as L
 import torch
-from IPython.display import display
 from icecream import ic
+from IPython.display import display
 from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.metrics import classification_report, confusion_matrix
@@ -93,13 +93,51 @@ df["class"] = df["class"].map(events_names)
 print(f"DF shape: {df.shape[0]:,} rows, {df.shape[1]:,} columns")
 df = df.loc[df["class"].notna()]
 print(f"DF shape after filtering: {df.shape[0]:,} rows, {df.shape[1]:,} columns")
-# %%
-# Add some categorical columns for demonstration
-df["dummy_category"] = "dummy"
-df["dummy_category_2"] = "dummy2"
+df = df.sort_values("timestamp")
+# Convert timestamp to datetime if not already
+df["timestamp"] = pd.to_datetime(df["timestamp"])
+plot_df = df.head(1000)
+COLUMN_NAME = "T-TPT"
 
-# Drop timestamp column
-df = df.drop(columns=["timestamp"])  # Eventually convert to numeric with sin/cos
+chart = (
+    alt.Chart(plot_df)
+    .mark_line()
+    .encode(
+        x=alt.X("timestamp:T", title="Timestamp"),
+        y=alt.Y(f"{COLUMN_NAME}:Q", title=COLUMN_NAME),
+        tooltip=["timestamp:T", f"{COLUMN_NAME}:Q"],
+    )
+    .properties(
+        title="P-PDG vs Timestamp (First 500 Rows)",
+        width=800,
+        height=300,
+    )
+)
+display(chart)
+# Seconds in day
+seconds = (
+    df["timestamp"].dt.hour * 3600
+    + df["timestamp"].dt.minute * 60
+    + df["timestamp"].dt.second
+)
+seconds_in_day = 24 * 60 * 60
+df["timestamp_sin"] = np.sin(2 * np.pi * seconds / seconds_in_day)
+df["timestamp_cos"] = np.cos(2 * np.pi * seconds / seconds_in_day)
+
+# Day of year
+day_of_year = df["timestamp"].dt.dayofyear
+days_in_year = 366  # Leap years included for generality
+df["dayofyear_sin"] = np.sin(2 * np.pi * day_of_year / days_in_year)
+df["dayofyear_cos"] = np.cos(2 * np.pi * day_of_year / days_in_year)
+seconds_in_day = 24 * 60 * 60
+
+df = df.drop(columns=["timestamp"])
+# Plot "P-PDG" against timestamp, ordered by timestamp, first 500 rows using Altair
+
+# %%
+# Convert timestamp to cyclical features (sin/cos)
+# Reload the original parquet to get the timestamp column
+
 
 # Normalize numeric columns
 scaler = StandardScaler()
@@ -119,7 +157,7 @@ time_series_config = hp.TimeSeriesConfig.generate(df=df, target="class")
 # Split into train and test sets
 train_idx = int(df.idx.max() * 0.8)
 train_df = df.loc[df.idx < train_idx].copy()
-train_df = train_df.head(10000)  # Limit to 10k samples for faster training
+# train_df = train_df.head(10000)  # Limit to 10k samples for faster training
 test_df = df.loc[df.idx >= train_idx].copy()
 
 event_targets = {v: k for k, v in events_names.items()}
@@ -254,8 +292,14 @@ print(f"Total predictions: {len(predictions):,}")
 # Create confusion matrix
 cm = confusion_matrix(targets, predictions)
 
+# Find the unique classes that are actually present in the data
+unique_classes = np.unique(np.concatenate([predictions, targets]))
+print(f"Unique classes in predictions and targets: {unique_classes}")
+
 # Map numeric classes back to event names for better readability
-class_names = list(events_names.values())
+# Use only the class names that are actually present in the data
+class_names = [events_names[cls] for cls in unique_classes]
+print(f"Classes present in confusion matrix: {class_names}")
 
 # Create DataFrame for Altair visualization
 cm_df = pd.DataFrame(cm, index=class_names, columns=class_names)
@@ -310,7 +354,7 @@ print(f"Overall accuracy: {accuracy:.4f}")
 
 print("\nClassification Report:")
 print(classification_report(targets, predictions, target_names=class_names))
-
+# %%
 # Create a normalized confusion matrix for better visualization
 cm_norm = cm.astype("float") / cm.sum(axis=1)[:, np.newaxis]
 cm_norm_df = pd.DataFrame(cm_norm, index=class_names, columns=class_names)
@@ -351,4 +395,8 @@ norm_confusion_plot = norm_confusion_chart + norm_text_overlay
 # Display normalized confusion matrix
 print("Normalized Confusion Matrix created")
 # To display the chart in the notebook, uncomment the line below
-# display(norm_confusion_plot)
+
+# %%
+norm_confusion_plot
+
+# %%
