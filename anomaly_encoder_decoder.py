@@ -176,11 +176,11 @@ print(f"Training samples: {len(train_ds)}, Test samples: {len(test_ds)}")
 
 # %%
 # Set hyperparameters
-N_HEADS = 8 * 4
+N_HEADS = 8
 D_MODEL = 512
 LEARNING_RATE = 1e-4
 BATCH_SIZE = 64
-MAX_EPOCHS = 1
+MAX_EPOCHS = 20
 
 # Create the encoder-decoder model
 encoder_decoder_model = TabularEncoderDecoder(
