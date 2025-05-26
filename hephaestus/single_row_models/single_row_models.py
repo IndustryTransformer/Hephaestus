@@ -283,6 +283,50 @@ class TabularEncoderRegressor(nn.Module):
         return out
 
 
+class TabularEncoderClassifier(nn.Module):
+    def __init__(
+        self,
+        model_config: SingleRowConfig,
+        d_model=64,
+        n_heads=4,
+        n_classes=2,  # Default to binary classification
+    ):
+        super(TabularEncoderClassifier, self).__init__()
+        self.d_model = d_model
+        self.tokens = model_config.tokens
+        self.model_config = model_config
+        self.Dropout_rate = 0.2
+        self.dropout = nn.Dropout(self.Dropout_rate)
+        self.tabular_encoder = TabularEncoder(model_config, d_model, n_heads)
+        self.classifier = nn.Sequential(
+            nn.Linear(self.d_model, self.d_model * 2),
+            nn.GELU(),  # Try GELU instead of ReLU
+            nn.Dropout(self.Dropout_rate),
+            nn.Linear(self.d_model * 2, self.d_model * 2),
+            nn.GELU(),
+            nn.Dropout(self.Dropout_rate),
+            nn.Linear(self.d_model * 2, n_classes),  # Output layer for classification
+        )
+
+        self.pooling = AttentionPooling(d_model)
+        # self.pooling = nn.MaxPool3d((1, 1, self.d_model))
+        # self.flatten_layer = nn.Linear(
+        #     self.model_config.n_columns_no_target, 1
+        # )
+        # self.apply(initialize_parameters)
+
+    def forward(self, num_inputs, cat_inputs):
+        out = self.tabular_encoder(num_inputs, cat_inputs)
+        # out = self.pooling(out)  # Could use max pooling too
+        # out = torch.max(out, dim=1)[0]  # [batch_size, d_model]
+        out = self.pooling(out)
+        out = self.dropout(out)
+        # skip = out
+        out = self.classifier(out)
+        # out = out + skip
+        return out
+
+
 class MaskedTabularEncoder(nn.Module):
     def __init__(
         self,
