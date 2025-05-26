@@ -12,5 +12,6 @@ from hephaestus.single_row_models.single_row_utils import (
 )
 from hephaestus.single_row_models.training import (
     TabularRegressor,
+    TabularClassifier,
     MaskedTabularModeling,
 )

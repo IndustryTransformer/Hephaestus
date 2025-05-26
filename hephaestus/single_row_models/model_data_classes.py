@@ -72,16 +72,27 @@ class SingleRowConfig:
     n_numeric_cols: int = None
     n_cat_cols: int = None
     target: str = None
+    target_type: str = (
+        None  # 'regression', 'binary_classification', 'multiclass_classification'
+    )
+    n_classes: int = None  # Number of classes for classification
+    class_to_idx: dict = None  # Mapping from class labels to indices
+    idx_to_class: dict = None  # Mapping from indices to class labels
 
     @classmethod
     def generate(
-        cls, df: pd.DataFrame, target: Optional[str] = None
+        cls,
+        df: pd.DataFrame,
+        target: Optional[str] = None,
+        target_type: str = "regression",
     ) -> "SingleRowConfig":
         """
         Generate a TimeSeriesConfig object based on the given DataFrame.
 
         Args:
             df (pd.DataFrame): The DataFrame containing the data.
+            target (Optional[str]): Target column name.
+            target_type (str): Type of target - 'regression', 'binary_classification', or 'multiclass_classification'.
 
         Returns:
             SingleRowConfig: The generated TimeSeriesConfig object.
@@ -172,6 +183,25 @@ class SingleRowConfig:
         cls_dict["n_columns_no_target"] = len(df.columns) - 1
         cls_dict["vocab_size"] = tokenizer.vocab_size
         cls_dict["target"] = target
+        cls_dict["target_type"] = target_type
+
+        # Handle classification target encoding
+        if target is not None and target_type in [
+            "binary_classification",
+            "multiclass_classification",
+        ]:
+            unique_classes = sorted(df[target].unique())
+            cls_dict["n_classes"] = len(unique_classes)
+            cls_dict["class_to_idx"] = {
+                cls_name: idx for idx, cls_name in enumerate(unique_classes)
+            }
+            cls_dict["idx_to_class"] = {
+                idx: cls_name for idx, cls_name in enumerate(unique_classes)
+            }
+        else:
+            cls_dict["n_classes"] = None
+            cls_dict["class_to_idx"] = None
+            cls_dict["idx_to_class"] = None
 
         cls_dict["n_numeric_cols"] = len(numeric_col_tokens)
         cls_dict["n_cat_cols"] = len(categorical_col_tokens)
@@ -206,8 +236,16 @@ class TabularDS(Dataset):
 
         df = df.copy()  # Prevents changing the original DataFrame
         self.len = len(df)
+        self.config = config
         if config.target is not None:
-            self.target_df = pd.DataFrame(df.pop(config.target))
+            target_series = df.pop(config.target)
+            # Convert classification targets to integer indices
+            if config.target_type in [
+                "binary_classification",
+                "multiclass_classification",
+            ]:
+                target_series = target_series.map(config.class_to_idx)
+            self.target_df = pd.DataFrame(target_series)
         else:
             self.target_df = None
         self.df_categorical = df.select_dtypes(include=["object"]).astype(str)
@@ -226,8 +264,17 @@ class TabularDS(Dataset):
         df = getattr(self, df_name)
 
         batch = df.iloc[set_idx, :]
-        # Convert DataFrame to torch.Tensor directly
-        batch = torch.tensor(batch.values, dtype=torch.float32)
+
+        # Handle different data types for targets
+        if df_name == "target_df" and self.config.target_type in [
+            "binary_classification",
+            "multiclass_classification",
+        ]:
+            # For classification, keep as integers
+            batch = torch.tensor(batch.values, dtype=torch.long)
+        else:
+            # For regression and other data, use float32
+            batch = torch.tensor(batch.values, dtype=torch.float32)
 
         # Add padding
         # batch_len, n_cols = batch.shape

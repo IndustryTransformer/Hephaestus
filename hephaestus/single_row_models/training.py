@@ -3,10 +3,12 @@ from typing import Optional
 import pytorch_lightning as L
 import torch
 from torch import nn
+from torchmetrics import Accuracy, F1Score, AUROC
 
 from hephaestus.single_row_models.model_data_classes import InputsTarget
 from hephaestus.single_row_models.single_row_models import (
     TabularEncoderRegressor,
+    TabularEncoderClassifier,
     MaskedTabularEncoder,
 )
 from hephaestus.utils import NumericCategoricalData
@@ -90,6 +92,131 @@ class TabularRegressor(L.LightningModule):
         }
 
 
+class TabularClassifier(L.LightningModule):
+    def __init__(self, model_config, d_model, n_heads, n_classes=2, lr=1e-3):
+        super().__init__()
+        self.save_hyperparameters()
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.n_classes = n_classes
+        self.lr = lr
+
+        self.model = TabularEncoderClassifier(
+            model_config=model_config,
+            d_model=d_model,
+            n_heads=n_heads,
+            n_classes=n_classes,
+        )
+
+        # Use CrossEntropyLoss for all classification tasks
+        # This handles both binary and multi-class properly
+        self.loss_fn = nn.CrossEntropyLoss()
+
+        # Initialize metrics
+        task_type = "binary" if n_classes == 2 else "multiclass"
+        self.train_accuracy = Accuracy(task=task_type, num_classes=n_classes)
+        self.val_accuracy = Accuracy(task=task_type, num_classes=n_classes)
+        self.train_f1 = F1Score(task=task_type, num_classes=n_classes)
+        self.val_f1 = F1Score(task=task_type, num_classes=n_classes)
+        self.train_auroc = AUROC(task=task_type, num_classes=n_classes)
+        self.val_auroc = AUROC(task=task_type, num_classes=n_classes)
+
+        self.example_input_array = self._create_example_input(3)
+
+    def forward(self, x: Optional[InputsTarget] = None, *args, **kwargs):
+        if x is None:
+            return self.model(
+                kwargs["inputs"]["numeric"], kwargs["inputs"]["categorical"]
+            )
+        return self.model(x.inputs.numeric, x.inputs.categorical)
+
+    def training_step(self, batch: InputsTarget, batch_idx):
+        X = batch.inputs
+        y = batch.target
+        y_hat = self.model(X.numeric, X.categorical)
+
+        # For CrossEntropyLoss, target should be long and 1D
+        y = y.long().squeeze(-1)
+
+        loss = self.loss_fn(y_hat, y)
+        
+        # Calculate metrics
+        preds = torch.argmax(y_hat, dim=1)
+        self.train_accuracy(preds, y)
+        self.train_f1(preds, y)
+        self.train_auroc(y_hat, y)
+        
+        # Log metrics
+        self.log("train_loss", loss)
+        self.log("train_acc", self.train_accuracy, on_step=False, on_epoch=True)
+        self.log("train_f1", self.train_f1, on_step=False, on_epoch=True)
+        self.log("train_auc", self.train_auroc, on_step=False, on_epoch=True)
+        
+        return loss
+
+    def validation_step(self, batch: InputsTarget, batch_idx):
+        X = batch.inputs
+        y = batch.target
+        y_hat = self.model(X.numeric, X.categorical)
+
+        # For CrossEntropyLoss, target should be long and 1D
+        y = y.long().squeeze(-1)
+
+        loss = self.loss_fn(y_hat, y)
+        
+        # Calculate metrics
+        preds = torch.argmax(y_hat, dim=1)
+        self.val_accuracy(preds, y)
+        self.val_f1(preds, y)
+        self.val_auroc(y_hat, y)
+        
+        # Log metrics
+        self.log("val_loss", loss)
+        self.log("val_acc", self.val_accuracy, on_step=False, on_epoch=True)
+        self.log("val_f1", self.val_f1, on_step=False, on_epoch=True)
+        self.log("val_auc", self.val_auroc, on_step=False, on_epoch=True)
+        self.log("lr", self.optimizers().param_groups[0]["lr"])
+        
+        return loss
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=1e-5)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="min",
+            factor=0.1,
+            patience=3,
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "monitor": "val_loss",
+                "frequency": 1,
+            },
+        }
+
+    def predict_step(self, batch: InputsTarget):
+        with torch.no_grad():
+            return self.forward(batch)
+
+    def _create_example_input(self, batch_size: int):
+        numeric = torch.rand(batch_size, self.model.model_config.n_numeric_cols)
+        categorical = torch.randint(
+            0,
+            self.model.model_config.n_tokens,
+            (batch_size, self.model.model_config.n_cat_cols),
+        ).float()
+
+        # Create appropriate target - always integer class indices
+        target = torch.randint(0, self.n_classes, (batch_size,))
+
+        return {
+            "inputs": {"numeric": numeric, "categorical": categorical},
+            "target": target,
+        }
+
+
 def tabular_collate_fn(batch):
     """Custom collate function for NumericCategoricalData objects."""
     numeric_tensors = torch.stack([item.inputs.numeric for item in batch])
@@ -100,10 +227,12 @@ def tabular_collate_fn(batch):
         categorical_tensors = None
     if batch[0].target is not None:
         target_tensors = torch.stack([item.target for item in batch])
-        if target_tensors.dim() == 1:
+        # Only add dimension for regression tasks (float32), not classification (long)
+        # Classification targets should remain 1D for CrossEntropyLoss
+        if target_tensors.dim() == 1 and target_tensors.dtype == torch.float32:
             target_tensors = target_tensors.unsqueeze(
                 -1
-            )  # Ensure target tensors have shape (batch_size, 1)
+            )  # Ensure regression targets have shape (batch_size, 1)
     else:
         target_tensors = None
 
@@ -125,10 +254,12 @@ def masked_tabular_collate_fn(batch):
         categorical_tensors = None
     if batch[0].target is not None:
         target_tensors = torch.stack([item.target for item in batch])
-        if target_tensors.dim() == 1:
+        # Only add dimension for regression tasks (float32), not classification (long)
+        # Classification targets should remain 1D for CrossEntropyLoss
+        if target_tensors.dim() == 1 and target_tensors.dtype == torch.float32:
             target_tensors = target_tensors.unsqueeze(
                 -1
-            )  # Ensure target tensors have shape (batch_size, 1)
+            )  # Ensure regression targets have shape (batch_size, 1)
     else:
         target_tensors = None
 
