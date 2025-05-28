@@ -5,7 +5,6 @@ import torch
 from torch import nn
 
 from hephaestus.timeseries_models.model_data_classes import (
-    NumericCategoricalData,
     TimeSeriesConfig,
 )
 from hephaestus.timeseries_models.models import (

@@ -38,12 +38,10 @@ from sklearn.preprocessing import StandardScaler
 import hephaestus.single_row_models as sr
 from hephaestus.single_row_models.plotting_utils import plot_prediction_analysis
 
-import torch
-import pytorch_lightning as L # noqa: N812
 # ... other imports ...
 
 # Set precision for Tensor Cores (choose 'high' or 'medium')
-torch.set_float32_matmul_precision('high')
+torch.set_float32_matmul_precision("high")
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -429,7 +427,7 @@ rf_results = []
 
 # Train and evaluate models on each data fraction
 for fraction in data_fractions:
-    print(f"\nTraining with {fraction*100}% of labeled data:")
+    print(f"\nTraining with {fraction * 100}% of labeled data:")
 
     # Train tabNCT model
     print("Training tabNCT model...")
@@ -448,7 +446,7 @@ for fraction in data_fractions:
     rf_result = train_random_forest(df_train, df_test, label_ratio=fraction)
     rf_results.append(rf_result)
 
-    print(f"Results with {fraction*100}% of labeled data:")
+    print(f"Results with {fraction * 100}% of labeled data:")
     print(f"  tabNCT MSE: {hep_result['mse']:.3f}, RMSE: {hep_result['rmse']:.3f}")
     print(
         f"  Linear Regression MSE: {lr_result['mse']:.3f}, RMSE: {lr_result['rmse']:.3f}"
@@ -664,7 +662,7 @@ mse_chart_10 = (
         color="Model",
     )
     .properties(
-        title=f"MSE Comparison Across Models with only {(ratio_10_percent*100)}% of data labeled"
+        title=f"MSE Comparison Across Models with only {(ratio_10_percent * 100)}% of data labeled"
     )
 )
 

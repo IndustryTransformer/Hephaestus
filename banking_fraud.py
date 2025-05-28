@@ -30,7 +30,12 @@ from pytorch_lightning.callbacks import (
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, classification_report
+from sklearn.metrics import (
+    accuracy_score,
+    f1_score,
+    roc_auc_score,
+    classification_report,
+)
 
 import hephaestus.single_row_models as sr
 
@@ -315,14 +320,16 @@ with torch.no_grad():
         X = batch.inputs
         y = batch.target
         y_hat = classifier.model(X.numeric, X.categorical)
-        
+
         # Get predictions and probabilities
         probs = torch.softmax(y_hat, dim=1)
         preds = torch.argmax(y_hat, dim=1)
-        
+
         # Convert to numpy and store
         all_predictions.extend(preds.cpu().numpy())
-        all_probabilities.extend(probs[:, 1].cpu().numpy())  # Probability of positive class
+        all_probabilities.extend(
+            probs[:, 1].cpu().numpy()
+        )  # Probability of positive class
         all_targets.extend(y.long().squeeze(-1).cpu().numpy())
 
 # Convert to numpy arrays
@@ -339,11 +346,11 @@ test_auc = roc_auc_score(y_true, y_prob)
 print("=" * 50)
 print("TEST SET EVALUATION RESULTS")
 print("=" * 50)
-print(f"Accuracy: {test_accuracy:.4f} ({test_accuracy*100:.2f}%)")
+print(f"Accuracy: {test_accuracy:.4f} ({test_accuracy * 100:.2f}%)")
 print(f"F1 Score: {test_f1:.4f}")
 print(f"AUC-ROC:  {test_auc:.4f}")
 print("=" * 50)
 print("\nDetailed Classification Report:")
-print(classification_report(y_true, y_pred, target_names=['No Fraud', 'Fraud']))
+print(classification_report(y_true, y_pred, target_names=["No Fraud", "Fraud"]))
 
 # %%

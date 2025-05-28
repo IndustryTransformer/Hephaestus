@@ -195,7 +195,7 @@ def mtm(model, dataset, model_name, epochs=100, batch_size=1000, lr=0.001):
         )
         early_stopping_status = early_stopping(model, test_loss)
         pbar.set_description(
-            f"Epoch {epoch+1}/{epochs} Loss: {loss.item():,.4f} "
+            f"Epoch {epoch + 1}/{epochs} Loss: {loss.item():,.4f} "
             + f"Test Loss: {test_loss.item():,.4f}"
             + f" Early Stopping: {early_stopping.status}"
         )
@@ -265,7 +265,7 @@ def fine_tune_model(
         else:
             early_stopping_status = False
         pbar.set_description(
-            f"Epoch {epoch+1}/{epochs} "
+            f"Epoch {epoch + 1}/{epochs} "
             + f"n_rows: {n_rows:,} "
             + f"Loss: {loss.item():,.2f} "
             + f"Test Loss: {loss_test.item():,.2f} "

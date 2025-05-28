@@ -139,19 +139,19 @@ class TabularClassifier(L.LightningModule):
         y = y.long().squeeze(-1)
 
         loss = self.loss_fn(y_hat, y)
-        
+
         # Calculate metrics
         preds = torch.argmax(y_hat, dim=1)
         self.train_accuracy(preds, y)
         self.train_f1(preds, y)
         self.train_auroc(y_hat, y)
-        
+
         # Log metrics
         self.log("train_loss", loss)
         self.log("train_acc", self.train_accuracy, on_step=False, on_epoch=True)
         self.log("train_f1", self.train_f1, on_step=False, on_epoch=True)
         self.log("train_auc", self.train_auroc, on_step=False, on_epoch=True)
-        
+
         return loss
 
     def validation_step(self, batch: InputsTarget, batch_idx):
@@ -163,20 +163,20 @@ class TabularClassifier(L.LightningModule):
         y = y.long().squeeze(-1)
 
         loss = self.loss_fn(y_hat, y)
-        
+
         # Calculate metrics
         preds = torch.argmax(y_hat, dim=1)
         self.val_accuracy(preds, y)
         self.val_f1(preds, y)
         self.val_auroc(y_hat, y)
-        
+
         # Log metrics
         self.log("val_loss", loss)
         self.log("val_acc", self.val_accuracy, on_step=False, on_epoch=True)
         self.log("val_f1", self.val_f1, on_step=False, on_epoch=True)
         self.log("val_auc", self.val_auroc, on_step=False, on_epoch=True)
         self.log("lr", self.optimizers().param_groups[0]["lr"])
-        
+
         return loss
 
     def configure_optimizers(self):

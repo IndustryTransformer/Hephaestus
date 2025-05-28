@@ -209,4 +209,4 @@ class TabularTransformer(L.LightningModule):
 
     def forward(self, x):
         out = self.model(x.numeric, x.categorical)
-        
+        return out
