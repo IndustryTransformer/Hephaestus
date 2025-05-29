@@ -397,6 +397,6 @@ print("Normalized Confusion Matrix created")
 # To display the chart in the notebook, uncomment the line below
 
 # %%
-norm_confusion_plot
+norm_confusion_plot  # noqa B018
 
 # %%
