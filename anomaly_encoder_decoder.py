@@ -57,22 +57,13 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # %%
 # Define the columns
-columns = [
-    "timestamp",
-    "P-PDG",
-    "P-TPT",
-    "T-TPT",
-    "P-MON-CKP",
-    "T-JUS-CKP",
-    "P-JUS-CKGL",
-    "T-JUS-CKGL",
-    "QGL",
-    "class",
-]
+
 
 # Load the dataset
-df = pd.read_parquet("data/3w_dataset/3w_dataset.parquet")
-
+df = pd.read_parquet("data/combined_3w_real_sample.parquet")
+df = df.head(10_000_000)
+# %%
+# %%
 # Create a dictionary mapping numeric class values to event names
 events_names = {
     0: "Normal",
@@ -84,11 +75,10 @@ events_names = {
     6: "Quick Restriction in PCK",
     7: "Scaling in PCK",
     8: "Hydrate in Production Line",
-    9: "missing",
+    -1: "missing",
 }
-
+# %%
 # Apply the mapping to the 'class' column
-df["class"] = df["class"].fillna(9)  # IDK why this didn't filter
 df["class"] = df["class"].map(events_names)
 print(f"DF shape: {df.shape[0]:,} rows, {df.shape[1]:,} columns")
 df = df.loc[df["class"].notna()]
