@@ -4,13 +4,13 @@ import polars as pl
 df = pl.read_parquet("data/combined_3w_dataset.parquet")
 df.head()
 # %%
-df.shape
+df.shape  # noqa B018
 # %%
 df = df.filter(
     (pl.col("well_name") != "SIMULATED") & (pl.col("well_name") != "UNKNOWN")
 )
 df = df.select(pl.all().exclude("__index_level_0__"))
-df.shape
+df.shape  # noqa B018
 
 # %%
 df = df.with_columns(

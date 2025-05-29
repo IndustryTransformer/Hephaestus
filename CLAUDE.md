@@ -22,8 +22,8 @@ python -m pip install icecream ipywidgets pyarrow seaborn tqdm transformers
 ### Code Quality
 ```bash
 # Run linter and formatter
-ruff check . --fix
-ruff format .
+uvx ruff check . --fix
+uvx ruff format .
 
 # Run pre-commit hooks
 pre-commit run --all-files
