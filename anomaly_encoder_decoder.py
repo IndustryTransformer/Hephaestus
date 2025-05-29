@@ -20,7 +20,6 @@ from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.preprocessing import StandardScaler
-from torch import nn
 from torch.utils.data import DataLoader
 
 import hephaestus as hp
@@ -227,23 +226,6 @@ output = encoder_decoder_model(
     input_categorical=inputs.categorical,
     deterministic=True,  # Set to True for inference
 )
-loss = nn.CrossEntropyLoss()
-# Calculate loss
-target_classes = targets.categorical  # [batch, seq_len]
-class_logits = output.squeeze(2)  # [batch, n_classes, seq_len]
-# Flatten for loss
-class_logits = class_logits.permute(0, 2, 1).reshape(
-    -1, class_logits.size(1)
-)  # [batch*seq_len, n_classes]
-target_classes = target_classes.reshape(-1)  # [batch*seq_len]
-# Calculate loss
-loss_value = loss(class_logits, target_classes.long())
-print(f"Output shape: {output.shape}")
-print(f"Loss value: {loss_value.item()}")
-# Test a prediction before training
-# sample_batch = next(iter(train_dl))
-# encoder_decoder_model.predict_step(sample_batch, batch_idx=0)
-
 # %%
 # Train the model
 trainer.fit(encoder_decoder_model, train_dl, test_dl)
