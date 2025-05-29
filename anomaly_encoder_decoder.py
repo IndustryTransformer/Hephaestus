@@ -62,28 +62,35 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 # Load the dataset
 df = pd.read_parquet("data/combined_3w_real_sample.parquet")
 df = df.head(10_000_000)
+df.drop(columns=["original_filename", "file_class_label", "system_id"], inplace=True)
+# %%
 # %%
 # %%
 # Create a dictionary mapping numeric class values to event names
-events_names = {
-    0: "Normal",
-    1: "Abrupt Increase of BSW",
-    2: "Spurious Closure of DHSV",
-    3: "Severe Slugging",
-    4: "Flow Instability",
-    5: "Rapid Productivity Loss",
-    6: "Quick Restriction in PCK",
-    7: "Scaling in PCK",
-    8: "Hydrate in Production Line",
-    -1: "missing",
-}
+# events_names = {
+#     0: "Normal",
+#     1: "Abrupt Increase of BSW",
+#     2: "Spurious Closure of DHSV",
+#     3: "Severe Slugging",
+#     4: "Flow Instability",
+#     5: "Rapid Productivity Loss",
+#     6: "Quick Restriction in PCK",
+#     7: "Scaling in PCK",
+#     8: "Hydrate in Production Line",
+#     -1: "missing",
+# }
+event_values = df["class"].unique()
+event_values = np.sort(event_values)
+events_names = {i: str(v) for i, v in enumerate(event_values)}
+df["class"] = df["class"].astype("str")  # Ensure class is string type for mapping
+
 # %%
 # Apply the mapping to the 'class' column
-df["class"] = df["class"].map(events_names)
+# df["class"] = df["class"].map(events_names)
 print(f"DF shape: {df.shape[0]:,} rows, {df.shape[1]:,} columns")
 df = df.loc[df["class"].notna()]
 print(f"DF shape after filtering: {df.shape[0]:,} rows, {df.shape[1]:,} columns")
-df = df.sort_values("timestamp")
+# df = df.sort_values("timestamp")
 # Convert timestamp to datetime if not already
 df["timestamp"] = pd.to_datetime(df["timestamp"])
 plot_df = df.head(1000)
