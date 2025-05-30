@@ -60,7 +60,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # Load the dataset
 df = pd.read_parquet("data/combined_3w_real_sample.parquet")
-df = df.head(10_000_000)
+df = df.head(100_000)  # Reduce dataset size for debugging
 df.drop(columns=["original_filename", "file_class_label", "system_id"], inplace=True)
 # %%
 # %%
@@ -141,7 +141,7 @@ numeric_cols = df.select_dtypes(include=[float, int]).columns
 df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
 
 # Add index column for grouping
-df["idx"] = df.index // 128
+df["idx"] = df.index // 512  # Group by 1024 rows (1 second intervals)
 
 # %% [markdown]
 # ## Create Encoder-Decoder Dataset
@@ -172,12 +172,12 @@ print(f"Training samples: {len(train_ds)}, Test samples: {len(test_ds)}")
 
 # %%
 # Set hyperparameters
-N_HEADS = 8
-D_MODEL = 512
+N_HEADS = 4
+D_MODEL = 32
 LEARNING_RATE = 1e-4
-BATCH_SIZE = 64
+BATCH_SIZE = 4
 MAX_EPOCHS = 20
-
+MODEL_NAME = "smaller_encoder_decoder"
 # Create the encoder-decoder model
 encoder_decoder_model = TabularEncoderDecoder(
     time_series_config,
@@ -188,7 +188,7 @@ encoder_decoder_model = TabularEncoderDecoder(
 )
 
 # Setup training with PyTorch Lightning
-logger = TensorBoardLogger("runs", name=f"{dt.now()}_tabular_encoder_decoder")
+logger = TensorBoardLogger("runs", name=f"{dt.now()}_{MODEL_NAME}")
 early_stopping = EarlyStopping(monitor="val_loss", patience=3, mode="min")
 trainer = L.Trainer(
     max_epochs=MAX_EPOCHS,
@@ -202,8 +202,8 @@ train_dl = DataLoader(
     batch_size=BATCH_SIZE,
     shuffle=True,
     collate_fn=encoder_decoder_collate_fn,
-    num_workers=1,
-    persistent_workers=True,
+    num_workers=0,  # Disable workers for debugging
+    # persistent_workers=True,
 )
 
 test_dl = DataLoader(
@@ -211,8 +211,8 @@ test_dl = DataLoader(
     batch_size=BATCH_SIZE,
     shuffle=False,
     collate_fn=encoder_decoder_collate_fn,
-    num_workers=1,
-    persistent_workers=True,
+    num_workers=0,  # Disable workers for debugging
+    # persistent_workers=True,
 )
 
 
