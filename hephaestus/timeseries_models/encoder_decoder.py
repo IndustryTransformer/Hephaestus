@@ -48,18 +48,32 @@ class MaskedTabularPretrainer(L.LightningModule):
             n_heads=self.n_heads,
         )
 
-        # Reconstruction heads
+        # Reconstruction heads with proper initialization
         self.numeric_reconstruction_head = nn.Sequential(
             nn.Linear(d_model, d_model * 2),
             nn.ReLU(),
             nn.Linear(d_model * 2, 1),  # Predict single numeric value
         )
+        
+        # Initialize weights for numeric reconstruction head
+        for module in self.numeric_reconstruction_head:
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight, gain=0.1)  # Small gain
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
 
         self.categorical_reconstruction_head = nn.Sequential(
             nn.Linear(d_model, d_model * 2),
             nn.ReLU(),
             nn.Linear(d_model * 2, config.n_tokens),  # Predict token probabilities
         )
+        
+        # Initialize weights for categorical reconstruction head
+        for module in self.categorical_reconstruction_head:
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
 
         # Loss functions
         self.numeric_loss_fn = nn.MSELoss()
@@ -78,8 +92,9 @@ class MaskedTabularPretrainer(L.LightningModule):
                 torch.rand(numeric.shape, device=device) < self.mask_probability
             )
             masked_numeric = numeric.clone()
-            # Use 0 for numeric masking to avoid NaN issues
-            masked_numeric[numeric_mask] = 0.0
+            # Use a special mask value that's clearly out of normal data range
+            # Since data is clipped to [-10, 10], use -15 as mask value
+            masked_numeric[numeric_mask] = -15.0
         else:
             masked_numeric = None
             numeric_mask = None
@@ -127,7 +142,9 @@ class MaskedTabularPretrainer(L.LightningModule):
             ]  # [batch, n_numeric, seq_len, d_model]
             # Reshape for reconstruction head
             numeric_features = numeric_features.permute(0, 2, 1, 3).reshape(-1, d_model)
+            
             numeric_predictions = self.numeric_reconstruction_head(numeric_features)
+            
             numeric_predictions = numeric_predictions.view(
                 batch_size, seq_len, n_numeric
             )
@@ -144,6 +161,7 @@ class MaskedTabularPretrainer(L.LightningModule):
     def training_step(self, batch, batch_idx):
         """Training step with masked modeling."""
         inputs, _ = batch  # Ignore targets for pre-training
+
 
         # Apply masking
         masked_numeric, masked_categorical, numeric_mask, categorical_mask = (
@@ -171,9 +189,19 @@ class MaskedTabularPretrainer(L.LightningModule):
             masked_numeric_pred = numeric_predictions[numeric_mask_transposed]
 
             if masked_numeric_true.numel() > 0:
+
+                # Clip predictions to prevent extreme values
+                masked_numeric_pred = torch.clamp(masked_numeric_pred, -10.0, 10.0)
+                masked_numeric_true = torch.clamp(masked_numeric_true, -10.0, 10.0)
+                
                 numeric_loss = self.numeric_loss_fn(
                     masked_numeric_pred, masked_numeric_true
                 )
+                
+                # Safeguard: Cap the loss to prevent gradient explosion
+                if numeric_loss > 100.0:
+                    numeric_loss = torch.clamp(numeric_loss, max=100.0)
+                
                 total_loss += numeric_loss
                 self.log("train_numeric_loss", numeric_loss, prog_bar=True)
 

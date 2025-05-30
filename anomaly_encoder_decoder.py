@@ -19,7 +19,7 @@ from IPython.display import display
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.metrics import classification_report, confusion_matrix
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import RobustScaler
 from torch.utils.data import DataLoader
 
 import hephaestus as hp
@@ -135,7 +135,7 @@ df = df.drop(columns=["timestamp"])
 
 
 # Normalize numeric columns
-scaler = StandardScaler()
+scaler = RobustScaler()
 numeric_cols = df.select_dtypes(include=[float, int]).columns
 
 # Check for NaN values before normalization
@@ -144,7 +144,14 @@ print(f"NaN values before normalization: {df[numeric_cols].isna().sum().sum()}")
 # Fill NaN values with 0 before scaling
 df[numeric_cols] = df[numeric_cols].fillna(0)
 
+# Check for extreme values before scaling
+print(f"Data range before scaling: min={df[numeric_cols].min().min():.2f}, max={df[numeric_cols].max().max():.2f}")
+
+# Apply RobustScaler
 df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+
+# Clip extreme values after scaling to prevent numerical instability
+df[numeric_cols] = df[numeric_cols].clip(-10, 10)
 
 # Check for NaN values after normalization
 print(f"NaN values after normalization: {df[numeric_cols].isna().sum().sum()}")
@@ -152,7 +159,7 @@ print(f"NaN values after normalization: {df[numeric_cols].isna().sum().sum()}")
 # Check for infinite values
 print(f"Inf values in data: {np.isinf(df[numeric_cols].values).sum()}")
 print(
-    f"Data range: min={df[numeric_cols].min().min():.2f}, max={df[numeric_cols].max().max():.2f}"
+    f"Data range after scaling & clipping: min={df[numeric_cols].min().min():.2f}, max={df[numeric_cols].max().max():.2f}"
 )
 
 # Add index column for grouping
@@ -194,11 +201,11 @@ print(f"Training samples: {len(train_ds)}, Test samples: {len(test_ds)}")
 # Set hyperparameters
 N_HEADS = 4
 D_MODEL = 32
-LEARNING_RATE = 1e-4
-BATCH_SIZE = 4
+LEARNING_RATE = 1e-5  # Reduced from 1e-4 to prevent gradient explosion
+BATCH_SIZE = 8  # Increased for more stable gradients
 MAX_EPOCHS_PRETRAIN = 10
 MAX_EPOCHS_FINETUNE = 20
-MASK_PROBABILITY = 0.2
+MASK_PROBABILITY = 0.15  # Reduced mask probability
 MODEL_NAME = "two_stage_encoder_decoder"
 USE_TWO_STAGE = True  # Set to False to use single-stage training
 # Create data loaders first
