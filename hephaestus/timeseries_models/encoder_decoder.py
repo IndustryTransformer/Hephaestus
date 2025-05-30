@@ -12,6 +12,280 @@ from hephaestus.timeseries_models.models import (
 )
 
 
+class MaskedTabularPretrainer(L.LightningModule):
+    """Pre-training module with masked modeling for tabular data.
+
+    This module implements masked language modeling (MLM) for categorical features
+    and masked numeric modeling (MNM) for numeric features.
+
+    Args:
+        config (TimeSeriesConfig): Configuration for the time series model
+        d_model (int): Dimension of the model embeddings
+        n_heads (int): Number of attention heads
+        learning_rate (float): Learning rate for optimization
+        mask_probability (float): Probability of masking each element
+    """
+
+    def __init__(
+        self,
+        config: TimeSeriesConfig,
+        d_model: int = 512,
+        n_heads: int = 32,
+        learning_rate: float = 1e-4,
+        mask_probability: float = 0.2,
+    ):
+        super().__init__()
+        self.config = config
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.learning_rate = learning_rate
+        self.mask_probability = mask_probability
+
+        # Encoder
+        self.encoder = TimeSeriesTransformer(
+            config=self.config,
+            d_model=self.d_model,
+            n_heads=self.n_heads,
+        )
+
+        # Reconstruction heads
+        self.numeric_reconstruction_head = nn.Sequential(
+            nn.Linear(d_model, d_model * 2),
+            nn.ReLU(),
+            nn.Linear(d_model * 2, 1),  # Predict single numeric value
+        )
+
+        self.categorical_reconstruction_head = nn.Sequential(
+            nn.Linear(d_model, d_model * 2),
+            nn.ReLU(),
+            nn.Linear(d_model * 2, config.n_tokens),  # Predict token probabilities
+        )
+
+        # Loss functions
+        self.numeric_loss_fn = nn.MSELoss()
+        self.categorical_loss_fn = nn.CrossEntropyLoss()
+
+        # Save hyperparameters
+        self.save_hyperparameters(ignore=["config"])
+
+    def mask_inputs(self, numeric, categorical):
+        """Apply masking to inputs."""
+        device = numeric.device if numeric is not None else categorical.device
+
+        # Create masks
+        if numeric is not None:
+            numeric_mask = (
+                torch.rand(numeric.shape, device=device) < self.mask_probability
+            )
+            masked_numeric = numeric.clone()
+            # Use 0 for numeric masking to avoid NaN issues
+            masked_numeric[numeric_mask] = 0.0
+        else:
+            masked_numeric = None
+            numeric_mask = None
+
+        if categorical is not None:
+            categorical_mask = (
+                torch.rand(categorical.shape, device=device) < self.mask_probability
+            )
+            masked_categorical = categorical.clone()
+            # Get [MASK] token index from token_dict
+            mask_token_idx = self.config.token_dict.get(
+                "[MASK]", 2
+            )  # Default to 2 if not found
+            masked_categorical[categorical_mask] = mask_token_idx
+        else:
+            masked_categorical = None
+            categorical_mask = None
+
+        return masked_numeric, masked_categorical, numeric_mask, categorical_mask
+
+    def forward(
+        self,
+        input_numeric: torch.Tensor | None = None,
+        input_categorical: torch.Tensor | None = None,
+        numeric_mask: torch.Tensor | None = None,
+        categorical_mask: torch.Tensor | None = None,
+        deterministic: bool = False,
+    ):
+        """Forward pass for reconstruction."""
+        # Get encoder outputs
+        encoder_output = self.encoder(
+            numeric_inputs=input_numeric,
+            categorical_inputs=input_categorical,
+            deterministic=deterministic,
+            causal_mask=False,
+        )  # [batch, num_features, seq_len, d_model]
+
+        batch_size, num_features, seq_len, d_model = encoder_output.shape
+
+        # Separate numeric and categorical features for reconstruction
+        if input_numeric is not None:
+            n_numeric = input_numeric.shape[1]
+            numeric_features = encoder_output[
+                :, :n_numeric, :, :
+            ]  # [batch, n_numeric, seq_len, d_model]
+            # Reshape for reconstruction head
+            numeric_features = numeric_features.permute(0, 2, 1, 3).reshape(-1, d_model)
+            numeric_predictions = self.numeric_reconstruction_head(numeric_features)
+            numeric_predictions = numeric_predictions.view(
+                batch_size, seq_len, n_numeric
+            )
+        else:
+            numeric_predictions = None
+            n_numeric = 0
+
+        # Skip categorical reconstruction for anomaly detection
+        # Only reconstruct numeric features
+        categorical_predictions = None
+
+        return numeric_predictions, categorical_predictions
+
+    def training_step(self, batch, batch_idx):
+        """Training step with masked modeling."""
+        inputs, _ = batch  # Ignore targets for pre-training
+
+        # Apply masking
+        masked_numeric, masked_categorical, numeric_mask, categorical_mask = (
+            self.mask_inputs(inputs.numeric, inputs.categorical)
+        )
+
+        # Forward pass
+        numeric_predictions, categorical_predictions = self(
+            input_numeric=masked_numeric,
+            input_categorical=masked_categorical,
+            numeric_mask=numeric_mask,
+            categorical_mask=categorical_mask,
+            deterministic=False,
+        )
+
+        total_loss = 0.0
+
+        # Calculate numeric loss on masked positions
+        if numeric_predictions is not None and numeric_mask is not None:
+            # Select only masked positions
+            # Transpose mask to match prediction shape [batch, seq_len, n_numeric]
+            numeric_mask_transposed = numeric_mask.permute(0, 2, 1)
+            numeric_transposed = inputs.numeric.permute(0, 2, 1)
+            masked_numeric_true = numeric_transposed[numeric_mask_transposed]
+            masked_numeric_pred = numeric_predictions[numeric_mask_transposed]
+
+            if masked_numeric_true.numel() > 0:
+                numeric_loss = self.numeric_loss_fn(
+                    masked_numeric_pred, masked_numeric_true
+                )
+                total_loss += numeric_loss
+                self.log("train_numeric_loss", numeric_loss, prog_bar=True)
+
+        # Calculate categorical loss on masked positions
+        if categorical_predictions is not None and categorical_mask is not None:
+            # Reshape for loss calculation
+            cat_pred_flat = categorical_predictions.permute(0, 1, 3, 2).reshape(
+                -1, self.config.n_tokens
+            )
+            cat_true_flat = inputs.categorical.reshape(-1)
+            cat_mask_flat = categorical_mask.reshape(-1)
+
+            # Select only masked positions
+            if cat_mask_flat.sum() > 0:
+                masked_cat_pred = cat_pred_flat[cat_mask_flat]
+                masked_cat_true = cat_true_flat[cat_mask_flat].long()
+
+                categorical_loss = self.categorical_loss_fn(
+                    masked_cat_pred, masked_cat_true
+                )
+                total_loss += categorical_loss
+                self.log("train_categorical_loss", categorical_loss, prog_bar=True)
+
+        self.log("train_loss", total_loss, prog_bar=True)
+        return total_loss
+
+    def validation_step(self, batch, batch_idx):
+        """Validation step with masked modeling."""
+        inputs, _ = batch
+
+        # Apply masking
+        masked_numeric, masked_categorical, numeric_mask, categorical_mask = (
+            self.mask_inputs(inputs.numeric, inputs.categorical)
+        )
+
+        # Forward pass
+        numeric_predictions, categorical_predictions = self(
+            input_numeric=masked_numeric,
+            input_categorical=masked_categorical,
+            numeric_mask=numeric_mask,
+            categorical_mask=categorical_mask,
+            deterministic=True,
+        )
+
+        total_loss = 0.0
+
+        # Calculate numeric loss
+        if numeric_predictions is not None and numeric_mask is not None:
+            # Transpose mask to match prediction shape [batch, seq_len, n_numeric]
+            numeric_mask_transposed = numeric_mask.permute(0, 2, 1)
+            numeric_transposed = inputs.numeric.permute(0, 2, 1)
+            masked_numeric_true = numeric_transposed[numeric_mask_transposed]
+            masked_numeric_pred = numeric_predictions[numeric_mask_transposed]
+
+            if masked_numeric_true.numel() > 0:
+                numeric_loss = self.numeric_loss_fn(
+                    masked_numeric_pred, masked_numeric_true
+                )
+                total_loss += numeric_loss
+                self.log("val_numeric_loss", numeric_loss, prog_bar=True)
+
+        # Calculate categorical loss and accuracy
+        if categorical_predictions is not None and categorical_mask is not None:
+            cat_pred_flat = categorical_predictions.permute(0, 1, 3, 2).reshape(
+                -1, self.config.n_tokens
+            )
+            cat_true_flat = inputs.categorical.reshape(-1)
+            cat_mask_flat = categorical_mask.reshape(-1)
+
+            if cat_mask_flat.sum() > 0:
+                masked_cat_pred = cat_pred_flat[cat_mask_flat]
+                masked_cat_true = cat_true_flat[cat_mask_flat].long()
+
+                categorical_loss = self.categorical_loss_fn(
+                    masked_cat_pred, masked_cat_true
+                )
+                total_loss += categorical_loss
+
+                # Calculate accuracy
+                predictions = torch.argmax(masked_cat_pred, dim=-1)
+                accuracy = (predictions == masked_cat_true).float().mean()
+
+                self.log("val_categorical_loss", categorical_loss, prog_bar=True)
+                self.log("val_categorical_accuracy", accuracy, prog_bar=True)
+
+        self.log("val_loss", total_loss, prog_bar=True)
+        return total_loss
+
+    def configure_optimizers(self):
+        """Configure optimizers."""
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="min",
+            factor=0.5,
+            patience=3,
+            verbose=True,
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "monitor": "val_loss",
+            },
+        }
+
+    def freeze_encoder(self):
+        """Freeze encoder parameters for fine-tuning."""
+        for param in self.encoder.parameters():
+            param.requires_grad = False
+
+
 class TabularEncoderDecoder(L.LightningModule):
     """Encoder-Decoder architecture for anomaly detection.
 
@@ -34,6 +308,7 @@ class TabularEncoderDecoder(L.LightningModule):
         n_heads: int = 32,
         learning_rate: float = 1e-4,
         classification_values=None,
+        pretrained_encoder: TimeSeriesTransformer | None = None,
     ):
         super().__init__()
         self.config = config
@@ -45,12 +320,15 @@ class TabularEncoderDecoder(L.LightningModule):
         # Class index for the only categorical target (class)
         # self.class_token_index = 0
 
-        # Encoder - processes all input features
-        self.encoder = TimeSeriesTransformer(
-            config=self.config,
-            d_model=self.d_model,
-            n_heads=self.n_heads,
-        )
+        # Encoder - use pretrained if provided, otherwise create new
+        if pretrained_encoder is not None:
+            self.encoder = pretrained_encoder
+        else:
+            self.encoder = TimeSeriesTransformer(
+                config=self.config,
+                d_model=self.d_model,
+                n_heads=self.n_heads,
+            )
 
         # Output projection for classification
         if classification_values is not None:
@@ -236,3 +514,13 @@ class TabularEncoderDecoder(L.LightningModule):
         target_classes = targets.categorical  # [batch, seq_len]
 
         return {"predictions": predictions, "targets": target_classes}
+
+    def freeze_encoder(self):
+        """Freeze encoder parameters for fine-tuning."""
+        for param in self.encoder.parameters():
+            param.requires_grad = False
+
+    def unfreeze_encoder(self):
+        """Unfreeze encoder parameters."""
+        for param in self.encoder.parameters():
+            param.requires_grad = True
