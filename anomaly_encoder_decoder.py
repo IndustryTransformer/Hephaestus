@@ -145,7 +145,9 @@ print(f"NaN values before normalization: {df[numeric_cols].isna().sum().sum()}")
 df[numeric_cols] = df[numeric_cols].fillna(0)
 
 # Check for extreme values before scaling
-print(f"Data range before scaling: min={df[numeric_cols].min().min():.2f}, max={df[numeric_cols].max().max():.2f}")
+print(
+    f"Data range before scaling: min={df[numeric_cols].min().min():.2f}, max={df[numeric_cols].max().max():.2f}"
+)
 
 # Apply RobustScaler
 df[numeric_cols] = scaler.fit_transform(df[numeric_cols])

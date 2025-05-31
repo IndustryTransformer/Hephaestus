@@ -54,7 +54,7 @@ class MaskedTabularPretrainer(L.LightningModule):
             nn.ReLU(),
             nn.Linear(d_model * 2, 1),  # Predict single numeric value
         )
-        
+
         # Initialize weights for numeric reconstruction head
         for module in self.numeric_reconstruction_head:
             if isinstance(module, nn.Linear):
@@ -67,7 +67,7 @@ class MaskedTabularPretrainer(L.LightningModule):
             nn.ReLU(),
             nn.Linear(d_model * 2, config.n_tokens),  # Predict token probabilities
         )
-        
+
         # Initialize weights for categorical reconstruction head
         for module in self.categorical_reconstruction_head:
             if isinstance(module, nn.Linear):
@@ -142,9 +142,9 @@ class MaskedTabularPretrainer(L.LightningModule):
             ]  # [batch, n_numeric, seq_len, d_model]
             # Reshape for reconstruction head
             numeric_features = numeric_features.permute(0, 2, 1, 3).reshape(-1, d_model)
-            
+
             numeric_predictions = self.numeric_reconstruction_head(numeric_features)
-            
+
             numeric_predictions = numeric_predictions.view(
                 batch_size, seq_len, n_numeric
             )
@@ -161,7 +161,6 @@ class MaskedTabularPretrainer(L.LightningModule):
     def training_step(self, batch, batch_idx):
         """Training step with masked modeling."""
         inputs, _ = batch  # Ignore targets for pre-training
-
 
         # Apply masking
         masked_numeric, masked_categorical, numeric_mask, categorical_mask = (
@@ -189,19 +188,18 @@ class MaskedTabularPretrainer(L.LightningModule):
             masked_numeric_pred = numeric_predictions[numeric_mask_transposed]
 
             if masked_numeric_true.numel() > 0:
-
                 # Clip predictions to prevent extreme values
                 masked_numeric_pred = torch.clamp(masked_numeric_pred, -10.0, 10.0)
                 masked_numeric_true = torch.clamp(masked_numeric_true, -10.0, 10.0)
-                
+
                 numeric_loss = self.numeric_loss_fn(
                     masked_numeric_pred, masked_numeric_true
                 )
-                
+
                 # Safeguard: Cap the loss to prevent gradient explosion
                 if numeric_loss > 100.0:
                     numeric_loss = torch.clamp(numeric_loss, max=100.0)
-                
+
                 total_loss += numeric_loss
                 self.log("train_numeric_loss", numeric_loss, prog_bar=True)
 
