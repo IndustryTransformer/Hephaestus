@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import pytorch_lightning as L
 import torch
+from icecream import ic
 from pytorch_lightning.callbacks import (
     EarlyStopping,
     LearningRateMonitor,
@@ -30,6 +31,8 @@ from hephaestus.timeseries_models.encoder_decoder_dataset import (
 
 torch.set_float32_matmul_precision("medium")
 
+
+ic.disable()
 # %%
 print(f"PyTorch version: {torch.__version__}")
 print(f"CUDA available: {torch.cuda.is_available()}")
