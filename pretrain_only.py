@@ -4,18 +4,18 @@
 
 # %%
 from datetime import datetime as dt
-import matplotlib.pyplot as plt
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytorch_lightning as L
 import torch
 from pytorch_lightning.callbacks import (
     EarlyStopping,
-    ModelCheckpoint,
     LearningRateMonitor,
-    RichProgressBar,
+    ModelCheckpoint,
     RichModelSummary,
+    RichProgressBar,
 )
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.preprocessing import RobustScaler
