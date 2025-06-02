@@ -180,3 +180,4 @@ checkpoints/
 .jupyter_cache/*
 .jupyter_cache
 lightning_logs/
+*.pt

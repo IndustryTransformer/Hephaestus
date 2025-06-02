@@ -501,9 +501,22 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
             numeric_predictions = None
             n_numeric = 0
 
-        # Skip categorical reconstruction for anomaly detection
-        # Only reconstruct numeric features
-        categorical_predictions = None
+        # Handle categorical features for reconstruction
+        if input_categorical is not None:
+            n_categorical = input_categorical.shape[1]
+            categorical_features = encoder_output[
+                :, n_numeric:n_numeric + n_categorical, :, :
+            ]  # [batch, n_categorical, seq_len, d_model]
+            # Reshape for reconstruction head
+            categorical_features = categorical_features.permute(0, 2, 1, 3).reshape(-1, d_model)
+            
+            categorical_predictions = self.categorical_reconstruction_head(categorical_features)
+            
+            categorical_predictions = categorical_predictions.view(
+                batch_size, seq_len, n_categorical, self.config.n_tokens
+            )
+        else:
+            categorical_predictions = None
 
         return numeric_predictions, categorical_predictions
 

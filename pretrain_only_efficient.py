@@ -394,33 +394,26 @@ print(
 )
 
 # %%
-# Plot training history
-if hasattr(trainer, "logged_metrics"):
-    metrics = pd.DataFrame(trainer.logged_metrics)
+# Print final metrics
+print("\nFinal training metrics:")
+if hasattr(trainer, "logged_metrics") and trainer.logged_metrics:
+    for key, value in trainer.logged_metrics.items():
+        if isinstance(value, (int, float)):
+            print(f"  {key}: {value:.4f}")
+        else:
+            print(f"  {key}: {value}")
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
-
-    # Plot losses
-    if "train_loss" in metrics:
-        ax1.plot(metrics.index, metrics["train_loss"], label="Train Loss", alpha=0.7)
-    if "val_loss" in metrics:
-        ax1.plot(metrics.index, metrics["val_loss"], label="Val Loss", alpha=0.7)
-    ax1.set_xlabel("Step")
-    ax1.set_ylabel("Loss")
-    ax1.set_title("Training History")
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
-
-    # Plot learning rate
-    if "lr-AdamW" in metrics:
-        ax2.plot(metrics.index, metrics["lr-AdamW"], color="orange")
-        ax2.set_xlabel("Step")
-        ax2.set_ylabel("Learning Rate")
-        ax2.set_title("Learning Rate Schedule")
-        ax2.grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    plt.show()
+print("\nMetrics have been logged to TensorBoard. To view them, run:")
+print(f"  tensorboard --logdir runs/efficient_pretrain_{ATTENTION_TYPE}")
+print("\nYou can view:")
+print("  - train_loss: Combined training loss")
+print("  - train_numeric_loss: Loss for numeric feature reconstruction") 
+print("  - train_categorical_loss: Loss for categorical feature reconstruction")
+print("  - val_loss: Combined validation loss")
+print("  - val_numeric_loss: Validation numeric reconstruction loss")
+print("  - val_categorical_loss: Validation categorical reconstruction loss")
+print("  - val_categorical_accuracy: Accuracy of categorical predictions")
+print("  - lr-AdamW: Learning rate over time")
 
 print("\nTo try different attention mechanisms, change ATTENTION_TYPE to:")
 print("- 'flash': Flash Attention (best for modern GPUs)")
