@@ -575,7 +575,7 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                     numeric_loss = torch.clamp(numeric_loss, max=100.0)
 
                 total_loss += numeric_loss
-                self.log("train_numeric_loss", numeric_loss, prog_bar=True)
+                self.log("train_numeric_loss", numeric_loss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
 
         # Calculate categorical loss on masked positions
         if categorical_predictions is not None and categorical_mask is not None:
@@ -595,9 +595,9 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                     masked_cat_pred, masked_cat_true
                 )
                 total_loss += categorical_loss
-                self.log("train_categorical_loss", categorical_loss, prog_bar=True)
+                self.log("train_categorical_loss", categorical_loss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
 
-        self.log("train_loss", total_loss, prog_bar=True)
+        self.log("train_loss", total_loss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
         return total_loss
 
     def validation_step(self, batch, batch_idx):
@@ -633,7 +633,7 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                     masked_numeric_pred, masked_numeric_true
                 )
                 total_loss += numeric_loss
-                self.log("val_numeric_loss", numeric_loss, prog_bar=True)
+                self.log("val_numeric_loss", numeric_loss, prog_bar=True, logger=True, on_step=False, on_epoch=True)
 
         # Calculate categorical loss and accuracy
         if categorical_predictions is not None and categorical_mask is not None:
@@ -653,17 +653,17 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                     masked_cat_pred, masked_cat_true
                 )
                 total_loss += categorical_loss
-                self.log("val_categorical_loss", categorical_loss, prog_bar=True)
+                self.log("val_categorical_loss", categorical_loss, prog_bar=True, logger=True, on_step=False, on_epoch=True)
 
                 # Calculate accuracy for categorical predictions
                 categorical_accuracy = (
                     (masked_cat_pred.argmax(dim=-1) == masked_cat_true).float().mean()
                 )
                 self.log(
-                    "val_categorical_accuracy", categorical_accuracy, prog_bar=True
+                    "val_categorical_accuracy", categorical_accuracy, prog_bar=True, logger=True, on_step=False, on_epoch=True
                 )
 
-        self.log("val_loss", total_loss, prog_bar=True)
+        self.log("val_loss", total_loss, prog_bar=True, logger=True, on_step=False, on_epoch=True)
         return total_loss
 
     def configure_optimizers(self):
