@@ -18,8 +18,6 @@ from pathlib import Path
 # ruff: noqa: E402
 import numpy as np
 import pandas as pd
-
-
 import pytorch_lightning as L  # noqa: N812
 import torch
 from pytorch_lightning.callbacks import (
@@ -28,14 +26,14 @@ from pytorch_lightning.callbacks import (
     TQDMProgressBar,
 )
 from pytorch_lightning.loggers import TensorBoardLogger
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (
     accuracy_score,
+    classification_report,
     f1_score,
     roc_auc_score,
-    classification_report,
 )
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
 import hephaestus.single_row_models as sr
 

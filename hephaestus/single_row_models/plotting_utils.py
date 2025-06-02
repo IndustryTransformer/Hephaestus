@@ -1,7 +1,7 @@
 import altair as alt
 import numpy as np
 import pandas as pd
-from sklearn.metrics import root_mean_squared_error, r2_score
+from sklearn.metrics import r2_score, root_mean_squared_error
 
 
 def plot_prediction_analysis(

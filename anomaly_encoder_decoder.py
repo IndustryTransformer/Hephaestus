@@ -146,7 +146,8 @@ df[numeric_cols] = df[numeric_cols].fillna(0)
 
 # Check for extreme values before scaling
 print(
-    f"Data range before scaling: min={df[numeric_cols].min().min():.2f}, max={df[numeric_cols].max().max():.2f}"
+    f"Data range before scaling: min={df[numeric_cols].min().min():.2f}, "
+    f"max={df[numeric_cols].max().max():.2f}"
 )
 
 # Apply RobustScaler
@@ -161,7 +162,9 @@ print(f"NaN values after normalization: {df[numeric_cols].isna().sum().sum()}")
 # Check for infinite values
 print(f"Inf values in data: {np.isinf(df[numeric_cols].values).sum()}")
 print(
-    f"Data range after scaling & clipping: min={df[numeric_cols].min().min():.2f}, max={df[numeric_cols].max().max():.2f}"
+    "Data range after scaling & clipping: "
+    f"min={df[numeric_cols].min().min():.2f}, "
+    f"max={df[numeric_cols].max().max():.2f}"
 )
 
 # Add index column for grouping

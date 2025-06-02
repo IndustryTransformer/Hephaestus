@@ -1,12 +1,12 @@
-import torch.nn as nn
-import torch.nn.init as init
-import torch
 import copy
 from datetime import datetime as dt
 
 import pandas as pd
-from torch.utils.tensorboard import SummaryWriter
+import torch
+import torch.nn as nn
+import torch.nn.init as init
 import torch.optim as optim
+from torch.utils.tensorboard import SummaryWriter
 from tqdm.notebook import trange
 
 

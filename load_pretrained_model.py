@@ -3,6 +3,7 @@ Example script showing how to load and use a pre-trained two-stage model.
 """
 
 import torch
+
 from hephaestus.timeseries_models.encoder_decoder import (
     TabularEncoderDecoder,
 )

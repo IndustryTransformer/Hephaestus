@@ -16,11 +16,10 @@ import os
 from datetime import datetime as dt
 from pathlib import Path
 
-# ruff: noqa: E402
-import pandas as pd
 import altair as alt
 
-
+# ruff: noqa: E402
+import pandas as pd
 import pytorch_lightning as L  # noqa: N812
 import torch
 from pytorch_lightning.callbacks import (

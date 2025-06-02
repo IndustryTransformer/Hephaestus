@@ -11,7 +11,7 @@ from hephaestus.single_row_models.single_row_utils import (
     show_mask_pred,
 )
 from hephaestus.single_row_models.training import (
-    TabularRegressor,
-    TabularClassifier,
     MaskedTabularModeling,
+    TabularClassifier,
+    TabularRegressor,
 )

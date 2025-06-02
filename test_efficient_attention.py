@@ -6,17 +6,18 @@ This script demonstrates how to use the efficient attention implementations
 and compares their performance on different sequence lengths.
 """
 
-import torch
-import torch.nn as nn
 from dataclasses import dataclass
 
+import torch
+import torch.nn as nn
+
 from hephaestus.timeseries_models.efficient_attention import (
-    create_efficient_attention,
+    ChunkedAttention4D,
+    FeaturewiseAttention4D,
+    FlashAttention4D,
     LocalWindowedAttention4D,
     SparseAttention4D,
-    FeaturewiseAttention4D,
-    ChunkedAttention4D,
-    FlashAttention4D,
+    create_efficient_attention,
 )
 from hephaestus.timeseries_models.multihead_attention import MultiHeadAttention4D
 

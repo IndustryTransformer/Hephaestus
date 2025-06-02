@@ -5,7 +5,6 @@
 # %%
 from datetime import datetime as dt
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytorch_lightning as L
@@ -407,7 +406,7 @@ print("\nMetrics have been logged to TensorBoard. To view them, run:")
 print(f"  tensorboard --logdir runs/efficient_pretrain_{ATTENTION_TYPE}")
 print("\nYou can view:")
 print("  - train_loss: Combined training loss")
-print("  - train_numeric_loss: Loss for numeric feature reconstruction") 
+print("  - train_numeric_loss: Loss for numeric feature reconstruction")
 print("  - train_categorical_loss: Loss for categorical feature reconstruction")
 print("  - val_loss: Combined validation loss")
 print("  - val_numeric_loss: Validation numeric reconstruction loss")

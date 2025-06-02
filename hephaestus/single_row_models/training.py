@@ -3,13 +3,13 @@ from typing import Optional
 import pytorch_lightning as L
 import torch
 from torch import nn
-from torchmetrics import Accuracy, F1Score, AUROC
+from torchmetrics import AUROC, Accuracy, F1Score
 
 from hephaestus.single_row_models.model_data_classes import InputsTarget
 from hephaestus.single_row_models.single_row_models import (
-    TabularEncoderRegressor,
-    TabularEncoderClassifier,
     MaskedTabularEncoder,
+    TabularEncoderClassifier,
+    TabularEncoderRegressor,
 )
 from hephaestus.utils import NumericCategoricalData
 
