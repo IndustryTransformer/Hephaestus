@@ -23,12 +23,13 @@ from sklearn.preprocessing import RobustScaler
 from torch.utils.data import DataLoader
 
 import hephaestus as hp
-from hephaestus.timeseries_models.encoder_decoder import MaskedTabularPretrainer
+from hephaestus.timeseries_models.efficient_transformer import (
+    EfficientMaskedTabularPretrainer,
+)
 from hephaestus.timeseries_models.encoder_decoder_dataset import (
     EncoderDecoderDataset,
     encoder_decoder_collate_fn,
 )
-from hephaestus.timeseries_models.efficient_transformer import EfficientMaskedTabularPretrainer
 
 torch.set_float32_matmul_precision("medium")
 
@@ -60,19 +61,18 @@ GRADIENT_CLIP = 1.0
 ACCUMULATE_GRAD_BATCHES = 8  # Increased to maintain effective batch size
 
 # Efficient attention configuration
-ATTENTION_TYPE = "flash"  # Options: "flash", "local", "sparse", "featurewise", "chunked"
+ATTENTION_TYPE = (
+    "flash"  # Options: "flash", "local", "sparse", "featurewise", "chunked"
+)
 ATTENTION_KWARGS = {
     # For local attention
     # "window_size": 256,
-    
     # For sparse attention
     # "stride": 8,
     # "local_window": 128,
-    
     # For chunked attention
     # "chunk_size": 256,
     # "overlap": 32,
-    
     # For featurewise attention
     # "share_weights": True,
 }
@@ -126,7 +126,10 @@ df["dayofyear_cos"] = np.cos(2 * np.pi * day_of_year / days_in_year)
 # Define features
 categorical_cols = ["class"]
 drop_cols = ["timestamp"] + categorical_cols
-numeric_cols = [col for col in df.columns if col not in drop_cols]
+# Only select columns that are actually numeric
+numeric_cols = [
+    col for col in df.select_dtypes(include=["number"]).columns if col not in drop_cols
+]
 
 # %%
 # Normalize numeric columns
@@ -136,13 +139,13 @@ print(f"NaN values before normalization: {df[numeric_cols].isna().sum().sum():,}
 
 # Use RobustScaler which is less sensitive to outliers
 scaler = RobustScaler()
-numeric_data = df[numeric_cols].values
+numeric_data = df[numeric_cols].values.astype(np.float32)
 
 # Replace inf with nan before scaling
 numeric_data[np.isinf(numeric_data)] = np.nan
 
 # Print statistics before scaling
-print(f"\nBefore scaling:")
+print("\nBefore scaling:")
 print(f"  Min: {np.nanmin(numeric_data):.2f}")
 print(f"  Max: {np.nanmax(numeric_data):.2f}")
 print(f"  Mean: {np.nanmean(numeric_data):.2f}")
@@ -159,7 +162,7 @@ scaled_data = np.nan_to_num(scaled_data, nan=0.0, posinf=10.0, neginf=-10.0)
 
 df[numeric_cols] = scaled_data
 
-print(f"\nAfter scaling & clipping:")
+print("\nAfter scaling & clipping:")
 print(f"  Min: {df[numeric_cols].min().min():.2f}")
 print(f"  Max: {df[numeric_cols].max().max():.2f}")
 print(f"  Mean: {df[numeric_cols].mean().mean():.2f}")
@@ -180,17 +183,12 @@ df["idx"] = df.index // SEQUENCE_LENGTH  # Create sequences of SEQUENCE_LENGTH t
 
 # %%
 # Create configuration
-time_series_config = hp.TimeSeriesConfig(
-    numerical_columns=numeric_cols,
-    categorical_columns=categorical_cols,
-    targets_to_predict=["P-PDG", "P-TPT", "T-TPT", "P-MON-CKP", "T-JUS-CKP"],
-    data=df,
-)
+time_series_config = hp.TimeSeriesConfig.generate(df=df, target="class")
 
 print("=== Model Configuration ===")
 print(f"Total tokens: {time_series_config.n_tokens}")
-print(f"Categorical columns: {len(time_series_config.categorical_columns)}")
-print(f"Numeric columns: {len(time_series_config.numerical_columns)}")
+print(f"Categorical columns: {len(time_series_config.categorical_col_tokens)}")
+print(f"Numeric columns: {len(time_series_config.numeric_col_tokens)}")
 
 # %%
 # Split data by groups
@@ -201,32 +199,32 @@ val_groups = df.loc[
 ].unique()
 test_groups = df.loc[df["idx"] >= df["idx"].quantile(0.9), "idx"].unique()
 
+# Create event targets mapping
+event_targets = {v: k for k, v in events_names.items()}
+
 # Create datasets
 train_ds = EncoderDecoderDataset(
     df[df["idx"].isin(train_groups)],
     time_series_config,
-    sequence_col="idx",
-    is_single_row=False,
-    stride=1,
+    target_col="class",
+    target_values=event_targets,
 )
 
 val_ds = EncoderDecoderDataset(
     df[df["idx"].isin(val_groups)],
     time_series_config,
-    sequence_col="idx",
-    is_single_row=False,
-    stride=1,
+    target_col="class",
+    target_values=event_targets,
 )
 
 test_ds = EncoderDecoderDataset(
     df[df["idx"].isin(test_groups)],
     time_series_config,
-    sequence_col="idx",
-    is_single_row=False,
-    stride=1,
+    target_col="class",
+    target_values=event_targets,
 )
 
-print(f"\nDataset sizes:")
+print("\nDataset sizes:")
 print(f"  Train: {len(train_ds):,}")
 print(f"  Val: {len(val_ds):,}")
 print(f"  Test: {len(test_ds):,}")
@@ -277,7 +275,9 @@ pretrain_model = EfficientMaskedTabularPretrainer(
 
 print("=== Model Architecture ===")
 print(f"Model parameters: {sum(p.numel() for p in pretrain_model.parameters()):,}")
-print(f"Trainable parameters: {sum(p.numel() for p in pretrain_model.parameters() if p.requires_grad):,}")
+print(
+    f"Trainable parameters: {sum(p.numel() for p in pretrain_model.parameters() if p.requires_grad):,}"
+)
 print(f"Attention type: {ATTENTION_TYPE}")
 print(f"Sequence length: {SEQUENCE_LENGTH}")
 
@@ -288,23 +288,24 @@ print(f"Sequence length: {SEQUENCE_LENGTH}")
 # Test forward pass with a batch
 print("\n=== Inspecting Training Batch ===")
 sample_batch = next(iter(train_dl))
+inputs, targets = sample_batch
 
 # Print batch information
-print(f"Batch shapes:")
-print(f"  Numeric inputs: {sample_batch['numeric'].shape}")
-print(f"  Numeric range: [{sample_batch['numeric'].min():.3f}, {sample_batch['numeric'].max():.3f}]")
-print(f"  Categorical inputs: {sample_batch['categorical'].shape}")
-print(f"  Unique categorical values: {sample_batch['categorical'].unique().numel()}")
+print("Batch shapes:")
+print(f"  Numeric inputs: {inputs.numeric.shape}")
+print(f"  Numeric range: [{inputs.numeric.min():.3f}, {inputs.numeric.max():.3f}]")
+print(f"  Categorical inputs: {inputs.categorical.shape}")
+print(f"  Unique categorical values: {inputs.categorical.unique().numel()}")
 
 # Test masking
 with torch.no_grad():
     masked_numeric, masked_categorical, numeric_mask, categorical_mask = (
         pretrain_model.mask_inputs(
-            sample_batch["numeric"],
-            sample_batch["categorical"],
+            inputs.numeric,
+            inputs.categorical,
         )
     )
-    
+
     # Forward pass
     numeric_predictions, categorical_predictions = pretrain_model(
         input_numeric=masked_numeric,
@@ -313,9 +314,11 @@ with torch.no_grad():
         targets_categorical=None,
         deterministic=False,
     )
-    
+
 print(f"\nNumeric predictions shape: {numeric_predictions.shape}")
-print(f"Numeric predictions range: [{numeric_predictions.min():.3f}, {numeric_predictions.max():.3f}]")
+print(
+    f"Numeric predictions range: [{numeric_predictions.min():.3f}, {numeric_predictions.max():.3f}]"
+)
 
 # %% [markdown]
 # ## Setup Training
@@ -386,15 +389,17 @@ torch.save(
     f"pretrained_model_efficient_{ATTENTION_TYPE}_{SEQUENCE_LENGTH}.pt",
 )
 
-print(f"\nPre-training completed! Model saved to pretrained_model_efficient_{ATTENTION_TYPE}_{SEQUENCE_LENGTH}.pt")
+print(
+    f"\nPre-training completed! Model saved to pretrained_model_efficient_{ATTENTION_TYPE}_{SEQUENCE_LENGTH}.pt"
+)
 
 # %%
 # Plot training history
 if hasattr(trainer, "logged_metrics"):
     metrics = pd.DataFrame(trainer.logged_metrics)
-    
+
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
-    
+
     # Plot losses
     if "train_loss" in metrics:
         ax1.plot(metrics.index, metrics["train_loss"], label="Train Loss", alpha=0.7)
@@ -405,7 +410,7 @@ if hasattr(trainer, "logged_metrics"):
     ax1.set_title("Training History")
     ax1.legend()
     ax1.grid(True, alpha=0.3)
-    
+
     # Plot learning rate
     if "lr-AdamW" in metrics:
         ax2.plot(metrics.index, metrics["lr-AdamW"], color="orange")
@@ -413,7 +418,7 @@ if hasattr(trainer, "logged_metrics"):
         ax2.set_ylabel("Learning Rate")
         ax2.set_title("Learning Rate Schedule")
         ax2.grid(True, alpha=0.3)
-    
+
     plt.tight_layout()
     plt.show()
 
