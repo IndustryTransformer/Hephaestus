@@ -4,6 +4,10 @@
 
 # %%
 from datetime import datetime as dt
+import os
+
+# Set tokenizers parallelism before importing anything that might use tokenizers
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import numpy as np
 import pandas as pd
@@ -49,9 +53,9 @@ if torch.cuda.is_available():
 
 # %%
 # Configuration for efficient attention
-BATCH_SIZE = 8  # Reduced batch size for longer sequences
+BATCH_SIZE = 16  # Reduced batch size for longer sequences
 SEQUENCE_LENGTH = 1024  # Much longer context window!
-LEARNING_RATE = 5e-5
+LEARNING_RATE = 5e-4
 MAX_EPOCHS = 50
 MASK_PROBABILITY = 0.15
 D_MODEL = 64
