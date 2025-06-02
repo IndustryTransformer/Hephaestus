@@ -53,9 +53,9 @@ if torch.cuda.is_available():
 
 # %%
 # Configuration for efficient attention
-BATCH_SIZE = 16  # Reduced batch size for longer sequences
-SEQUENCE_LENGTH = 1024  # Much longer context window!
-LEARNING_RATE = 5e-4
+BATCH_SIZE = 14  # Reduced batch size for longer sequences
+SEQUENCE_LENGTH = 1090  # Much longer context window!
+LEARNING_RATE = 5e-5
 MAX_EPOCHS = 50
 MASK_PROBABILITY = 0.15
 D_MODEL = 64
