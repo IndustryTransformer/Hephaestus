@@ -359,7 +359,8 @@ def benchmark_attention_mechanisms(
 
 
 class EfficientMaskedTabularPretrainer(L.LightningModule):
-    """Pre-training module with masked modeling for tabular data using efficient attention.
+    """Pre-training module with masked modeling for tabular data using
+    efficient attention.
 
     This module implements masked language modeling (MLM) for categorical features
     and masked numeric modeling (MNM) for numeric features, using efficient attention
@@ -489,7 +490,7 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
             causal_mask=False,
         )  # [batch, num_features, seq_len, d_model]
 
-        batch_size, num_features, seq_len, d_model = encoder_output.shape
+        batch_size, _, seq_len, d_model = encoder_output.shape
 
         # Separate numeric and categorical features for reconstruction
         if input_numeric is not None:
@@ -558,6 +559,7 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
         total_loss = 0.0
         numeric_loss_val = torch.tensor(0.0, device=self.device)
         categorical_loss_val = torch.tensor(0.0, device=self.device)
+        categorical_accuracy_val = torch.tensor(0.0, device=self.device)
 
         # Calculate numeric loss on masked positions
         if numeric_predictions is not None and numeric_mask is not None:
@@ -584,28 +586,6 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                 numeric_loss_val = numeric_loss
                 total_loss += numeric_loss_val
 
-                # Log step-level metric
-                self.log(
-                    "step_loss/train/numeric",
-                    numeric_loss_val,
-                    prog_bar=False,  # Keep prog_bar clean
-                    logger=True,
-                    on_step=True,
-                    on_epoch=False,
-                    batch_size=batch_size,
-                )
-        # Log epoch-level metric, ensuring it's logged even if no numeric predictions
-        self.log(
-            "epoch_loss/train/numeric",
-            numeric_loss_val,
-            prog_bar=False,
-            logger=True,
-            on_step=False,
-            on_epoch=True,
-            batch_size=batch_size,
-            reduce_fx="mean",
-        )
-
         # Calculate categorical loss on masked positions
         if categorical_predictions is not None and categorical_mask is not None:
             # Reshape for loss calculation
@@ -626,67 +606,44 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                 categorical_loss_val = categorical_loss
                 total_loss += categorical_loss_val
 
-                # Log step-level metric
-                self.log(
-                    "step_loss/train/categorical",
-                    categorical_loss_val,
-                    prog_bar=False,  # Keep prog_bar clean
-                    logger=True,
-                    on_step=True,
-                    on_epoch=False,
-                    batch_size=batch_size,
-                )
-
-                # Calculate and log step-level categorical accuracy
+                # Calculate categorical accuracy
                 categorical_accuracy = (
                     (masked_cat_pred.argmax(dim=-1) == masked_cat_true).float().mean()
                 )
-                self.log(
-                    "step_accuracy/train/categorical",
-                    categorical_accuracy,
-                    prog_bar=False,  # Keep prog_bar clean
-                    logger=True,
-                    on_step=True,
-                    on_epoch=False,
-                    batch_size=batch_size,
-                )
-        # Log epoch-level metrics, ensuring they are logged even if no categorical predictions
+                categorical_accuracy_val = categorical_accuracy
+
+        # Log training metrics at both step and epoch level
         self.log(
-            "epoch_loss/train/categorical",
-            categorical_loss_val,
+            "train/numeric_loss",
+            numeric_loss_val,
+            on_step=True,
+            on_epoch=True,
             prog_bar=False,
             logger=True,
-            on_step=False,
-            on_epoch=True,
             batch_size=batch_size,
             reduce_fx="mean",
         )
-        # Placeholder for epoch accuracy for categorical, will be calculated in
-        # on_train_epoch_end if needed, or can be aggregated from step accuracies
-        # by TensorBoard.
-
-        # Log step-level combined loss
         self.log(
-            "step_loss/train/combined",
-            total_loss,
-            prog_bar=True,  # Show combined loss in progress bar
-            logger=True,
+            "train/categorical_loss",
+            categorical_loss_val,
             on_step=True,
-            on_epoch=False,
-            batch_size=batch_size,
-        )
-
-        # Log epoch-level combined loss
-        self.log(
-            "epoch_loss/train/combined",
-            total_loss,
-            prog_bar=False,  # Already shown by step combined loss
-            logger=True,
-            on_step=False,
             on_epoch=True,
+            prog_bar=False,
+            logger=True,
             batch_size=batch_size,
             reduce_fx="mean",
         )
+        self.log(
+            "train/categorical_accuracy",
+            categorical_accuracy_val,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=False,
+            logger=True,
+            batch_size=batch_size,
+            reduce_fx="mean",
+        )
+
         return total_loss
 
     def validation_step(self, batch, batch_idx):
@@ -732,17 +689,6 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                 numeric_loss_val = numeric_loss
                 total_loss += numeric_loss_val
 
-        self.log(
-            "epoch_loss/val/numeric",
-            numeric_loss_val,
-            prog_bar=False,
-            logger=True,
-            on_step=False,
-            on_epoch=True,
-            batch_size=batch_size,
-            reduce_fx="mean",
-        )
-
         # Calculate categorical loss and accuracy
         if categorical_predictions is not None and categorical_mask is not None:
             # Reshape for loss calculation
@@ -769,38 +715,38 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                 )
                 categorical_accuracy_val = categorical_accuracy
 
+        # Epoch-level logging (only for validation)
         self.log(
-            "epoch_loss/val/categorical",
-            categorical_loss_val,
-            prog_bar=False,
-            logger=True,
+            "val/numeric_loss",
+            numeric_loss_val,
             on_step=False,
             on_epoch=True,
+            prog_bar=False,
+            logger=True,
             batch_size=batch_size,
             reduce_fx="mean",
         )
         self.log(
-            "epoch_accuracy/val/categorical",
-            categorical_accuracy_val,
-            prog_bar=True,  # Show val accuracy in progress bar
-            logger=True,
+            "val/categorical_loss",
+            categorical_loss_val,
             on_step=False,
             on_epoch=True,
+            prog_bar=False,
+            logger=True,
+            batch_size=batch_size,
+            reduce_fx="mean",
+        )
+        self.log(
+            "val/categorical_accuracy",
+            categorical_accuracy_val,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,  # Show val accuracy in progress bar
+            logger=True,
             batch_size=batch_size,
             reduce_fx="mean",
         )
 
-        # Log epoch-level total loss
-        self.log(
-            "epoch_loss/val/combined",
-            total_loss,
-            prog_bar=True,  # Show combined val loss in progress bar
-            logger=True,
-            on_step=False,
-            on_epoch=True,
-            batch_size=batch_size,
-            reduce_fx="mean",
-        )
         return total_loss
 
     def configure_optimizers(self):
@@ -823,83 +769,60 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
-                # Monitor grouped combined validation loss
-                "monitor": "epoch_loss/combined/val",
+                "monitor": "val/categorical_loss",  # Monitor simplified validation loss
                 "interval": "epoch",
                 "frequency": 1,
             },
         }
 
     def on_validation_epoch_end(self):
-        """Log numeric and categorical train/val together on separate charts"""
-        # This method is called at the end of the validation epoch
-        # We will log metrics that have been accumulated during the epoch
-
+        """Create combined charts with train/val metrics for simplified logging"""
         # Ensure logger is available
         if not self.logger or not hasattr(self.logger, "experiment"):
             return
 
-        # Retrieve epoch metrics from the trainer's callback_metrics
-        # Using .get with a default tensor to handle cases where a metric might
-        # not be present yet (e.g., first epoch or if a particular loss component
-        # was zero for all batches)
+        # Get current epoch metrics
         current_epoch_metrics = self.trainer.callback_metrics
 
-        # Numeric losses
+        # Numeric Loss Chart (train vs validation)
         train_numeric_loss = current_epoch_metrics.get(
-            "epoch_loss/train/numeric", torch.tensor(0.0, device=self.device)
+            "train/numeric_loss", torch.tensor(0.0, device=self.device)
         )
         val_numeric_loss = current_epoch_metrics.get(
-            "epoch_loss/val/numeric", torch.tensor(0.0, device=self.device)
+            "val/numeric_loss", torch.tensor(0.0, device=self.device)
         )
-
         self.logger.experiment.add_scalars(
-            "Loss/Numeric",
+            "Numeric Loss",
             {"train": train_numeric_loss, "validation": val_numeric_loss},
             self.current_epoch,
         )
 
-        # Categorical losses
+        # Categorical Loss Chart (train vs validation)
         train_categorical_loss = current_epoch_metrics.get(
-            "epoch_loss/train/categorical", torch.tensor(0.0, device=self.device)
+            "train/categorical_loss", torch.tensor(0.0, device=self.device)
         )
         val_categorical_loss = current_epoch_metrics.get(
-            "epoch_loss/val/categorical", torch.tensor(0.0, device=self.device)
+            "val/categorical_loss", torch.tensor(0.0, device=self.device)
         )
-
         self.logger.experiment.add_scalars(
-            "Loss/Categorical",
+            "Categorical Loss",
             {"train": train_categorical_loss, "validation": val_categorical_loss},
             self.current_epoch,
         )
 
-        # Combined losses
-        train_combined_loss = current_epoch_metrics.get(
-            "epoch_loss/train/combined", torch.tensor(0.0, device=self.device)
+        # Categorical Accuracy Chart (train vs validation)
+        train_categorical_accuracy = current_epoch_metrics.get(
+            "train/categorical_accuracy", torch.tensor(0.0, device=self.device)
         )
-        val_combined_loss = current_epoch_metrics.get(
-            "epoch_loss/val/combined", torch.tensor(0.0, device=self.device)
-        )
-
-        self.logger.experiment.add_scalars(
-            "Loss/Combined",
-            {"train": train_combined_loss, "validation": val_combined_loss},
-            self.current_epoch,
-        )
-
-        # Categorical Accuracy (only for validation as per request)
         val_categorical_accuracy = current_epoch_metrics.get(
-            "epoch_accuracy/val/categorical", torch.tensor(0.0, device=self.device)
+            "val/categorical_accuracy", torch.tensor(0.0, device=self.device)
         )
-
-        # If you also want to log training categorical accuracy at epoch level,
-        # you would need to calculate and log it similarly to how
-        # val_categorical_accuracy is done.
-        # For now, only validation accuracy is explicitly plotted here.
-        # Step-level training accuracy is logged in training_step.
-        self.logger.experiment.add_scalar(
-            "Accuracy/Categorical/validation",  # Keep validation separate for clarity
-            val_categorical_accuracy,
+        self.logger.experiment.add_scalars(
+            "Categorical Accuracy",
+            {
+                "train": train_categorical_accuracy,
+                "validation": val_categorical_accuracy,
+            },
             self.current_epoch,
         )
 

@@ -58,7 +58,7 @@ SEQUENCE_LENGTH = 1090  # Much longer context window!
 LEARNING_RATE = 5e-5
 MAX_EPOCHS = 50
 MASK_PROBABILITY = 0.15
-D_MODEL = 64
+D_MODEL = 128
 N_HEADS = 8
 GRADIENT_CLIP = 1.0
 # Disable gradient accumulation so that step logging aligns with optimizer updates
@@ -334,15 +334,15 @@ callbacks = [
     RichModelSummary(max_depth=2),
     LearningRateMonitor(logging_interval="step"),
     ModelCheckpoint(
-        monitor="epoch_loss/val/combined",  # Updated monitor key
+        monitor="val/categorical_loss",  # Updated monitor key
         dirpath=f"checkpoints/efficient_pretrain_{ATTENTION_TYPE}",
-        filename="pretrain-{epoch:02d}-{epoch_loss/val/combined:.4f}",  # Updated filename to match monitor
+        filename="pretrain-{epoch:02d}-{val_categorical_loss:.4f}",
         save_top_k=3,
         mode="min",
         save_weights_only=False,
     ),
     EarlyStopping(
-        monitor="epoch_loss/val/combined",  # Updated monitor key
+        monitor="val/categorical_loss",  # Updated monitor key
         patience=10,
         mode="min",
         verbose=True,

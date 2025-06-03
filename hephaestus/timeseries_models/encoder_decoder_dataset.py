@@ -38,7 +38,7 @@ class EncoderDecoderDataset(Dataset):
         self.target_col = target_col
 
         # Set df.idx to start from 0
-        df.idx = df.idx - df.idx.min()
+        df.loc[:, "idx"] = df.idx - df.idx.min()
         df = df.set_index("idx")
         df.index.name = None
 
