@@ -300,10 +300,10 @@ class MetricsLogger(L.Callback):
     for easy analysis.
     """
 
-    def __init__(self, save_dir: str = "train_results/metrics"):
+    def __init__(self, save_dir: str = "output_metrics"):
         super().__init__()
         self.save_dir = Path(save_dir)
-        self.save_dir.mkdir(exist_ok=True)
+        self.save_dir.mkdir(parents=True, exist_ok=True)
 
         # Initialize storage for metrics
         self.train_metrics = []
@@ -325,17 +325,13 @@ class MetricsLogger(L.Callback):
         train_headers = [
             "epoch",
             "step",
-            "train_numeric_loss",
-            "train_categorical_loss",
-            "train_categorical_accuracy",
+            "train_loss",
             "learning_rate",
             "timestamp",
         ]
         val_headers = [
             "epoch",
-            "val_numeric_loss",
-            "val_categorical_loss",
-            "val_categorical_accuracy",
+            "val_loss",
             "timestamp",
         ]
 
@@ -357,13 +353,7 @@ class MetricsLogger(L.Callback):
         global_step = trainer.global_step
 
         # Extract training metrics
-        train_numeric_loss = self._get_metric_value(metrics, "train/numeric_loss_epoch")
-        train_categorical_loss = self._get_metric_value(
-            metrics, "train/categorical_loss_epoch"
-        )
-        train_categorical_accuracy = self._get_metric_value(
-            metrics, "train/categorical_accuracy_epoch"
-        )
+        train_loss = self._get_metric_value(metrics, "train_loss")
 
         # Get learning rate
         lr = trainer.optimizers[0].param_groups[0]["lr"] if trainer.optimizers else 0.0
@@ -373,9 +363,7 @@ class MetricsLogger(L.Callback):
         train_row = {
             "epoch": current_epoch,
             "step": global_step,
-            "train_numeric_loss": train_numeric_loss,
-            "train_categorical_loss": train_categorical_loss,
-            "train_categorical_accuracy": train_categorical_accuracy,
+            "train_loss": train_loss,
             "learning_rate": lr,
             "timestamp": timestamp,
         }
@@ -390,9 +378,7 @@ class MetricsLogger(L.Callback):
                 [
                     current_epoch,
                     global_step,
-                    train_numeric_loss,
-                    train_categorical_loss,
-                    train_categorical_accuracy,
+                    train_loss,
                     lr,
                     timestamp,
                 ]
@@ -413,19 +399,13 @@ class MetricsLogger(L.Callback):
         current_epoch = trainer.current_epoch
 
         # Extract validation metrics
-        val_numeric_loss = self._get_metric_value(metrics, "val/numeric_loss")
-        val_categorical_loss = self._get_metric_value(metrics, "val/categorical_loss")
-        val_categorical_accuracy = self._get_metric_value(
-            metrics, "val/categorical_accuracy"
-        )
+        val_loss = self._get_metric_value(metrics, "val_loss")
 
         # Create row data
         timestamp = pd.Timestamp.now()
         val_row = {
             "epoch": current_epoch,
-            "val_numeric_loss": val_numeric_loss,
-            "val_categorical_loss": val_categorical_loss,
-            "val_categorical_accuracy": val_categorical_accuracy,
+            "val_loss": val_loss,
             "timestamp": timestamp,
         }
 
@@ -438,9 +418,7 @@ class MetricsLogger(L.Callback):
             writer.writerow(
                 [
                     current_epoch,
-                    val_numeric_loss,
-                    val_categorical_loss,
-                    val_categorical_accuracy,
+                    val_loss,
                     timestamp,
                 ]
             )
@@ -556,26 +534,29 @@ callbacks = [
     RichModelSummary(max_depth=2),
     LearningRateMonitor(logging_interval="step"),
     ModelCheckpoint(
-        monitor="val/categorical_loss",  # Updated monitor key
+        monitor="val_loss",  # Updated to use simplified metric
         dirpath=f"checkpoints/efficient_pretrain_{ATTENTION_TYPE}",
-        filename="pretrain-{epoch:02d}-{val_categorical_loss:.4f}",
+        filename="pretrain-{epoch:02d}-{val_loss:.4f}",
         save_top_k=3,
         mode="min",
         save_weights_only=False,
     ),
     EarlyStopping(
-        monitor="val/categorical_loss",  # Updated monitor key
+        monitor="val_loss",  # Updated to use simplified metric
         patience=10,
         mode="min",
         verbose=True,
     ),
 ]
 
+# Create timestamp for consistent naming across metrics and tensorboard
+model_timestamp = dt.now().strftime("%Y%m%d_%H%M%S")
+
 # Logger
 logger = TensorBoardLogger(
     save_dir="runs",
     name=f"efficient_pretrain_{ATTENTION_TYPE}",
-    version=f"{dt.now().strftime('%Y%m%d_%H%M%S')}",
+    version=model_timestamp,
 )
 
 # Trainer
@@ -597,8 +578,11 @@ trainer = L.Trainer(
 print("=== Starting Pre-training ===")
 
 # Add metrics logger to the trainer
-metrics_logger = MetricsLogger(save_dir=f"metrics_{ATTENTION_TYPE}")
+metrics_save_dir = f"output_metrics/{ATTENTION_TYPE}_{model_timestamp}"
+metrics_logger = MetricsLogger(save_dir=metrics_save_dir)
 trainer.callbacks.append(metrics_logger)
+
+print(f"=== Metrics will be saved to: {metrics_save_dir} ===")
 
 # %%
 # Train the model
@@ -613,28 +597,17 @@ train_metrics_df = metrics_logger.get_train_dataframe()
 val_metrics_df = metrics_logger.get_validation_dataframe()
 
 # Save combined metrics
-combined_metrics_df = metrics_logger.save_combined_metrics(
-    f"combined_metrics_{ATTENTION_TYPE}.csv"
-)
+combined_metrics_filename = f"combined_metrics_{ATTENTION_TYPE}_{model_timestamp}.csv"
+combined_metrics_df = metrics_logger.save_combined_metrics(combined_metrics_filename)
 
 # Display some metrics info
 if len(train_metrics_df) > 0:
     print(f"Training metrics saved: {len(train_metrics_df)} epochs")
-    print(
-        f"Final train categorical loss: {train_metrics_df['train_categorical_loss'].iloc[-1]:.4f}"
-    )
-    print(
-        f"Final train categorical accuracy: {train_metrics_df['train_categorical_accuracy'].iloc[-1]:.4f}"
-    )
+    print(f"Final train loss: {train_metrics_df['train_loss'].iloc[-1]:.4f}")
 
 if len(val_metrics_df) > 0:
     print(f"Validation metrics saved: {len(val_metrics_df)} epochs")
-    print(
-        f"Final val categorical loss: {val_metrics_df['val_categorical_loss'].iloc[-1]:.4f}"
-    )
-    print(
-        f"Final val categorical accuracy: {val_metrics_df['val_categorical_accuracy'].iloc[-1]:.4f}"
-    )
+    print(f"Final val loss: {val_metrics_df['val_loss'].iloc[-1]:.4f}")
 
 # You can also access the DataFrames directly for analysis:
 # print("\nFirst few training metrics:")
@@ -644,6 +617,7 @@ if len(val_metrics_df) > 0:
 
 # %%
 # Save the final model
+model_filename = f"pretrained_model_efficient_{ATTENTION_TYPE}_{SEQUENCE_LENGTH}_{model_timestamp}.pt"
 torch.save(
     {
         "model_state_dict": pretrain_model.state_dict(),
@@ -654,19 +628,19 @@ torch.save(
         "attention_kwargs": ATTENTION_KWARGS,
         "sequence_length": SEQUENCE_LENGTH,
     },
-    f"pretrained_model_efficient_{ATTENTION_TYPE}_{SEQUENCE_LENGTH}.pt",
+    model_filename,
 )
 
-print(
-    f"\nPre-training completed! Model saved to pretrained_model_efficient_{ATTENTION_TYPE}_{SEQUENCE_LENGTH}.pt"
-)
+print(f"\nPre-training completed! Model saved to {model_filename}")
 
 # %%
 # Print final metrics are now logged to TensorBoard.
 # The print statements below are removed as they are redundant.
 
 print("\\nMetrics have been logged to TensorBoard. To view them, run:")
-print(f"  tensorboard --logdir runs/efficient_pretrain_{ATTENTION_TYPE}")
+tensorboard_path = f"runs/efficient_pretrain_{ATTENTION_TYPE}/{model_timestamp}"
+print(f"  tensorboard --logdir {tensorboard_path}")
+print(f"\\nRaw metrics saved to: {metrics_save_dir}")
 # Further print statements about specific metrics are removed
 # as the new logging structure in TensorBoard will make these clear.
 
