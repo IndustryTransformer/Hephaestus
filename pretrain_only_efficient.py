@@ -334,15 +334,15 @@ callbacks = [
     RichModelSummary(max_depth=2),
     LearningRateMonitor(logging_interval="step"),
     ModelCheckpoint(
-        monitor="epoch_loss/combined/val",
+        monitor="epoch_loss/val/combined",  # Updated monitor key
         dirpath=f"checkpoints/efficient_pretrain_{ATTENTION_TYPE}",
-        filename="pretrain-{epoch:02d}-{val_loss_epoch:.4f}",
+        filename="pretrain-{epoch:02d}-{epoch_loss/val/combined:.4f}",  # Updated filename to match monitor
         save_top_k=3,
         mode="min",
         save_weights_only=False,
     ),
     EarlyStopping(
-        monitor="epoch_loss/combined/val",
+        monitor="epoch_loss/val/combined",  # Updated monitor key
         patience=10,
         mode="min",
         verbose=True,
@@ -398,28 +398,15 @@ print(
 )
 
 # %%
-# Print final metrics
-print("\nFinal training metrics:")
-if hasattr(trainer, "logged_metrics") and trainer.logged_metrics:
-    for key, value in trainer.logged_metrics.items():
-        if isinstance(value, (int, float)):
-            print(f"  {key}: {value:.4f}")
-        else:
-            print(f"  {key}: {value}")
+# Print final metrics are now logged to TensorBoard.
+# The print statements below are removed as they are redundant.
 
-print("\nMetrics have been logged to TensorBoard. To view them, run:")
+print("\\nMetrics have been logged to TensorBoard. To view them, run:")
 print(f"  tensorboard --logdir runs/efficient_pretrain_{ATTENTION_TYPE}")
-print("\nYou can view:")
-print("  - train_loss: Combined training loss")
-print("  - train_numeric_loss: Loss for numeric feature reconstruction")
-print("  - train_categorical_loss: Loss for categorical feature reconstruction")
-print("  - val_loss: Combined validation loss")
-print("  - val_numeric_loss: Validation numeric reconstruction loss")
-print("  - val_categorical_loss: Validation categorical reconstruction loss")
-print("  - val_categorical_accuracy: Accuracy of categorical predictions")
-print("  - lr-AdamW: Learning rate over time")
+# Further print statements about specific metrics are removed
+# as the new logging structure in TensorBoard will make these clear.
 
-print("\nTo try different attention mechanisms, change ATTENTION_TYPE to:")
+print("\\nTo try different attention mechanisms, change ATTENTION_TYPE to:")
 print("- 'flash': Flash Attention (best for modern GPUs)")
 print("- 'local': Local windowed attention")
 print("- 'sparse': Sparse attention pattern")
