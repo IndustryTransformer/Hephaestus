@@ -247,7 +247,9 @@ if USE_TWO_STAGE:
     logger_pretrain = TensorBoardLogger(
         "runs", name=f"{dt.now()}_pretrain_{MODEL_NAME}"
     )
-    early_stopping_pretrain = EarlyStopping(monitor="val_loss", patience=3, mode="min")
+    early_stopping_pretrain = EarlyStopping(
+        monitor="val_loss_epoch", patience=3, mode="min"
+    )
     checkpoint_pretrain = ModelCheckpoint(
         dirpath="checkpoints",
         filename=f"pretrain_{MODEL_NAME}_{{epoch}}_{{val_loss:.2f}}",
@@ -300,7 +302,9 @@ if USE_TWO_STAGE:
     logger_finetune = TensorBoardLogger(
         "runs", name=f"{dt.now()}_finetune_{MODEL_NAME}"
     )
-    early_stopping_finetune = EarlyStopping(monitor="val_loss", patience=5, mode="min")
+    early_stopping_finetune = EarlyStopping(
+        monitor="val_loss_epoch", patience=5, mode="min"
+    )
     checkpoint_finetune = ModelCheckpoint(
         dirpath="checkpoints",
         filename=f"finetune_{MODEL_NAME}_{{epoch}}_{{val_loss:.2f}}",
@@ -344,7 +348,7 @@ else:
 
     # Setup training with PyTorch Lightning
     logger = TensorBoardLogger("runs", name=f"{dt.now()}_{MODEL_NAME}")
-    early_stopping = EarlyStopping(monitor="val_loss", patience=3, mode="min")
+    early_stopping = EarlyStopping(monitor="val_loss_epoch", patience=3, mode="min")
     checkpoint = ModelCheckpoint(
         dirpath="checkpoints",
         filename=f"{MODEL_NAME}_{{epoch}}_{{val_loss:.2f}}",

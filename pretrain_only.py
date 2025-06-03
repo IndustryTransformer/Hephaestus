@@ -259,15 +259,15 @@ print(
 # Setup callbacks
 callbacks = [
     EarlyStopping(
-        monitor="val_loss",
+        monitor="val_loss_epoch",
         patience=5,
         mode="min",
         verbose=True,
     ),
     ModelCheckpoint(
         dirpath="checkpoints/pretrain_only",
-        filename="pretrain_{epoch:02d}_{val_loss:.4f}",
-        monitor="val_loss",
+        filename="pretrain_{epoch:02d}_{val_loss_epoch:.4f}",
+        monitor="val_loss_epoch",
         save_top_k=3,
         mode="min",
         save_last=True,

@@ -333,15 +333,15 @@ callbacks = [
     RichModelSummary(max_depth=2),
     LearningRateMonitor(logging_interval="step"),
     ModelCheckpoint(
-        monitor="val_loss",
+        monitor="val_loss_epoch",
         dirpath=f"checkpoints/efficient_pretrain_{ATTENTION_TYPE}",
-        filename="pretrain-{epoch:02d}-{val_loss:.4f}",
+        filename="pretrain-{epoch:02d}-{val_loss_epoch:.4f}",
         save_top_k=3,
         mode="min",
         save_weights_only=False,
     ),
     EarlyStopping(
-        monitor="val_loss",
+        monitor="val_loss_epoch",
         patience=10,
         mode="min",
         verbose=True,

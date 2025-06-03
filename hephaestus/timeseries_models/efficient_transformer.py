@@ -580,12 +580,25 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                     numeric_loss = torch.clamp(numeric_loss, max=100.0)
 
                 total_loss += numeric_loss
+
+                # Log step-level metric (per batch)
                 self.log(
-                    "train_numeric_loss",
+                    "train_numeric_loss_step",
                     numeric_loss,
                     prog_bar=True,
                     logger=True,
                     on_step=True,
+                    on_epoch=False,
+                    batch_size=batch_size,
+                )
+
+                # Log epoch-level metric (average across epoch)
+                self.log(
+                    "train_numeric_loss_epoch",
+                    numeric_loss,
+                    prog_bar=False,
+                    logger=True,
+                    on_step=False,
                     on_epoch=True,
                     batch_size=batch_size,
                 )
@@ -608,22 +621,47 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                     masked_cat_pred, masked_cat_true
                 )
                 total_loss += categorical_loss
+
+                # Log step-level metric (per batch)
                 self.log(
-                    "train_categorical_loss",
+                    "train_categorical_loss_step",
                     categorical_loss,
                     prog_bar=True,
                     logger=True,
                     on_step=True,
+                    on_epoch=False,
+                    batch_size=batch_size,
+                )
+
+                # Log epoch-level metric (average across epoch)
+                self.log(
+                    "train_categorical_loss_epoch",
+                    categorical_loss,
+                    prog_bar=False,
+                    logger=True,
+                    on_step=False,
                     on_epoch=True,
                     batch_size=batch_size,
                 )
 
+        # Log step-level total loss (per batch)
         self.log(
-            "train_loss",
+            "train_loss_step",
             total_loss,
             prog_bar=True,
             logger=True,
             on_step=True,
+            on_epoch=False,
+            batch_size=batch_size,
+        )
+
+        # Log epoch-level total loss (average across epoch)
+        self.log(
+            "train_loss_epoch",
+            total_loss,
+            prog_bar=False,
+            logger=True,
+            on_step=False,
             on_epoch=True,
             batch_size=batch_size,
         )
@@ -667,10 +705,23 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                     masked_numeric_pred, masked_numeric_true
                 )
                 total_loss += numeric_loss
+
+                # Log step-level metric (per batch)
                 self.log(
-                    "val_numeric_loss",
+                    "val_numeric_loss_step",
                     numeric_loss,
                     prog_bar=True,
+                    logger=True,
+                    on_step=True,
+                    on_epoch=False,
+                    batch_size=batch_size,
+                )
+
+                # Log epoch-level metric (average across epoch)
+                self.log(
+                    "val_numeric_loss_epoch",
+                    numeric_loss,
+                    prog_bar=False,
                     logger=True,
                     on_step=False,
                     on_epoch=True,
@@ -695,10 +746,23 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                     masked_cat_pred, masked_cat_true
                 )
                 total_loss += categorical_loss
+
+                # Log step-level metric (per batch)
                 self.log(
-                    "val_categorical_loss",
+                    "val_categorical_loss_step",
                     categorical_loss,
                     prog_bar=True,
+                    logger=True,
+                    on_step=True,
+                    on_epoch=False,
+                    batch_size=batch_size,
+                )
+
+                # Log epoch-level metric (average across epoch)
+                self.log(
+                    "val_categorical_loss_epoch",
+                    categorical_loss,
+                    prog_bar=False,
                     logger=True,
                     on_step=False,
                     on_epoch=True,
@@ -709,20 +773,45 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                 categorical_accuracy = (
                     (masked_cat_pred.argmax(dim=-1) == masked_cat_true).float().mean()
                 )
+
+                # Log step-level accuracy (per batch)
                 self.log(
-                    "val_categorical_accuracy",
+                    "val_categorical_accuracy_step",
                     categorical_accuracy,
                     prog_bar=True,
+                    logger=True,
+                    on_step=True,
+                    on_epoch=False,
+                    batch_size=batch_size,
+                )
+
+                # Log epoch-level accuracy (average across epoch)
+                self.log(
+                    "val_categorical_accuracy_epoch",
+                    categorical_accuracy,
+                    prog_bar=False,
                     logger=True,
                     on_step=False,
                     on_epoch=True,
                     batch_size=batch_size,
                 )
 
+        # Log step-level total loss (per batch)
         self.log(
-            "val_loss",
+            "val_loss_step",
             total_loss,
             prog_bar=True,
+            logger=True,
+            on_step=True,
+            on_epoch=False,
+            batch_size=batch_size,
+        )
+
+        # Log epoch-level total loss (average across epoch)
+        self.log(
+            "val_loss_epoch",
+            total_loss,
+            prog_bar=False,
             logger=True,
             on_step=False,
             on_epoch=True,
@@ -750,7 +839,7 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
-                "monitor": "val_loss",
+                "monitor": "val_loss_epoch",  # Monitor epoch-level validation loss
                 "interval": "epoch",
                 "frequency": 1,
             },
