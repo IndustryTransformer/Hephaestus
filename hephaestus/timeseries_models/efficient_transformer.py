@@ -592,9 +592,9 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                     batch_size=batch_size,
                 )
 
-                # Log epoch-level metric (average across epoch)
+                # Log epoch-level metric (average across epoch), grouped by numeric
                 self.log(
-                    "train_numeric_loss_epoch",
+                    "epoch_loss/numeric/train",
                     numeric_loss,
                     prog_bar=False,
                     logger=True,
@@ -633,9 +633,9 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                     batch_size=batch_size,
                 )
 
-                # Log epoch-level metric (average across epoch)
+                # Log epoch-level metric (average across epoch), grouped by categorical
                 self.log(
-                    "train_categorical_loss_epoch",
+                    "epoch_loss/categorical/train",
                     categorical_loss,
                     prog_bar=False,
                     logger=True,
@@ -644,20 +644,16 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                     batch_size=batch_size,
                 )
 
-        # Log step-level total loss (per batch)
-        self.log(
-            "train_loss_step",
-            total_loss,
-            prog_bar=True,
-            logger=True,
-            on_step=True,
-            on_epoch=False,
-            batch_size=batch_size,
-        )
+        # Log step-level total loss using global step for TensorBoard
+        # Using SummaryWriter.add_scalar ensures consistent global_step indexing
+        if hasattr(self.logger, "experiment"):
+            self.logger.experiment.add_scalar(
+                "train_loss_step", total_loss, self.global_step
+            )
 
-        # Log epoch-level total loss (average across epoch)
+        # Log epoch-level total loss (average across epoch), grouped combined
         self.log(
-            "train_loss_epoch",
+            "epoch_loss/combined/train",
             total_loss,
             prog_bar=False,
             logger=True,
@@ -717,9 +713,9 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                     batch_size=batch_size,
                 )
 
-                # Log epoch-level metric (average across epoch)
+                # Log epoch-level metric (average across epoch), grouped by numeric
                 self.log(
-                    "val_numeric_loss_epoch",
+                    "epoch_loss/numeric/val",
                     numeric_loss,
                     prog_bar=False,
                     logger=True,
@@ -758,9 +754,9 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                     batch_size=batch_size,
                 )
 
-                # Log epoch-level metric (average across epoch)
+                # Log epoch-level metric (average across epoch), grouped by categorical
                 self.log(
-                    "val_categorical_loss_epoch",
+                    "epoch_loss/categorical/val",
                     categorical_loss,
                     prog_bar=False,
                     logger=True,
@@ -796,20 +792,15 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                     batch_size=batch_size,
                 )
 
-        # Log step-level total loss (per batch)
-        self.log(
-            "val_loss_step",
-            total_loss,
-            prog_bar=True,
-            logger=True,
-            on_step=True,
-            on_epoch=False,
-            batch_size=batch_size,
-        )
+        # Log step-level validation loss using global step
+        if hasattr(self.logger, "experiment"):
+            self.logger.experiment.add_scalar(
+                "val_loss_step", total_loss, self.global_step
+            )
 
-        # Log epoch-level total loss (average across epoch)
+        # Log epoch-level total loss (average across epoch), grouped combined
         self.log(
-            "val_loss_epoch",
+            "epoch_loss/combined/val",
             total_loss,
             prog_bar=False,
             logger=True,
@@ -839,7 +830,8 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
-                "monitor": "val_loss_epoch",  # Monitor epoch-level validation loss
+                # Monitor grouped combined validation loss
+                "monitor": "epoch_loss/combined/val",
                 "interval": "epoch",
                 "frequency": 1,
             },
@@ -860,8 +852,10 @@ if __name__ == "__main__":
 
         for attn_type, metrics in attn_results.items():
             if metrics["successful"]:
+                # Print successful benchmark results, wrapped for readability
                 print(
-                    f"{attn_type:15} | Time: {metrics['time_ms']:8.2f}ms | Memory: {metrics['memory_mb']:8.2f}MB"
+                    f"{attn_type:15} | Time: {metrics['time_ms']:8.2f}ms | "
+                    f"Memory: {metrics['memory_mb']:8.2f}MB"
                 )
             else:
                 print(

@@ -61,7 +61,8 @@ MASK_PROBABILITY = 0.15
 D_MODEL = 64
 N_HEADS = 8
 GRADIENT_CLIP = 1.0
-ACCUMULATE_GRAD_BATCHES = 8  # Increased to maintain effective batch size
+# Disable gradient accumulation so that step logging aligns with optimizer updates
+ACCUMULATE_GRAD_BATCHES = 1
 
 # Efficient attention configuration
 ATTENTION_TYPE = (
@@ -333,7 +334,7 @@ callbacks = [
     RichModelSummary(max_depth=2),
     LearningRateMonitor(logging_interval="step"),
     ModelCheckpoint(
-        monitor="val_loss_epoch",
+        monitor="epoch_loss/combined/val",
         dirpath=f"checkpoints/efficient_pretrain_{ATTENTION_TYPE}",
         filename="pretrain-{epoch:02d}-{val_loss_epoch:.4f}",
         save_top_k=3,
@@ -341,7 +342,7 @@ callbacks = [
         save_weights_only=False,
     ),
     EarlyStopping(
-        monitor="val_loss_epoch",
+        monitor="epoch_loss/combined/val",
         patience=10,
         mode="min",
         verbose=True,
