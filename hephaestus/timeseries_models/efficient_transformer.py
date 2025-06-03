@@ -837,6 +837,31 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
             },
         }
 
+    def on_validation_epoch_end(self):
+        """Log numeric and categorical train/val together on separate charts"""
+        metrics = self.trainer.callback_metrics
+        # fetch or default metrics to tensors (avoid NoneType)
+        import torch
+
+        default = torch.tensor(0.0, device=next(self.parameters()).device)
+        num_train = metrics.get("epoch_loss/numeric/train") or default
+        num_val = metrics.get("epoch_loss/numeric/val") or default
+        cat_train = metrics.get("epoch_loss/categorical/train") or default
+        cat_val = metrics.get("epoch_loss/categorical/val") or default
+        if hasattr(self.logger, "experiment"):
+            # numeric plot
+            self.logger.experiment.add_scalars(
+                "epoch_loss/numeric",
+                {"train": num_train, "val": num_val},
+                self.current_epoch,
+            )
+            # categorical plot
+            self.logger.experiment.add_scalars(
+                "epoch_loss/categorical",
+                {"train": cat_train, "val": cat_val},
+                self.current_epoch,
+            )
+
 
 if __name__ == "__main__":
     # Run benchmarks if executed directly
