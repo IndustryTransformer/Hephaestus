@@ -1,11 +1,27 @@
 # %%
 import math
-from typing import Optional
+from typing import Literal, Optional
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from icecream import ic
+
+try:
+    import pytorch_lightning as L
+except ImportError:
+    # Create a dummy base class if PyTorch Lightning is not available
+    class L:
+        class LightningModule(nn.Module):
+            def __init__(self):
+                super().__init__()
+
+            def save_hyperparameters(self):
+                pass
+
+            def log(self, *args, **kwargs):
+                pass
+
 
 from hephaestus.timeseries_models.model_data_classes import (
     NumericCategoricalData,
@@ -59,26 +75,59 @@ class FeedForwardNetwork(nn.Module):
 
 class TransformerBlock(nn.Module):
     """
-    Transformer block module.
+    Transformer block module with configurable efficient attention.
 
     Args:
         num_heads (int): Number of attention heads.
         d_model (int): Dimensionality of the model.
         d_ff (int): Dimensionality of the feed-forward layer.
         dropout_rate (float): Dropout rate.
+        attention_type (str): Type of attention mechanism to use.
+        attention_kwargs (dict): Additional arguments for the attention mechanism.
     """
 
-    def __init__(self, num_heads: int, d_model: int, d_ff: int, dropout_rate: float):
+    def __init__(
+        self,
+        num_heads: int,
+        d_model: int,
+        d_ff: int,
+        dropout_rate: float,
+        attention_type: Literal[
+            "standard", "local", "sparse", "featurewise", "chunked", "flash"
+        ] = "standard",
+        **attention_kwargs,
+    ):
         super().__init__()
         self.num_heads = num_heads
         self.d_model = d_model
         self.d_ff = d_ff
         self.dropout_rate = dropout_rate
+        self.attention_type = attention_type
 
-        # Replace standard MultiheadAttention with our custom 4D version
-        self.multi_head_attention = MultiHeadAttention4D(
-            embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate
-        )
+        # Choose attention mechanism based on type
+        if attention_type != "standard":
+            try:
+                from hephaestus.timeseries_models.efficient_attention import (
+                    create_efficient_attention,
+                )
+
+                self.multi_head_attention = create_efficient_attention(
+                    attention_type=attention_type,
+                    embed_dim=d_model,
+                    num_heads=num_heads,
+                    dropout=dropout_rate,
+                    **attention_kwargs,
+                )
+            except ImportError:
+                # Fallback to standard attention if efficient attention is not available
+                self.multi_head_attention = MultiHeadAttention4D(
+                    embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate
+                )
+        else:
+            # Use standard 4D MultiHeadAttention
+            self.multi_head_attention = MultiHeadAttention4D(
+                embed_dim=d_model, num_heads=num_heads, dropout=dropout_rate
+            )
 
         self.layer_norm1 = nn.LayerNorm(d_model)
         self.feed_forward_network = FeedForwardNetwork(
@@ -112,10 +161,7 @@ class TransformerBlock(nn.Module):
         mask: torch.Tensor = None,
     ):
         """Forward pass of the transformer block."""
-        if mask is not None:
-            mask_shape = mask.shape
-        else:
-            mask_shape = None
+        mask_shape = mask.shape if mask is not None else None
         ic("Transformer Block", q.shape, k.shape, v.shape, mask_shape)
 
         # Ensure consistent data types - convert all to float32
@@ -163,7 +209,8 @@ class ReservoirEmbedding(nn.Module):
     Args:
         config (TimeSeriesConfig): Configuration for the time series.
         features (int): The number of features in the embedding.
-        frozen_index (int, optional): The index of the embedding to freeze. Defaults to 0.
+        frozen_index (int, optional): The index of the embedding to freeze. Defaults
+        to 0.
     """
 
     def __init__(
@@ -190,7 +237,7 @@ class ReservoirEmbedding(nn.Module):
         """Ensures all tensors move to the specified device"""
         super().to(device)
         # Move buffers to device
-        for name, buffer in self.named_buffers():
+        for _name, buffer in self.named_buffers():
             if buffer is not None:
                 buffer.to(device)
         return self
@@ -224,7 +271,7 @@ class ReservoirEmbedding(nn.Module):
 
 class TimeSeriesTransformer(nn.Module):
     """
-    Transformer-based model for time series data.
+    Transformer-based model for time series data with configurable efficient attention.
     """
 
     def __init__(
@@ -232,17 +279,30 @@ class TimeSeriesTransformer(nn.Module):
         config: TimeSeriesConfig,
         d_model: int = 64,
         n_heads: int = 4,
+        n_layers: int = 4,
+        attention_type: Literal[
+            "standard", "local", "sparse", "featurewise", "chunked", "flash"
+        ] = "standard",
+        attention_kwargs: Optional[dict] = None,
     ):
         super().__init__()
         self.config = config
         self.d_model = d_model
         self.n_heads = n_heads
-        # self.time_window = 10000
+        self.n_layers = n_layers
+        self.attention_type = attention_type
+        self.attention_kwargs = attention_kwargs or {}
 
         self.embedding = ReservoirEmbedding(config=self.config, features=self.d_model)
 
+        # Create transformer blocks with efficient attention
         self.transformer_block_0 = TransformerBlock(
-            num_heads=self.n_heads, d_model=self.d_model, d_ff=64, dropout_rate=0.1
+            num_heads=self.n_heads,
+            d_model=self.d_model,
+            d_ff=64,
+            dropout_rate=0.1,
+            attention_type=self.attention_type,
+            **self.attention_kwargs,
         )
 
         self.transformer_block_chain = nn.ModuleList(
@@ -252,8 +312,10 @@ class TimeSeriesTransformer(nn.Module):
                     d_model=self.d_model,
                     d_ff=64,
                     dropout_rate=0.1,
+                    attention_type=self.attention_type,
+                    **self.attention_kwargs,
                 )
-                for i in range(1, 4)
+                for i in range(1, self.n_layers)
             ]
         )
 
@@ -574,7 +636,7 @@ class TimeSeriesTransformer(nn.Module):
 
 class TimeSeriesDecoder(nn.Module):
     """
-    Decoder module for time series data.
+    Decoder module for time series data with configurable efficient attention.
     """
 
     def __init__(
@@ -582,14 +644,27 @@ class TimeSeriesDecoder(nn.Module):
         config: TimeSeriesConfig,
         d_model: int = 64,
         n_heads: int = 4,
+        n_layers: int = 4,
+        attention_type: Literal[
+            "standard", "local", "sparse", "featurewise", "chunked", "flash"
+        ] = "standard",
+        attention_kwargs: Optional[dict] = None,
     ):
         super().__init__()
         self.config = config
         self.d_model = d_model
         self.n_heads = n_heads
+        self.n_layers = n_layers
+        self.attention_type = attention_type
+        self.attention_kwargs = attention_kwargs or {}
 
         self.time_series_transformer = TimeSeriesTransformer(
-            config=self.config, d_model=self.d_model, n_heads=self.n_heads
+            config=self.config,
+            d_model=self.d_model,
+            n_heads=self.n_heads,
+            n_layers=self.n_layers,
+            attention_type=self.attention_type,
+            attention_kwargs=self.attention_kwargs,
         )
 
         self.numeric_linear1 = nn.Linear(
@@ -665,7 +740,8 @@ class TimeSeriesDecoder(nn.Module):
         ):
             categorical_inputs = torch.tensor(
                 categorical_inputs,
-                dtype=torch.float32,  # Changed from torch.long to ensure consistent dtypes
+                dtype=torch.float32,
+                # Changed from torch.long to ensure consistent dtypes
                 device=next(self.parameters()).device,
             )
         elif categorical_inputs is not None:
@@ -706,7 +782,7 @@ class TimeSeriesDecoder(nn.Module):
 
         # Enhanced categorical processing with deeper network
         if categorical_inputs is not None:
-            batch_size, n_columns, seq_len, d_model = out.shape
+            batch_size, _n_columns, seq_len, d_model = out.shape
             n_cat_columns = categorical_inputs.shape[1]
 
             # Extract only the categorical columns from the output
@@ -759,6 +835,226 @@ class TimeSeriesDecoder(nn.Module):
         )
 
 
+class MaskedTabularPretrainer(L.LightningModule):
+    """Pre-training module with masked modeling for tabular data using
+    configurable efficient attention.
+
+    This module implements masked language modeling (MLM) for categorical features
+    and masked numeric modeling (MNM) for numeric features, with support for
+    various efficient attention mechanisms for longer sequences.
+
+    Args:
+        config (TimeSeriesConfig): Configuration for the time series model
+        d_model (int): Dimension of the model embeddings
+        n_heads (int): Number of attention heads
+        n_layers (int): Number of transformer layers
+        learning_rate (float): Learning rate for optimization
+        mask_probability (float): Probability of masking each element
+        attention_type (str): Type of efficient attention to use
+        attention_kwargs (dict): Additional arguments for the attention mechanism
+    """
+
+    def __init__(
+        self,
+        config: TimeSeriesConfig,
+        d_model: int = 512,
+        n_heads: int = 32,
+        n_layers: int = 4,
+        learning_rate: float = 1e-4,
+        mask_probability: float = 0.2,
+        attention_type: Literal[
+            "standard", "local", "sparse", "featurewise", "chunked", "flash"
+        ] = "standard",
+        attention_kwargs: Optional[dict] = None,
+    ):
+        super().__init__()
+        self.config = config
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.n_layers = n_layers
+        self.learning_rate = learning_rate
+        self.mask_probability = mask_probability
+        self.attention_type = attention_type
+        self.attention_kwargs = attention_kwargs or {}
+
+        # Save hyperparameters
+        self.save_hyperparameters()
+
+        # Create the transformer with efficient attention
+        self.transformer = TimeSeriesTransformer(
+            config=config,
+            d_model=d_model,
+            n_heads=n_heads,
+            n_layers=n_layers,
+            attention_type=attention_type,
+            attention_kwargs=self.attention_kwargs,
+        )
+
+        # Prediction heads for masked modeling
+        self.numeric_head = nn.Linear(d_model, 1)  # Predict numeric values
+        self.categorical_head = nn.Linear(
+            d_model, len(config.token_decoder_dict)
+        )  # Predict categorical tokens
+
+        # Loss functions
+        self.mse_loss = nn.MSELoss()
+        self.ce_loss = nn.CrossEntropyLoss(ignore_index=-100)
+
+    def mask_inputs(self, numeric, categorical):
+        """Apply random masking to inputs for pre-training."""
+        if numeric is not None:
+            batch_size, n_cols, seq_len = numeric.shape
+        else:
+            batch_size, n_cols, seq_len = categorical.shape
+
+        # Create mask
+        mask = (
+            torch.rand(batch_size, n_cols, seq_len, device=self.device)
+            < self.mask_probability
+        )
+
+        masked_numeric = None
+        masked_categorical = None
+        numeric_targets = None
+        categorical_targets = None
+
+        if numeric is not None:
+            masked_numeric = numeric.clone()
+            numeric_targets = numeric.clone()
+            # Set masked positions to 0
+            masked_numeric[mask] = 0.0
+            # Set non-masked positions to -100 (ignore in loss)
+            numeric_targets[~mask] = -100.0
+
+        if categorical is not None:
+            masked_categorical = categorical.clone()
+            categorical_targets = categorical.clone()
+            # Set masked positions to mask token (assuming 0 is mask token)
+            masked_categorical[mask] = 0
+            # Set non-masked positions to -100 (ignore in loss)
+            categorical_targets[~mask] = -100
+
+        return masked_numeric, masked_categorical, numeric_targets, categorical_targets
+
+    def forward(
+        self,
+        input_numeric: torch.Tensor | None = None,
+        input_categorical: torch.Tensor | None = None,
+        targets_numeric: torch.Tensor | None = None,
+        targets_categorical: torch.Tensor | None = None,
+        deterministic: bool = False,
+    ):
+        """Forward pass for masked pre-training."""
+        # Get transformer outputs
+        outputs = self.transformer(
+            numeric_inputs=input_numeric,
+            categorical_inputs=input_categorical,
+            deterministic=deterministic,
+            causal_mask=False,  # No causal masking for pre-training
+        )
+
+        losses = {}
+
+        # Numeric prediction loss
+        if input_numeric is not None and targets_numeric is not None:
+            numeric_predictions = self.numeric_head(outputs.value_embeddings)
+            # Only compute loss on masked positions
+            valid_mask = targets_numeric != -100.0
+            if valid_mask.any():
+                numeric_loss = self.mse_loss(
+                    numeric_predictions[valid_mask],
+                    targets_numeric[valid_mask].unsqueeze(-1),
+                )
+                losses["numeric_loss"] = numeric_loss
+
+        # Categorical prediction loss
+        if input_categorical is not None and targets_categorical is not None:
+            categorical_predictions = self.categorical_head(outputs.value_embeddings)
+            # Reshape for cross entropy loss
+            _, _, _, vocab_size = categorical_predictions.shape
+            categorical_predictions = categorical_predictions.view(-1, vocab_size)
+            targets_flat = targets_categorical.view(-1)
+
+            categorical_loss = self.ce_loss(categorical_predictions, targets_flat)
+            losses["categorical_loss"] = categorical_loss
+
+        # Total loss
+        total_loss = sum(losses.values())
+        losses["total_loss"] = total_loss
+
+        return losses
+
+    def training_step(self, batch, batch_idx):
+        """Training step for masked pre-training."""
+        numeric, categorical = batch.numeric, batch.categorical
+
+        # Apply masking
+        masked_numeric, masked_categorical, numeric_targets, categorical_targets = (
+            self.mask_inputs(numeric, categorical)
+        )
+
+        # Forward pass
+        losses = self(
+            input_numeric=masked_numeric,
+            input_categorical=masked_categorical,
+            targets_numeric=numeric_targets,
+            targets_categorical=categorical_targets,
+            deterministic=False,
+        )
+
+        # Log losses
+        for key, value in losses.items():
+            self.log(f"train_{key}", value, on_step=True, on_epoch=True, prog_bar=True)
+
+        return losses["total_loss"]
+
+    def validation_step(self, batch, batch_idx):
+        """Validation step for masked pre-training."""
+        numeric, categorical = batch.numeric, batch.categorical
+
+        # Apply masking
+        masked_numeric, masked_categorical, numeric_targets, categorical_targets = (
+            self.mask_inputs(numeric, categorical)
+        )
+
+        # Forward pass
+        losses = self(
+            input_numeric=masked_numeric,
+            input_categorical=masked_categorical,
+            targets_numeric=numeric_targets,
+            targets_categorical=categorical_targets,
+            deterministic=True,
+        )
+
+        # Log losses
+        for key, value in losses.items():
+            self.log(f"val_{key}", value, on_step=False, on_epoch=True, prog_bar=True)
+
+        return losses["total_loss"]
+
+    def configure_optimizers(self):
+        """Configure optimizer and learning rate scheduler."""
+        optimizer = torch.optim.AdamW(
+            self.parameters(),
+            lr=self.learning_rate,
+            weight_decay=0.01,
+        )
+
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=self.trainer.max_epochs,
+            eta_min=self.learning_rate * 0.1,
+        )
+
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "interval": "epoch",
+            },
+        }
+
+
 class PositionalEncoding(nn.Module):  # TODO WHY IS THIS NOT USED?
     """
     Positional encoding module.
@@ -786,7 +1082,8 @@ class PositionalEncoding(nn.Module):  # TODO WHY IS THIS NOT USED?
             x: Input data. Shape: (batch_size, n_columns, seq_len, d_model)
 
         Returns:
-            Output with positional encoding added. Shape: (batch_size, n_columns, seq_len, d_model)
+            Output with positional encoding added. Shape:
+                (batch_size, n_columns, seq_len, d_model)
         """
         n_epochs, n_columns, seq_len, _ = x.shape
         if seq_len > self.max_len:

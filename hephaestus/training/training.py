@@ -1,3 +1,5 @@
+from typing import Literal, Optional
+
 import pandas as pd
 import pytorch_lightning as L
 import torch
@@ -8,12 +10,33 @@ from hephaestus.timeseries_models import TimeSeriesDecoder
 
 
 class TabularDecoder(L.LightningModule):
-    def __init__(self, time_series_config, d_model, n_heads):
+    def __init__(
+        self,
+        time_series_config,
+        d_model,
+        n_heads,
+        n_layers: int = 4,
+        attention_type: Literal[
+            "standard", "local", "sparse", "featurewise", "chunked", "flash"
+        ] = "standard",
+        attention_kwargs: Optional[dict] = None,
+    ):
         super().__init__()
         # self.save_hyperparameters()
         self.d_model = d_model
         self.n_heads = n_heads
-        self.model = TimeSeriesDecoder(time_series_config, self.d_model, self.n_heads)
+        self.n_layers = n_layers
+        self.attention_type = attention_type
+        self.attention_kwargs = attention_kwargs or {}
+
+        self.model = TimeSeriesDecoder(
+            time_series_config,
+            self.d_model,
+            self.n_heads,
+            n_layers=self.n_layers,
+            attention_type=self.attention_type,
+            attention_kwargs=self.attention_kwargs,
+        )
 
     def forward(self, x):
         return self.model(x.numeric, x.categorical)
@@ -30,7 +53,7 @@ class TabularDecoder(L.LightningModule):
             tuple: Tuple containing modified inputs, outputs, and nan mask.
         """
         # Process inputs with offset
-        batch_size, seq_len, feat_dim = inputs.shape
+        batch_size, seq_len, _feat_dim = inputs.shape
 
         # Process inputs with offset
         inputs_shifted = inputs[:, :, inputs_offset:]

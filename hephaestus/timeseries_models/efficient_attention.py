@@ -97,7 +97,7 @@ class LocalWindowedAttention4D(nn.Module):
 
     def _windowed_attention(self, q, k, v, window_size):
         """Compute attention with sliding window."""
-        batch_size, num_heads, n_columns, seq_len, head_dim = q.shape
+        batch_size, num_heads, n_columns, seq_len, head_dim = q.shape  # noqa: F841
 
         # Create output tensor
         output = torch.zeros_like(v)
@@ -296,7 +296,7 @@ class FeaturewiseAttention4D(nn.Module):
 
     def forward(self, query, key, value, mask=None):
         """Forward pass with feature-wise attention."""
-        batch_size, n_columns, seq_len, embed_dim = query.shape
+        batch_size, n_columns, seq_len, embed_dim = query.shape  # noqa: F841
 
         # Initialize per-feature projections if needed
         if not self.share_weights and self.q_proj is None:

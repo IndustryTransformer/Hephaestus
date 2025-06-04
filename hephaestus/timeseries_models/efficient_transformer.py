@@ -37,7 +37,7 @@ class EfficientTransformerBlock(nn.Module):
         dropout_rate: float,
         attention_type: Literal[
             "standard", "local", "sparse", "featurewise", "chunked", "flash"
-        ] = "standard",
+        ] = "flash",
         **attention_kwargs,
     ):
         super().__init__()
@@ -258,104 +258,6 @@ class EfficientTimeSeriesTransformer(nn.Module):
             )
 
         return out
-
-
-def benchmark_attention_mechanisms(
-    seq_lengths: list[int] = [256, 512, 1024, 2048],
-    n_columns: int = 10,
-    d_model: int = 64,
-    n_heads: int = 4,
-    batch_size: int = 8,
-    device: str = "cuda" if torch.cuda.is_available() else "cpu",
-):
-    """
-    Benchmark different attention mechanisms for memory usage and speed.
-
-    Args:
-        seq_lengths: List of sequence lengths to test
-        n_columns: Number of columns (features)
-        d_model: Model dimension
-        n_heads: Number of attention heads
-        batch_size: Batch size
-        device: Device to run on
-
-    Returns:
-        Dictionary with benchmark results
-    """
-    import gc
-    import time
-
-    results = {}
-
-    attention_configs = {
-        "standard": {},
-        "local": {"window_size": 256},
-        "sparse": {"stride": 4, "local_window": 32},
-        "featurewise": {"share_weights": True},
-        "chunked": {"chunk_size": 256, "overlap": 32},
-    }
-
-    # Add flash attention if available
-    if torch.cuda.is_available():
-        attention_configs["flash"] = {}
-
-    for seq_len in seq_lengths:
-        results[seq_len] = {}
-
-        for attn_type, kwargs in attention_configs.items():
-            try:
-                # Create attention module
-                attention = create_efficient_attention(
-                    attn_type, d_model, n_heads, 0.1, **kwargs
-                ).to(device)
-
-                # Create dummy input
-                x = torch.randn(batch_size, n_columns, seq_len, d_model, device=device)
-
-                # Warmup
-                for _ in range(3):
-                    _ = attention(x, x, x)
-
-                # Time forward pass
-                torch.cuda.synchronize() if device == "cuda" else None
-                start_time = time.time()
-
-                for _ in range(10):
-                    output, _ = attention(x, x, x)
-
-                torch.cuda.synchronize() if device == "cuda" else None
-                end_time = time.time()
-
-                avg_time = (end_time - start_time) / 10
-
-                # Memory usage (approximate)
-                if device == "cuda":
-                    torch.cuda.synchronize()
-                    memory_mb = torch.cuda.max_memory_allocated(device) / 1024 / 1024
-                    torch.cuda.reset_peak_memory_stats(device)
-                else:
-                    memory_mb = 0  # CPU memory tracking is more complex
-
-                results[seq_len][attn_type] = {
-                    "time_ms": avg_time * 1000,
-                    "memory_mb": memory_mb,
-                    "successful": True,
-                }
-
-            except Exception as e:
-                results[seq_len][attn_type] = {
-                    "time_ms": None,
-                    "memory_mb": None,
-                    "successful": False,
-                    "error": str(e),
-                }
-
-            # Clean up
-            gc.collect()
-            if device == "cuda":
-                torch.cuda.empty_cache()
-
-    return results
 
 
 class EfficientMaskedTabularPretrainer(L.LightningModule):
@@ -790,28 +692,3 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                 "frequency": 1,
             },
         }
-
-
-if __name__ == "__main__":
-    # Run benchmarks if executed directly
-    print("Running attention mechanism benchmarks...")
-    results = benchmark_attention_mechanisms()
-
-    print("\nBenchmark Results:")
-    print("=" * 80)
-
-    for seq_len, attn_results in results.items():
-        print(f"\nSequence Length: {seq_len}")
-        print("-" * 40)
-
-        for attn_type, metrics in attn_results.items():
-            if metrics["successful"]:
-                # Print successful benchmark results, wrapped for readability
-                print(
-                    f"{attn_type:15} | Time: {metrics['time_ms']:8.2f}ms | "
-                    f"Memory: {metrics['memory_mb']:8.2f}MB"
-                )
-            else:
-                print(
-                    f"{attn_type:15} | Failed: {metrics.get('error', 'Unknown error')}"
-                )

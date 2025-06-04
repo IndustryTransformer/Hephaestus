@@ -23,12 +23,12 @@ from sklearn.preprocessing import RobustScaler
 from torch.utils.data import DataLoader
 
 import hephaestus as hp
-from hephaestus.timeseries_models.efficient_transformer import (
-    EfficientMaskedTabularPretrainer,
-)
 from hephaestus.timeseries_models.encoder_decoder_dataset import (
     EncoderDecoderDataset,
     encoder_decoder_collate_fn,
+)
+from hephaestus.timeseries_models.models import (
+    MaskedTabularPretrainer,
 )
 from hephaestus.timeseries_models.time_series_utils import MetricsLogger
 
@@ -266,7 +266,7 @@ test_dl = DataLoader(
 
 # %%
 # Create the efficient pre-training model
-pretrain_model = EfficientMaskedTabularPretrainer(
+pretrain_model = MaskedTabularPretrainer(
     time_series_config,
     d_model=D_MODEL,
     n_heads=N_HEADS,

@@ -55,7 +55,8 @@ else:
 # ## Load Data
 #
 # We use `line2df` to load the original data from
-# [PolyMathic](https://polymathic-ai.org/blog/xval/). Since we've already transformed the
+# [PolyMathic](https://polymathic-ai.org/blog/xval/).
+# Since we've already transformed the
 # data into a parquet file, we can load it directly.
 #
 
@@ -103,7 +104,8 @@ else:
 mass_regex = re.compile(r"planet(\d+)_m")
 mass_cols = [col for col in df.columns if mass_regex.match(col)]
 df["total_mass"] = df[mass_cols].sum(axis=1)
-# Introduce categorical columns for the number of planets choose non null columns with mass
+# Introduce categorical columns for the number of planets choose non null
+# columns with mass
 df["n_planets"] = df[mass_cols].notnull().sum(axis=1).astype("object")
 df["n_planets"] = df["n_planets"].apply(lambda x: f"{x}_planets")
 # Create category acceleration if the sum of plane/d_[x,y, z] is greater than 0
@@ -136,7 +138,7 @@ unique_values_per_column = df_categorical.apply(
 ).values  # .flatten().tolist()
 flattened_unique_values = np.concatenate(unique_values_per_column).tolist()
 unique_values = list(set(flattened_unique_values))
-unique_values
+unique_values  # noqa: B018
 
 # %%
 df.select_dtypes(include="object").groupby(
@@ -163,12 +165,17 @@ len(train_ds), len(test_ds)
 # %%
 N_HEADS = 8 * 4
 # tabular_decoder = TimeSeriesDecoder(time_series_config, d_model=512, n_heads=N_HEADS)
-tabular_decoder = hp.TabularDecoder(time_series_config, d_model=512, n_heads=N_HEADS)
+tabular_decoder = hp.TabularDecoder(
+    time_series_config,
+    d_model=512,
+    n_heads=N_HEADS,
+    attention_type="flash",  # Use flash attention for efficiency
+)
 
 # %%
-logger = TensorBoardLogger("runs", name=f"{dt.now()}_tabular_decoder_planets")
+logger = TensorBoardLogger("runs", name=f"{dt.now()}_flash_attention_planets")
 early_stopping = EarlyStopping(monitor="val_loss", patience=3, mode="min")
-trainer = L.Trainer(max_epochs=2, logger=logger, callbacks=[early_stopping])
+trainer = L.Trainer(max_epochs=5, logger=logger, callbacks=[early_stopping])
 train_dl = DataLoader(
     train_ds,
     batch_size=32,
