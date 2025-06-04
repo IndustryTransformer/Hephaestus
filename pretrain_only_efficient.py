@@ -307,7 +307,7 @@ print(f"  Unique categorical values: {inputs.categorical.unique().numel()}")
 
 # Test masking
 with torch.no_grad():
-    masked_numeric, masked_categorical, numeric_mask, categorical_mask = (
+    masked_numeric, masked_categorical, numeric_targets, categorical_targets = (
         pretrain_model.mask_inputs(
             inputs.numeric,
             inputs.categorical,
@@ -451,12 +451,4 @@ print(f"  tensorboard --logdir {tensorboard_path}")
 print(f"\\nRaw metrics saved to: {metrics_save_dir}")
 # Further print statements about specific metrics are removed
 # as the new logging structure in TensorBoard will make these clear.
-
-print("\\nTo try different attention mechanisms, change ATTENTION_TYPE to:")
-print("- 'flash': Flash Attention (best for modern GPUs)")
-print("- 'local': Local windowed attention")
-print("- 'sparse': Sparse attention pattern")
-print("- 'featurewise': Feature-wise attention (most memory efficient)")
-print("- 'chunked': Chunked attention (for very long sequences)")
-
 # %%
