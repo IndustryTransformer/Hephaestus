@@ -559,6 +559,8 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
         total_loss = 0.0
         numeric_loss_val = torch.tensor(0.0, device=self.device)
         categorical_loss_val = torch.tensor(0.0, device=self.device)
+        # Added for accuracy
+        categorical_accuracy_val = torch.tensor(0.0, device=self.device)
 
         # Calculate numeric loss on masked positions
         if numeric_predictions is not None and numeric_mask is not None:
@@ -605,8 +607,10 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                 categorical_loss_val = categorical_loss
                 total_loss += categorical_loss_val
 
-                # Calculate categorical accuracy (not logged individually)
-                _ = (masked_cat_pred.argmax(dim=-1) == masked_cat_true).float().mean()
+                # Calculate categorical accuracy
+                categorical_accuracy_val = (
+                    (masked_cat_pred.argmax(dim=-1) == masked_cat_true).float().mean()
+                )
 
         # Log only the primary training metric (total loss) for simplified logging
         self.log(
@@ -615,6 +619,34 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
             on_step=False,
             on_epoch=True,
             prog_bar=True,
+            logger=True,
+            batch_size=batch_size,
+            reduce_fx="mean",
+        )
+        # Log individual losses and accuracy per epoch
+        self.log(
+            "train_numeric_loss",
+            numeric_loss_val,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            batch_size=batch_size,
+            reduce_fx="mean",
+        )
+        self.log(
+            "train_categorical_loss",
+            categorical_loss_val,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            batch_size=batch_size,
+            reduce_fx="mean",
+        )
+        self.log(
+            "train_categorical_accuracy",
+            categorical_accuracy_val,
+            on_step=False,
+            on_epoch=True,
             logger=True,
             batch_size=batch_size,
             reduce_fx="mean",
@@ -648,6 +680,8 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
         total_loss = 0.0
         numeric_loss_val = torch.tensor(0.0, device=self.device)
         categorical_loss_val = torch.tensor(0.0, device=self.device)
+        # Added for accuracy
+        categorical_accuracy_val = torch.tensor(0.0, device=self.device)
 
         # Calculate numeric loss
         if numeric_predictions is not None and numeric_mask is not None:
@@ -684,8 +718,10 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
                 categorical_loss_val = categorical_loss
                 total_loss += categorical_loss_val
 
-                # Calculate accuracy (not logged individually)
-                _ = (masked_cat_pred.argmax(dim=-1) == masked_cat_true).float().mean()
+                # Calculate accuracy
+                categorical_accuracy_val = (
+                    (masked_cat_pred.argmax(dim=-1) == masked_cat_true).float().mean()
+                )
 
         # Log only the primary validation metric (total loss) for simplified monitoring
         self.log(
@@ -694,6 +730,34 @@ class EfficientMaskedTabularPretrainer(L.LightningModule):
             on_step=False,
             on_epoch=True,
             prog_bar=True,
+            logger=True,
+            batch_size=batch_size,
+            reduce_fx="mean",
+        )
+        # Log individual losses and accuracy per epoch
+        self.log(
+            "val_numeric_loss",
+            numeric_loss_val,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            batch_size=batch_size,
+            reduce_fx="mean",
+        )
+        self.log(
+            "val_categorical_loss",
+            categorical_loss_val,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            batch_size=batch_size,
+            reduce_fx="mean",
+        )
+        self.log(
+            "val_categorical_accuracy",
+            categorical_accuracy_val,
+            on_step=False,
+            on_epoch=True,
             logger=True,
             batch_size=batch_size,
             reduce_fx="mean",

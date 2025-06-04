@@ -181,3 +181,4 @@ checkpoints/
 .jupyter_cache
 lightning_logs/
 *.pt
+output_metrics/*
