@@ -631,7 +631,9 @@ class TimeSeriesTransformer(nn.Module):
                 mask=mask,
             )
 
-        return out
+        return ProcessedEmbeddings(
+            value_embeddings=out, column_embeddings=combined_inputs.column_embeddings
+        )
 
 
 class TimeSeriesDecoder(nn.Module):
@@ -960,14 +962,28 @@ class MaskedTabularPretrainer(L.LightningModule):
         numeric_predictions = None
         categorical_predictions = None
 
+        # Determine the split point between numeric and categorical features
+        n_numeric_cols = input_numeric.shape[1] if input_numeric is not None else 0
+        n_categorical_cols = (
+            input_categorical.shape[1] if input_categorical is not None else 0
+        )
+
         if input_numeric is not None:
-            numeric_predictions = self.numeric_head(outputs.value_embeddings)
+            # Only apply numeric head to the numeric portion of embeddings
+            numeric_embeddings = outputs.value_embeddings[:, :n_numeric_cols, :]
+            numeric_predictions = self.numeric_head(numeric_embeddings)
             # Remove extra dimension if present
             if numeric_predictions.dim() == 4 and numeric_predictions.size(-1) == 1:
                 numeric_predictions = numeric_predictions.squeeze(-1)
 
         if input_categorical is not None:
-            categorical_predictions = self.categorical_head(outputs.value_embeddings)
+            # Only apply categorical head to the categorical portion of embeddings
+            categorical_start = n_numeric_cols
+            categorical_end = n_numeric_cols + n_categorical_cols
+            categorical_embeddings = outputs.value_embeddings[
+                :, categorical_start:categorical_end, :
+            ]
+            categorical_predictions = self.categorical_head(categorical_embeddings)
 
         # If no targets provided, return predictions (inference mode)
         if targets_numeric is None and targets_categorical is None:
@@ -999,21 +1015,31 @@ class MaskedTabularPretrainer(L.LightningModule):
 
         # Categorical prediction loss
         if input_categorical is not None and targets_categorical is not None:
-            # Reshape for cross entropy loss
-            if categorical_predictions.dim() == 4:
-                _, _, _, vocab_size = categorical_predictions.shape
-                categorical_predictions_flat = categorical_predictions.view(
-                    -1, vocab_size
-                )
-            else:
-                vocab_size = categorical_predictions.size(-1)
-                categorical_predictions_flat = categorical_predictions.view(
-                    -1, vocab_size
-                )
-            targets_flat = targets_categorical.view(-1)
+            # Only compute loss on masked positions (not -100)
+            valid_mask = targets_categorical != -100
+            if valid_mask.any():
+                # Reshape for cross entropy loss
+                if categorical_predictions.dim() == 4:
+                    _, _, _, vocab_size = categorical_predictions.shape
+                    categorical_predictions_flat = categorical_predictions.view(
+                        -1, vocab_size
+                    )
+                else:
+                    vocab_size = categorical_predictions.size(-1)
+                    categorical_predictions_flat = categorical_predictions.view(
+                        -1, vocab_size
+                    )
 
-            categorical_loss = self.ce_loss(categorical_predictions_flat, targets_flat)
-            losses["categorical_loss"] = categorical_loss
+                # Convert targets to long (integer) type and flatten
+                targets_flat = targets_categorical.long().view(-1)
+                valid_mask_flat = valid_mask.view(-1)
+
+                # Only compute loss on valid (masked) positions
+                categorical_loss = self.ce_loss(
+                    categorical_predictions_flat[valid_mask_flat],
+                    targets_flat[valid_mask_flat],
+                )
+                losses["categorical_loss"] = categorical_loss
 
         # Total loss
         if losses:
@@ -1024,7 +1050,8 @@ class MaskedTabularPretrainer(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         """Training step for masked pre-training."""
-        numeric, categorical = batch.numeric, batch.categorical
+        inputs, _ = batch  # Ignore targets for pre-training
+        numeric, categorical = inputs.numeric, inputs.categorical
 
         # Apply masking
         masked_numeric, masked_categorical, numeric_targets, categorical_targets = (
@@ -1048,7 +1075,8 @@ class MaskedTabularPretrainer(L.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         """Validation step for masked pre-training."""
-        numeric, categorical = batch.numeric, batch.categorical
+        inputs, _ = batch  # Ignore targets for pre-training
+        numeric, categorical = inputs.numeric, inputs.categorical
 
         # Apply masking
         masked_numeric, masked_categorical, numeric_targets, categorical_targets = (
