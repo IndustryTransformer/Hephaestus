@@ -78,16 +78,34 @@ class MaskedTabularPretrainer(L.LightningModule):
             nn.Linear(d_model * 2, config.n_tokens),  # Predict token probabilities
         )
 
-        # Initialize weights for categorical reconstruction head
-        for module in self.categorical_reconstruction_head:
+        # Initialize weights for categorical reconstruction head with better bias
+        for i, module in enumerate(self.categorical_reconstruction_head):
             if isinstance(module, nn.Linear):
                 nn.init.xavier_uniform_(module.weight)
                 if module.bias is not None:
-                    nn.init.zeros_(module.bias)
+                    if i == len(self.categorical_reconstruction_head) - 1:  # Final layer
+                        # Initialize bias to favor higher token indices where actual data exists
+                        # Create a bias that gives higher initial logits to data tokens
+                        bias_init = torch.full((config.n_tokens,), -5.0)  # Start with low logits
+                        # Boost logits for likely data token ranges (based on token_dict structure)
+                        # Special tokens are 0-4, data tokens start around 5+
+                        data_token_start = 5
+                        bias_init[data_token_start:] = -1.0  # Higher logits for data tokens
+                        module.bias.data = bias_init
+                    else:
+                        nn.init.zeros_(module.bias)
 
         # Loss functions
         self.numeric_loss_fn = nn.MSELoss()
-        self.categorical_loss_fn = nn.CrossEntropyLoss()
+        
+        # Create class weights for categorical loss to handle token imbalance
+        # Reduce weight for special tokens that shouldn't be predicted during reconstruction
+        class_weights = torch.ones(config.n_tokens)
+        # Downweight special tokens: [PAD]=0, [NUMERIC_MASK]=1, [MASK]=2, [UNK]=3, [NUMERIC_EMBEDDING]=4
+        special_tokens = [0, 1, 2, 3, 4]  # These shouldn't be predicted during reconstruction
+        class_weights[special_tokens] = 0.1  # Lower weight for special tokens
+        
+        self.categorical_loss_fn = nn.CrossEntropyLoss(weight=class_weights)
 
         # Save hyperparameters
         self.save_hyperparameters(ignore=["config"])
@@ -260,9 +278,9 @@ class MaskedTabularPretrainer(L.LightningModule):
                 total_loss = total_loss + categorical_loss_val
 
                 # Calculate categorical accuracy
-                categorical_accuracy_val = (
-                    (masked_cat_pred.argmax(dim=-1) == masked_cat_true).float().mean()
-                )
+                predicted_tokens = masked_cat_pred.argmax(dim=-1)
+                categorical_accuracy_val = (predicted_tokens == masked_cat_true).float().mean()
+                
 
         # Log only the primary training metric (total loss) for simplified logging
         self.log(
