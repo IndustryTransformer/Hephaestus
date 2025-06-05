@@ -248,56 +248,47 @@ class MaskedTabularPretrainer(L.LightningModule):
         categorical_loss_val = torch.tensor(0.0, device=self.device)
         categorical_accuracy_val = torch.tensor(0.0, device=self.device)
 
-        # Calculate numeric loss on masked positions
-        if numeric_predictions is not None and numeric_mask is not None:
-            # Select only masked positions
-            # Transpose mask to match prediction shape [batch, seq_len, n_numeric]
-            numeric_mask_transposed = numeric_mask.permute(0, 2, 1)
+        # Calculate numeric loss on ALL positions (reconstruction task)
+        if numeric_predictions is not None:
+            # Reconstruct ALL numeric values, not just masked ones
+            # Transpose to match prediction shape [batch, seq_len, n_numeric]
             numeric_transposed = inputs.numeric.permute(0, 2, 1)
-            masked_numeric_true = numeric_transposed[numeric_mask_transposed]
-            masked_numeric_pred = numeric_predictions[numeric_mask_transposed]
+            
+            # Clip predictions to prevent extreme values
+            numeric_pred_clipped = torch.clamp(numeric_predictions, -10.0, 10.0)
+            numeric_true_clipped = torch.clamp(numeric_transposed, -10.0, 10.0)
 
-            if masked_numeric_true.numel() > 0:
-                # Clip predictions to prevent extreme values
-                masked_numeric_pred = torch.clamp(masked_numeric_pred, -10.0, 10.0)
-                masked_numeric_true = torch.clamp(masked_numeric_true, -10.0, 10.0)
+            numeric_loss = self.numeric_loss_fn(
+                numeric_pred_clipped, numeric_true_clipped
+            )
 
-                numeric_loss = self.numeric_loss_fn(
-                    masked_numeric_pred, masked_numeric_true
-                )
+            # Safeguard: Cap the loss to prevent gradient explosion
+            if numeric_loss > 100.0:
+                numeric_loss = torch.clamp(numeric_loss, max=100.0)
 
-                # Safeguard: Cap the loss to prevent gradient explosion
-                if numeric_loss > 100.0:
-                    numeric_loss = torch.clamp(numeric_loss, max=100.0)
+            numeric_loss_val = numeric_loss
+            losses.append(numeric_loss)
 
-                numeric_loss_val = numeric_loss
-                losses.append(numeric_loss)
-
-        # Calculate categorical loss on masked positions
-        if categorical_predictions is not None and categorical_mask is not None:
+        # Calculate categorical loss on ALL positions (reconstruction task)
+        if categorical_predictions is not None:
+            # Reconstruct ALL categorical values, not just masked ones
             # Reshape for loss calculation
             cat_pred_flat = categorical_predictions.permute(0, 1, 3, 2).reshape(
                 -1, self.config.n_tokens
             )
-            cat_true_flat = inputs.categorical.reshape(-1)
-            cat_mask_flat = categorical_mask.reshape(-1)
+            cat_true_flat = inputs.categorical.reshape(-1).long()
 
-            # Select only masked positions
-            if cat_mask_flat.sum() > 0:
-                masked_cat_pred = cat_pred_flat[cat_mask_flat]
-                masked_cat_true = cat_true_flat[cat_mask_flat].long()
+            categorical_loss = self.categorical_loss_fn(
+                cat_pred_flat, cat_true_flat
+            )
+            categorical_loss_val = categorical_loss
+            losses.append(categorical_loss)
 
-                categorical_loss = self.categorical_loss_fn(
-                    masked_cat_pred, masked_cat_true
-                )
-                categorical_loss_val = categorical_loss
-                losses.append(categorical_loss)
-
-                # Calculate categorical accuracy
-                predicted_tokens = masked_cat_pred.argmax(dim=-1)
-                categorical_accuracy_val = (
-                    (predicted_tokens == masked_cat_true).float().mean()
-                )
+            # Calculate categorical accuracy on ALL positions
+            predicted_tokens = cat_pred_flat.argmax(dim=-1)
+            categorical_accuracy_val = (
+                (predicted_tokens == cat_true_flat).float().mean()
+            )
 
         # Combine losses properly to maintain gradient flow
         if losses:
@@ -377,45 +368,37 @@ class MaskedTabularPretrainer(L.LightningModule):
         categorical_loss_val = torch.tensor(0.0, device=self.device)
         categorical_accuracy_val = torch.tensor(0.0, device=self.device)
 
-        # Calculate numeric loss
-        if numeric_predictions is not None and numeric_mask is not None:
-            # Transpose mask to match prediction shape [batch, seq_len, n_numeric]
-            numeric_mask_transposed = numeric_mask.permute(0, 2, 1)
+        # Calculate numeric loss on ALL positions (reconstruction task)
+        if numeric_predictions is not None:
+            # Reconstruct ALL numeric values, not just masked ones
+            # Transpose to match prediction shape [batch, seq_len, n_numeric]
             numeric_transposed = inputs.numeric.permute(0, 2, 1)
-            masked_numeric_true = numeric_transposed[numeric_mask_transposed]
-            masked_numeric_pred = numeric_predictions[numeric_mask_transposed]
+            
+            numeric_loss = self.numeric_loss_fn(
+                numeric_predictions, numeric_transposed
+            )
+            numeric_loss_val = numeric_loss
+            losses.append(numeric_loss)
 
-            if masked_numeric_true.numel() > 0:
-                numeric_loss = self.numeric_loss_fn(
-                    masked_numeric_pred, masked_numeric_true
-                )
-                numeric_loss_val = numeric_loss
-                losses.append(numeric_loss)
-
-        # Calculate categorical loss and accuracy
-        if categorical_predictions is not None and categorical_mask is not None:
+        # Calculate categorical loss and accuracy on ALL positions
+        if categorical_predictions is not None:
+            # Reconstruct ALL categorical values, not just masked ones
             # Reshape for loss calculation
             cat_pred_flat = categorical_predictions.permute(0, 1, 3, 2).reshape(
                 -1, self.config.n_tokens
             )
-            cat_true_flat = inputs.categorical.reshape(-1)
-            cat_mask_flat = categorical_mask.reshape(-1)
+            cat_true_flat = inputs.categorical.reshape(-1).long()
 
-            # Select only masked positions
-            if cat_mask_flat.sum() > 0:
-                masked_cat_pred = cat_pred_flat[cat_mask_flat]
-                masked_cat_true = cat_true_flat[cat_mask_flat].long()
+            categorical_loss = self.categorical_loss_fn(
+                cat_pred_flat, cat_true_flat
+            )
+            categorical_loss_val = categorical_loss
+            losses.append(categorical_loss)
 
-                categorical_loss = self.categorical_loss_fn(
-                    masked_cat_pred, masked_cat_true
-                )
-                categorical_loss_val = categorical_loss
-                losses.append(categorical_loss)
-
-                # Calculate accuracy
-                categorical_accuracy_val = (
-                    (masked_cat_pred.argmax(dim=-1) == masked_cat_true).float().mean()
-                )
+            # Calculate accuracy on ALL positions
+            categorical_accuracy_val = (
+                (cat_pred_flat.argmax(dim=-1) == cat_true_flat).float().mean()
+            )
 
         # Combine losses properly to maintain gradient flow
         if losses:
