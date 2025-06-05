@@ -563,10 +563,12 @@ class TabularEncoderDecoder(L.LightningModule):
             causal_mask=False,
         )  # [batch, num_features, seq_len, d_model]
 
-        batch_size, num_features, seq_len, d_model = encoder_output.shape  # noqa: F841
+        batch_size, num_features, seq_len, d_model = (
+            encoder_output.value_embeddings.shape
+        )  # noqa: F841
 
         # Pool across features (mean or max)
-        pooled = encoder_output.mean(dim=1)  # [batch, seq_len, d_model]
+        pooled = encoder_output.value_embeddings.mean(dim=1)  # [batch, seq_len, d_model]
         # pooled = encoder_output.max(dim=1).values  # Alternative: max pooling
 
         # Flatten for FC: [batch * seq_len, d_model]
