@@ -242,10 +242,10 @@ class MaskedTabularPretrainer(L.LightningModule):
             deterministic=False,
         )
 
-        total_loss = torch.zeros(1, device=self.device, requires_grad=True)
+        # Initialize loss components (don't use requires_grad on initial tensor)
+        losses = []
         numeric_loss_val = torch.tensor(0.0, device=self.device)
         categorical_loss_val = torch.tensor(0.0, device=self.device)
-        # Added for accuracy
         categorical_accuracy_val = torch.tensor(0.0, device=self.device)
 
         # Calculate numeric loss on masked positions
@@ -271,7 +271,7 @@ class MaskedTabularPretrainer(L.LightningModule):
                     numeric_loss = torch.clamp(numeric_loss, max=100.0)
 
                 numeric_loss_val = numeric_loss
-                total_loss = total_loss + numeric_loss_val
+                losses.append(numeric_loss)
 
         # Calculate categorical loss on masked positions
         if categorical_predictions is not None and categorical_mask is not None:
@@ -291,13 +291,20 @@ class MaskedTabularPretrainer(L.LightningModule):
                     masked_cat_pred, masked_cat_true
                 )
                 categorical_loss_val = categorical_loss
-                total_loss = total_loss + categorical_loss_val
+                losses.append(categorical_loss)
 
                 # Calculate categorical accuracy
                 predicted_tokens = masked_cat_pred.argmax(dim=-1)
                 categorical_accuracy_val = (
                     (predicted_tokens == masked_cat_true).float().mean()
                 )
+
+        # Combine losses properly to maintain gradient flow
+        if losses:
+            total_loss = sum(losses)
+        else:
+            # If no losses, create a zero loss that still allows gradients
+            total_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
 
         # Log only the primary training metric (total loss) for simplified logging
         self.log(
@@ -364,10 +371,10 @@ class MaskedTabularPretrainer(L.LightningModule):
             deterministic=True,
         )
 
-        total_loss = torch.zeros(1, device=self.device, requires_grad=True)
+        # Initialize loss components 
+        losses = []
         numeric_loss_val = torch.tensor(0.0, device=self.device)
         categorical_loss_val = torch.tensor(0.0, device=self.device)
-        # Added for accuracy
         categorical_accuracy_val = torch.tensor(0.0, device=self.device)
 
         # Calculate numeric loss
@@ -383,7 +390,7 @@ class MaskedTabularPretrainer(L.LightningModule):
                     masked_numeric_pred, masked_numeric_true
                 )
                 numeric_loss_val = numeric_loss
-                total_loss = total_loss + numeric_loss_val
+                losses.append(numeric_loss)
 
         # Calculate categorical loss and accuracy
         if categorical_predictions is not None and categorical_mask is not None:
@@ -403,12 +410,19 @@ class MaskedTabularPretrainer(L.LightningModule):
                     masked_cat_pred, masked_cat_true
                 )
                 categorical_loss_val = categorical_loss
-                total_loss = total_loss + categorical_loss_val
+                losses.append(categorical_loss)
 
                 # Calculate accuracy
                 categorical_accuracy_val = (
                     (masked_cat_pred.argmax(dim=-1) == masked_cat_true).float().mean()
                 )
+
+        # Combine losses properly to maintain gradient flow
+        if losses:
+            total_loss = sum(losses)
+        else:
+            # If no losses, create a zero loss
+            total_loss = torch.tensor(0.0, device=self.device)
 
         # Log only the primary validation metric (total loss) for simplified monitoring
         self.log(
