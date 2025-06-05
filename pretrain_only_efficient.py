@@ -56,7 +56,7 @@ BATCH_SIZE = 14  # Reduced batch size for longer sequences
 SEQUENCE_LENGTH = 1024  # Much longer context window!
 LEARNING_RATE = 5e-5
 MAX_EPOCHS = 50
-MASK_PROBABILITY = 0.00001
+MASK_PROBABILITY = 0.15
 D_MODEL = 128
 N_HEADS = 8
 GRADIENT_CLIP = 1.0
@@ -265,27 +265,15 @@ test_dl = DataLoader(
 # ## Create Efficient Pre-training Model
 
 # %%
-# Create the classification model (not pre-training)
-from hephaestus.training.masked_timeseries_training import TabularEncoderDecoder
-from hephaestus.timeseries_models import TimeSeriesTransformer
-
-# Create encoder with efficient attention
-efficient_encoder = TimeSeriesTransformer(
+# Create the pretraining model with masked reconstruction
+pretrain_model = MaskedTabularPretrainer(
     config=time_series_config,
     d_model=D_MODEL,
     n_heads=N_HEADS,
+    learning_rate=LEARNING_RATE,
+    mask_probability=MASK_PROBABILITY,
     attention_type=ATTENTION_TYPE,
     attention_kwargs=ATTENTION_KWARGS,
-)
-
-# Create classifier with the efficient encoder
-pretrain_model = TabularEncoderDecoder(
-    time_series_config,
-    d_model=D_MODEL,
-    n_heads=N_HEADS,
-    learning_rate=LEARNING_RATE,
-    classification_values=list(event_values),  # Pass the actual class values
-    pretrained_encoder=efficient_encoder,
 )
 
 print("=== Model Architecture ===")
@@ -294,7 +282,7 @@ print(
     "Trainable parameters: "
     f"{sum(p.numel() for p in pretrain_model.parameters() if p.requires_grad):,}"
 )
-print(f"Number of classes: {len(event_values)}")
+print(f"Mask probability: {MASK_PROBABILITY}")
 print(f"Sequence length: {SEQUENCE_LENGTH}")
 
 # %% [markdown]
@@ -317,29 +305,27 @@ print(f"  Numeric range: [{inputs.numeric.min():.3f}, {inputs.numeric.max():.3f}
 print(f"  Categorical inputs: {inputs.categorical.shape}")
 print(f"  Unique categorical values: {inputs.categorical.unique().numel()}")
 
-# Test classification forward pass
+# Test pretraining forward pass
 print("Testing forward pass...")
 try:
     with torch.no_grad():
-        # Forward pass for classification
+        # Forward pass for pretraining reconstruction
         print("  Calling model forward...")
-        class_logits = pretrain_model(
+        numeric_predictions, categorical_predictions = pretrain_model(
             input_numeric=inputs.numeric,
             input_categorical=inputs.categorical,
             deterministic=False,
         )
         print("  Forward pass completed!")
 
-    print(f"\nClass logits shape: {class_logits.shape}")
     print(
-        f"Number of classes: {class_logits.shape[1] if len(class_logits.shape) > 1 else 'N/A'}"
+        f"\nNumeric predictions shape: {numeric_predictions.shape if numeric_predictions is not None else 'None'}"
     )
-    predicted_classes = (
-        torch.argmax(class_logits, dim=1).unique().tolist()
-        if len(class_logits.shape) > 1
-        else "N/A"
+    print(
+        f"Categorical predictions shape: {categorical_predictions.shape if categorical_predictions is not None else 'None'}"
     )
-    print(f"Predicted classes: {predicted_classes}")
+    print(f"Input numeric shape: {inputs.numeric.shape}")
+    print(f"Input categorical shape: {inputs.categorical.shape}")
     print(f"Target classes: {targets.categorical.unique().tolist()}")
 except Exception as e:
     print(f"Error during forward pass: {e}")
