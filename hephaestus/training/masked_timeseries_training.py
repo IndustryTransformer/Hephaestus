@@ -142,12 +142,12 @@ class MaskedTabularPretrainer(L.LightningModule):
             causal_mask=False,
         )  # [batch, num_features, seq_len, d_model]
 
-        batch_size, _, seq_len, d_model = encoder_output.shape
+        batch_size, _, seq_len, d_model = encoder_output.value_embeddings.shape
 
         # Separate numeric and categorical features for reconstruction
         if input_numeric is not None:
             n_numeric = input_numeric.shape[1]
-            numeric_features = encoder_output[
+            numeric_features = encoder_output.value_embeddings[
                 :, :n_numeric, :, :
             ]  # [batch, n_numeric, seq_len, d_model]
             # Reshape for reconstruction head
@@ -165,7 +165,7 @@ class MaskedTabularPretrainer(L.LightningModule):
         # Handle categorical features for reconstruction
         if input_categorical is not None:
             n_categorical = input_categorical.shape[1]
-            categorical_features = encoder_output[
+            categorical_features = encoder_output.value_embeddings[
                 :, n_numeric : n_numeric + n_categorical, :, :
             ]  # [batch, n_categorical, seq_len, d_model]
             # Reshape for reconstruction head
@@ -208,7 +208,7 @@ class MaskedTabularPretrainer(L.LightningModule):
             deterministic=False,
         )
 
-        total_loss = 0.0
+        total_loss = torch.zeros(1, device=self.device, requires_grad=True)
         numeric_loss_val = torch.tensor(0.0, device=self.device)
         categorical_loss_val = torch.tensor(0.0, device=self.device)
         # Added for accuracy
@@ -237,7 +237,7 @@ class MaskedTabularPretrainer(L.LightningModule):
                     numeric_loss = torch.clamp(numeric_loss, max=100.0)
 
                 numeric_loss_val = numeric_loss
-                total_loss += numeric_loss_val
+                total_loss = total_loss + numeric_loss_val
 
         # Calculate categorical loss on masked positions
         if categorical_predictions is not None and categorical_mask is not None:
@@ -257,7 +257,7 @@ class MaskedTabularPretrainer(L.LightningModule):
                     masked_cat_pred, masked_cat_true
                 )
                 categorical_loss_val = categorical_loss
-                total_loss += categorical_loss_val
+                total_loss = total_loss + categorical_loss_val
 
                 # Calculate categorical accuracy
                 categorical_accuracy_val = (
@@ -329,7 +329,7 @@ class MaskedTabularPretrainer(L.LightningModule):
             deterministic=True,
         )
 
-        total_loss = 0.0
+        total_loss = torch.zeros(1, device=self.device, requires_grad=True)
         numeric_loss_val = torch.tensor(0.0, device=self.device)
         categorical_loss_val = torch.tensor(0.0, device=self.device)
         # Added for accuracy
@@ -348,7 +348,7 @@ class MaskedTabularPretrainer(L.LightningModule):
                     masked_numeric_pred, masked_numeric_true
                 )
                 numeric_loss_val = numeric_loss
-                total_loss += numeric_loss_val
+                total_loss = total_loss + numeric_loss_val
 
         # Calculate categorical loss and accuracy
         if categorical_predictions is not None and categorical_mask is not None:
@@ -368,7 +368,7 @@ class MaskedTabularPretrainer(L.LightningModule):
                     masked_cat_pred, masked_cat_true
                 )
                 categorical_loss_val = categorical_loss
-                total_loss += categorical_loss_val
+                total_loss = total_loss + categorical_loss_val
 
                 # Calculate accuracy
                 categorical_accuracy_val = (

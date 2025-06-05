@@ -339,15 +339,15 @@ callbacks = [
     RichModelSummary(max_depth=2),
     LearningRateMonitor(logging_interval="step"),
     ModelCheckpoint(
-        monitor="val_total_loss",  # Updated to use the correct metric name
+        monitor="val_loss",  # Updated to use the correct metric name
         dirpath=f"checkpoints/efficient_pretrain_{ATTENTION_TYPE}",
-        filename="pretrain-{epoch:02d}-{val_total_loss:.4f}",
+        filename="pretrain-{epoch:02d}-{val_loss:.4f}",
         save_top_k=3,
         mode="min",
         save_weights_only=False,
     ),
     EarlyStopping(
-        monitor="val_total_loss",  # Updated to use the correct metric name
+        monitor="val_loss",  # Updated to use the correct metric name
         patience=10,
         mode="min",
         verbose=True,
@@ -367,7 +367,7 @@ logger = TensorBoardLogger(
 # Trainer
 trainer = L.Trainer(
     max_epochs=MAX_EPOCHS,
-    precision="16-mixed",
+    precision="32",
     accumulate_grad_batches=ACCUMULATE_GRAD_BATCHES,
     gradient_clip_val=GRADIENT_CLIP,
     callbacks=callbacks,
