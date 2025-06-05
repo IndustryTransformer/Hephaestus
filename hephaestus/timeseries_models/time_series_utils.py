@@ -40,12 +40,18 @@ class MetricsLogger(L.Callback):
             "epoch",
             "step",
             "train_loss",
+            "train_numeric_loss",
+            "train_categorical_loss", 
+            "train_categorical_accuracy",
             "learning_rate",
             "timestamp",
         ]
         val_headers = [
             "epoch",
             "val_loss",
+            "val_numeric_loss",
+            "val_categorical_loss",
+            "val_categorical_accuracy",
             "timestamp",
         ]
 
@@ -68,6 +74,13 @@ class MetricsLogger(L.Callback):
 
         # Extract training metrics
         train_loss = self._get_metric_value(metrics, "train_loss")
+        train_numeric_loss = self._get_metric_value(metrics, "train_numeric_loss")
+        train_categorical_loss = self._get_metric_value(
+            metrics, "train_categorical_loss"
+        )
+        train_categorical_accuracy = self._get_metric_value(
+            metrics, "train_categorical_accuracy"
+        )
 
         # Get learning rate
         lr = trainer.optimizers[0].param_groups[0]["lr"] if trainer.optimizers else 0.0
@@ -78,6 +91,9 @@ class MetricsLogger(L.Callback):
             "epoch": current_epoch,
             "step": global_step,
             "train_loss": train_loss,
+            "train_numeric_loss": train_numeric_loss,
+            "train_categorical_loss": train_categorical_loss,
+            "train_categorical_accuracy": train_categorical_accuracy,
             "learning_rate": lr,
             "timestamp": timestamp,
         }
@@ -93,6 +109,9 @@ class MetricsLogger(L.Callback):
                     current_epoch,
                     global_step,
                     train_loss,
+                    train_numeric_loss,
+                    train_categorical_loss,
+                    train_categorical_accuracy,
                     lr,
                     timestamp,
                 ]
@@ -114,12 +133,20 @@ class MetricsLogger(L.Callback):
 
         # Extract validation metrics
         val_loss = self._get_metric_value(metrics, "val_loss")
+        val_numeric_loss = self._get_metric_value(metrics, "val_numeric_loss")
+        val_categorical_loss = self._get_metric_value(metrics, "val_categorical_loss")
+        val_categorical_accuracy = self._get_metric_value(
+            metrics, "val_categorical_accuracy"
+        )
 
         # Create row data
         timestamp = pd.Timestamp.now()
         val_row = {
             "epoch": current_epoch,
             "val_loss": val_loss,
+            "val_numeric_loss": val_numeric_loss,
+            "val_categorical_loss": val_categorical_loss,
+            "val_categorical_accuracy": val_categorical_accuracy,
             "timestamp": timestamp,
         }
 
@@ -133,6 +160,9 @@ class MetricsLogger(L.Callback):
                 [
                     current_epoch,
                     val_loss,
+                    val_numeric_loss,
+                    val_categorical_loss,
+                    val_categorical_accuracy,
                     timestamp,
                 ]
             )
