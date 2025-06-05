@@ -23,13 +23,13 @@ from sklearn.preprocessing import RobustScaler
 from torch.utils.data import DataLoader
 
 import hephaestus as hp
-from hephaestus.timeseries_models.encoder_decoder import (
-    MaskedTabularPretrainer,
-    TabularEncoderDecoder,
-)
 from hephaestus.timeseries_models.encoder_decoder_dataset import (
     EncoderDecoderDataset,
     encoder_decoder_collate_fn,
+)
+from hephaestus.training.masked_timeseries_training import (
+    MaskedTabularPretrainer,
+    TabularEncoderDecoder,
 )
 
 torch.set_float32_matmul_precision("medium")

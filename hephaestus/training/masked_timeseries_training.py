@@ -1,22 +1,22 @@
-from __future__ import annotations
+from typing import Literal, Optional
 
 import pytorch_lightning as L
 import torch
-from torch import nn
+import torch.nn as nn
 
+from hephaestus.timeseries_models import TimeSeriesTransformer
 from hephaestus.timeseries_models.model_data_classes import (
     TimeSeriesConfig,
-)
-from hephaestus.timeseries_models.models import (
-    TimeSeriesTransformer,
 )
 
 
 class MaskedTabularPretrainer(L.LightningModule):
-    """Pre-training module with masked modeling for tabular data.
+    """Pre-training module with masked modeling for tabular data using
+    efficient attention.
 
     This module implements masked language modeling (MLM) for categorical features
-    and masked numeric modeling (MNM) for numeric features.
+    and masked numeric modeling (MNM) for numeric features, using efficient attention
+    mechanisms for longer sequences.
 
     Args:
         config (TimeSeriesConfig): Configuration for the time series model
@@ -24,6 +24,8 @@ class MaskedTabularPretrainer(L.LightningModule):
         n_heads (int): Number of attention heads
         learning_rate (float): Learning rate for optimization
         mask_probability (float): Probability of masking each element
+        attention_type (str): Type of efficient attention to use
+        attention_kwargs (dict): Additional arguments for the attention mechanism
     """
 
     def __init__(
@@ -33,6 +35,10 @@ class MaskedTabularPretrainer(L.LightningModule):
         n_heads: int = 32,
         learning_rate: float = 1e-4,
         mask_probability: float = 0.2,
+        attention_type: Literal[
+            "standard", "local", "sparse", "featurewise", "chunked", "flash"
+        ] = "standard",
+        attention_kwargs: Optional[dict] = None,
     ):
         super().__init__()
         self.config = config
@@ -40,12 +46,16 @@ class MaskedTabularPretrainer(L.LightningModule):
         self.n_heads = n_heads
         self.learning_rate = learning_rate
         self.mask_probability = mask_probability
+        self.attention_type = attention_type
+        self.attention_kwargs = attention_kwargs or {}
 
-        # Encoder
+        # Encoder with efficient attention
         self.encoder = TimeSeriesTransformer(
             config=self.config,
             d_model=self.d_model,
             n_heads=self.n_heads,
+            attention_type=self.attention_type,
+            attention_kwargs=self.attention_kwargs,
         )
 
         # Reconstruction heads with proper initialization
@@ -119,8 +129,8 @@ class MaskedTabularPretrainer(L.LightningModule):
         self,
         input_numeric: torch.Tensor | None = None,
         input_categorical: torch.Tensor | None = None,
-        numeric_mask: torch.Tensor | None = None,
-        categorical_mask: torch.Tensor | None = None,
+        targets_numeric: torch.Tensor | None = None,
+        targets_categorical: torch.Tensor | None = None,
         deterministic: bool = False,
     ):
         """Forward pass for reconstruction."""
@@ -132,7 +142,7 @@ class MaskedTabularPretrainer(L.LightningModule):
             causal_mask=False,
         )  # [batch, num_features, seq_len, d_model]
 
-        batch_size, num_features, seq_len, d_model = encoder_output.shape
+        batch_size, _, seq_len, d_model = encoder_output.shape
 
         # Separate numeric and categorical features for reconstruction
         if input_numeric is not None:
@@ -152,15 +162,37 @@ class MaskedTabularPretrainer(L.LightningModule):
             numeric_predictions = None
             n_numeric = 0
 
-        # Skip categorical reconstruction for anomaly detection
-        # Only reconstruct numeric features
-        categorical_predictions = None
+        # Handle categorical features for reconstruction
+        if input_categorical is not None:
+            n_categorical = input_categorical.shape[1]
+            categorical_features = encoder_output[
+                :, n_numeric : n_numeric + n_categorical, :, :
+            ]  # [batch, n_categorical, seq_len, d_model]
+            # Reshape for reconstruction head
+            categorical_features = categorical_features.permute(0, 2, 1, 3).reshape(
+                -1, d_model
+            )
+
+            categorical_predictions = self.categorical_reconstruction_head(
+                categorical_features
+            )
+
+            categorical_predictions = categorical_predictions.view(
+                batch_size, seq_len, n_categorical, self.config.n_tokens
+            )
+        else:
+            categorical_predictions = None
 
         return numeric_predictions, categorical_predictions
 
     def training_step(self, batch, batch_idx):
         """Training step with masked modeling."""
         inputs, _ = batch  # Ignore targets for pre-training
+        batch_size = (
+            inputs.numeric.shape[0]
+            if inputs.numeric is not None
+            else inputs.categorical.shape[0]
+        )
 
         # Apply masking
         masked_numeric, masked_categorical, numeric_mask, categorical_mask = (
@@ -171,12 +203,16 @@ class MaskedTabularPretrainer(L.LightningModule):
         numeric_predictions, categorical_predictions = self(
             input_numeric=masked_numeric,
             input_categorical=masked_categorical,
-            numeric_mask=numeric_mask,
-            categorical_mask=categorical_mask,
+            targets_numeric=None,
+            targets_categorical=None,
             deterministic=False,
         )
 
         total_loss = 0.0
+        numeric_loss_val = torch.tensor(0.0, device=self.device)
+        categorical_loss_val = torch.tensor(0.0, device=self.device)
+        # Added for accuracy
+        categorical_accuracy_val = torch.tensor(0.0, device=self.device)
 
         # Calculate numeric loss on masked positions
         if numeric_predictions is not None and numeric_mask is not None:
@@ -200,8 +236,8 @@ class MaskedTabularPretrainer(L.LightningModule):
                 if numeric_loss > 100.0:
                     numeric_loss = torch.clamp(numeric_loss, max=100.0)
 
-                total_loss += numeric_loss
-                self.log("train_numeric_loss", numeric_loss, prog_bar=True)
+                numeric_loss_val = numeric_loss
+                total_loss += numeric_loss_val
 
         # Calculate categorical loss on masked positions
         if categorical_predictions is not None and categorical_mask is not None:
@@ -220,15 +256,64 @@ class MaskedTabularPretrainer(L.LightningModule):
                 categorical_loss = self.categorical_loss_fn(
                     masked_cat_pred, masked_cat_true
                 )
-                total_loss += categorical_loss
-                self.log("train_categorical_loss", categorical_loss, prog_bar=True)
+                categorical_loss_val = categorical_loss
+                total_loss += categorical_loss_val
 
-        self.log("train_loss", total_loss, prog_bar=True)
+                # Calculate categorical accuracy
+                categorical_accuracy_val = (
+                    (masked_cat_pred.argmax(dim=-1) == masked_cat_true).float().mean()
+                )
+
+        # Log only the primary training metric (total loss) for simplified logging
+        self.log(
+            "train_loss",
+            total_loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+            batch_size=batch_size,
+            reduce_fx="mean",
+        )
+        # Log individual losses and accuracy per epoch
+        self.log(
+            "train_numeric_loss",
+            numeric_loss_val,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            batch_size=batch_size,
+            reduce_fx="mean",
+        )
+        self.log(
+            "train_categorical_loss",
+            categorical_loss_val,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            batch_size=batch_size,
+            reduce_fx="mean",
+        )
+        self.log(
+            "train_categorical_accuracy",
+            categorical_accuracy_val,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            batch_size=batch_size,
+            reduce_fx="mean",
+        )
+
         return total_loss
 
     def validation_step(self, batch, batch_idx):
         """Validation step with masked modeling."""
         inputs, _ = batch
+        batch_size = (
+            inputs.numeric.shape[0]
+            if inputs.numeric is not None
+            else inputs.categorical.shape[0]
+        )
 
         # Apply masking
         masked_numeric, masked_categorical, numeric_mask, categorical_mask = (
@@ -239,12 +324,16 @@ class MaskedTabularPretrainer(L.LightningModule):
         numeric_predictions, categorical_predictions = self(
             input_numeric=masked_numeric,
             input_categorical=masked_categorical,
-            numeric_mask=numeric_mask,
-            categorical_mask=categorical_mask,
+            targets_numeric=None,
+            targets_categorical=None,
             deterministic=True,
         )
 
         total_loss = 0.0
+        numeric_loss_val = torch.tensor(0.0, device=self.device)
+        categorical_loss_val = torch.tensor(0.0, device=self.device)
+        # Added for accuracy
+        categorical_accuracy_val = torch.tensor(0.0, device=self.device)
 
         # Calculate numeric loss
         if numeric_predictions is not None and numeric_mask is not None:
@@ -258,17 +347,19 @@ class MaskedTabularPretrainer(L.LightningModule):
                 numeric_loss = self.numeric_loss_fn(
                     masked_numeric_pred, masked_numeric_true
                 )
-                total_loss += numeric_loss
-                self.log("val_numeric_loss", numeric_loss, prog_bar=True)
+                numeric_loss_val = numeric_loss
+                total_loss += numeric_loss_val
 
         # Calculate categorical loss and accuracy
         if categorical_predictions is not None and categorical_mask is not None:
+            # Reshape for loss calculation
             cat_pred_flat = categorical_predictions.permute(0, 1, 3, 2).reshape(
                 -1, self.config.n_tokens
             )
             cat_true_flat = inputs.categorical.reshape(-1)
             cat_mask_flat = categorical_mask.reshape(-1)
 
+            # Select only masked positions
             if cat_mask_flat.sum() > 0:
                 masked_cat_pred = cat_pred_flat[cat_mask_flat]
                 masked_cat_true = cat_true_flat[cat_mask_flat].long()
@@ -276,40 +367,81 @@ class MaskedTabularPretrainer(L.LightningModule):
                 categorical_loss = self.categorical_loss_fn(
                     masked_cat_pred, masked_cat_true
                 )
-                total_loss += categorical_loss
+                categorical_loss_val = categorical_loss
+                total_loss += categorical_loss_val
 
                 # Calculate accuracy
-                predictions = torch.argmax(masked_cat_pred, dim=-1)
-                accuracy = (predictions == masked_cat_true).float().mean()
+                categorical_accuracy_val = (
+                    (masked_cat_pred.argmax(dim=-1) == masked_cat_true).float().mean()
+                )
 
-                self.log("val_categorical_loss", categorical_loss, prog_bar=True)
-                self.log("val_categorical_accuracy", accuracy, prog_bar=True)
+        # Log only the primary validation metric (total loss) for simplified monitoring
+        self.log(
+            "val_loss",
+            total_loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+            batch_size=batch_size,
+            reduce_fx="mean",
+        )
+        # Log individual losses and accuracy per epoch
+        self.log(
+            "val_numeric_loss",
+            numeric_loss_val,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            batch_size=batch_size,
+            reduce_fx="mean",
+        )
+        self.log(
+            "val_categorical_loss",
+            categorical_loss_val,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            batch_size=batch_size,
+            reduce_fx="mean",
+        )
+        self.log(
+            "val_categorical_accuracy",
+            categorical_accuracy_val,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            batch_size=batch_size,
+            reduce_fx="mean",
+        )
 
-        self.log("val_loss", total_loss, prog_bar=True)
         return total_loss
 
     def configure_optimizers(self):
-        """Configure optimizers."""
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer,
-            mode="min",
-            factor=0.5,
-            patience=3,
-            verbose=True,
+        """Configure optimizers and learning rate schedules."""
+        optimizer = torch.optim.AdamW(
+            self.parameters(),
+            lr=self.learning_rate,
+            weight_decay=0.01,
         )
+
+        # Cosine annealing with warm restarts
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer,
+            T_0=10,  # Restart every 10 epochs
+            T_mult=2,  # Double the period after each restart
+            eta_min=1e-6,
+        )
+
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
-                "monitor": "val_loss",
+                "monitor": "val_loss",  # Monitor simplified validation loss
+                "interval": "epoch",
+                "frequency": 1,
             },
         }
-
-    def freeze_encoder(self):
-        """Freeze encoder parameters for fine-tuning."""
-        for param in self.encoder.parameters():
-            param.requires_grad = False
 
 
 class TabularEncoderDecoder(L.LightningModule):

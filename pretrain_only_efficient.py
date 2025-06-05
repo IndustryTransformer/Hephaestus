@@ -27,10 +27,10 @@ from hephaestus.timeseries_models.encoder_decoder_dataset import (
     EncoderDecoderDataset,
     encoder_decoder_collate_fn,
 )
-from hephaestus.timeseries_models.models import (
+from hephaestus.timeseries_models.time_series_utils import MetricsLogger
+from hephaestus.training.masked_timeseries_training import (
     MaskedTabularPretrainer,
 )
-from hephaestus.timeseries_models.time_series_utils import MetricsLogger
 
 torch.set_float32_matmul_precision("medium")
 
@@ -56,7 +56,7 @@ BATCH_SIZE = 14  # Reduced batch size for longer sequences
 SEQUENCE_LENGTH = 1090  # Much longer context window!
 LEARNING_RATE = 5e-5
 MAX_EPOCHS = 50
-MASK_PROBABILITY = 0.999
+MASK_PROBABILITY = 0.000001
 D_MODEL = 128
 N_HEADS = 8
 GRADIENT_CLIP = 1.0
