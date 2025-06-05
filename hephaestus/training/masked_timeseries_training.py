@@ -86,12 +86,14 @@ class MaskedTabularPretrainer(L.LightningModule):
                     if (
                         i == len(self.categorical_reconstruction_head) - 1
                     ):  # Final layer
-                        # Initialize bias to favor higher token indices where actual data exists
+                        # Initialize bias to favor higher token indices where actual
+                        # data exists
                         # Create a bias that gives higher initial logits to data tokens
                         bias_init = torch.full(
                             (config.n_tokens,), -5.0
                         )  # Start with low logits
-                        # Boost logits for likely data token ranges (based on token_dict structure)
+                        # Boost logits for likely data token ranges (based on token_dict
+                        # structure)
                         # Special tokens are 0-4, data tokens start around 5+
                         data_token_start = 5
                         bias_init[
@@ -105,9 +107,11 @@ class MaskedTabularPretrainer(L.LightningModule):
         self.numeric_loss_fn = nn.MSELoss()
 
         # Create class weights for categorical loss to handle token imbalance
-        # Reduce weight for special tokens that shouldn't be predicted during reconstruction
+        # Reduce weight for special tokens that shouldn't be predicted during
+        # reconstruction
         class_weights = torch.ones(config.n_tokens)
-        # Downweight special tokens: [PAD]=0, [NUMERIC_MASK]=1, [MASK]=2, [UNK]=3, [NUMERIC_EMBEDDING]=4
+        # Downweight special tokens: [PAD]=0, [NUMERIC_MASK]=1, [MASK]=2, [UNK]=3,
+        # [NUMERIC_EMBEDDING]=4
         special_tokens = [
             0,
             1,
@@ -576,9 +580,9 @@ class TabularEncoderDecoder(L.LightningModule):
             causal_mask=False,
         )  # [batch, num_features, seq_len, d_model]
 
-        batch_size, num_features, seq_len, d_model = (
+        batch_size, _num_features, seq_len, d_model = (
             encoder_output.value_embeddings.shape
-        )  # noqa: F841
+        )
 
         # Pool across features (mean or max)
         pooled = encoder_output.value_embeddings.mean(

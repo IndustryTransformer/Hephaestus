@@ -319,10 +319,14 @@ try:
         print("  Forward pass completed!")
 
     print(
-        f"\nNumeric predictions shape: {numeric_predictions.shape if numeric_predictions is not None else 'None'}"
+        "\nNumeric predictions shape:",
+        numeric_predictions.shape if numeric_predictions is not None else "None",
     )
     print(
-        f"Categorical predictions shape: {categorical_predictions.shape if categorical_predictions is not None else 'None'}"
+        "Categorical predictions shape:",
+        categorical_predictions.shape
+        if categorical_predictions is not None
+        else "None",
     )
     print(f"Input numeric shape: {inputs.numeric.shape}")
     print(f"Input categorical shape: {inputs.categorical.shape}")
