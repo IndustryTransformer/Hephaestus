@@ -37,7 +37,7 @@ class MaskedTabularPretrainer(L.LightningModule):
         mask_probability: float = 0.2,
         attention_type: Literal[
             "standard", "local", "sparse", "featurewise", "chunked", "flash"
-        ] = "standard",
+        ] = "flash",
         attention_kwargs: Optional[dict] = None,
     ):
         super().__init__()
@@ -65,63 +65,16 @@ class MaskedTabularPretrainer(L.LightningModule):
             nn.Linear(d_model * 2, 1),  # Predict single numeric value
         )
 
-        # Initialize weights for numeric reconstruction head
-        for module in self.numeric_reconstruction_head:
-            if isinstance(module, nn.Linear):
-                nn.init.xavier_uniform_(module.weight, gain=0.1)  # Small gain
-                if module.bias is not None:
-                    nn.init.zeros_(module.bias)
-
         self.categorical_reconstruction_head = nn.Sequential(
             nn.Linear(d_model, d_model * 2),
             nn.ReLU(),
             nn.Linear(d_model * 2, config.n_tokens),  # Predict token probabilities
         )
 
-        # Initialize weights for categorical reconstruction head with better bias
-        for i, module in enumerate(self.categorical_reconstruction_head):
-            if isinstance(module, nn.Linear):
-                nn.init.xavier_uniform_(module.weight)
-                if module.bias is not None:
-                    if (
-                        i == len(self.categorical_reconstruction_head) - 1
-                    ):  # Final layer
-                        # Initialize bias to favor higher token indices where actual
-                        # data exists
-                        # Create a bias that gives higher initial logits to data tokens
-                        bias_init = torch.full(
-                            (config.n_tokens,), -5.0
-                        )  # Start with low logits
-                        # Boost logits for likely data token ranges (based on token_dict
-                        # structure)
-                        # Special tokens are 0-4, data tokens start around 5+
-                        data_token_start = 5
-                        bias_init[
-                            data_token_start:
-                        ] = -1.0  # Higher logits for data tokens
-                        module.bias.data = bias_init
-                    else:
-                        nn.init.zeros_(module.bias)
-
         # Loss functions
         self.numeric_loss_fn = nn.MSELoss()
 
-        # Create class weights for categorical loss to handle token imbalance
-        # Reduce weight for special tokens that shouldn't be predicted during
-        # reconstruction
-        class_weights = torch.ones(config.n_tokens)
-        # Downweight special tokens: [PAD]=0, [NUMERIC_MASK]=1, [MASK]=2, [UNK]=3,
-        # [NUMERIC_EMBEDDING]=4
-        special_tokens = [
-            0,
-            1,
-            2,
-            3,
-            4,
-        ]  # These shouldn't be predicted during reconstruction
-        class_weights[special_tokens] = 0.1  # Lower weight for special tokens
-
-        self.categorical_loss_fn = nn.CrossEntropyLoss(weight=class_weights)
+        self.categorical_loss_fn = nn.CrossEntropyLoss()
 
         # Save hyperparameters
         self.save_hyperparameters(ignore=["config"])
@@ -138,7 +91,9 @@ class MaskedTabularPretrainer(L.LightningModule):
             masked_numeric = numeric.clone()
             # Use a special mask value that's clearly out of normal data range
             # Since data is clipped to [-10, 10], use -15 as mask value
-            masked_numeric[numeric_mask] = -15.0
+            masked_numeric[numeric_mask] = float(
+                "-inf"
+            )  # Use -inf to indicate masked values
         else:
             masked_numeric = None
             numeric_mask = None
@@ -163,8 +118,6 @@ class MaskedTabularPretrainer(L.LightningModule):
         self,
         input_numeric: torch.Tensor | None = None,
         input_categorical: torch.Tensor | None = None,
-        targets_numeric: torch.Tensor | None = None,
-        targets_categorical: torch.Tensor | None = None,
         deterministic: bool = False,
     ):
         """Forward pass for reconstruction."""
@@ -229,7 +182,7 @@ class MaskedTabularPretrainer(L.LightningModule):
         )
 
         # Apply masking
-        masked_numeric, masked_categorical, numeric_mask, categorical_mask = (
+        masked_numeric, masked_categorical, _numeric_mask, _categorical_mask = (
             self.mask_inputs(inputs.numeric, inputs.categorical)
         )
 
@@ -253,10 +206,10 @@ class MaskedTabularPretrainer(L.LightningModule):
             # Reconstruct ALL numeric values, not just masked ones
             # Transpose to match prediction shape [batch, seq_len, n_numeric]
             numeric_transposed = inputs.numeric.permute(0, 2, 1)
-            
+
             # Clip predictions to prevent extreme values
-            numeric_pred_clipped = torch.clamp(numeric_predictions, -10.0, 10.0)
-            numeric_true_clipped = torch.clamp(numeric_transposed, -10.0, 10.0)
+            # numeric_pred_clipped = torch.clamp(numeric_predictions, -10.0, 10.0)
+            # numeric_true_clipped = torch.clamp(numeric_transposed, -10.0, 10.0)
 
             numeric_loss = self.numeric_loss_fn(
                 numeric_pred_clipped, numeric_true_clipped
@@ -272,15 +225,18 @@ class MaskedTabularPretrainer(L.LightningModule):
         # Calculate categorical loss on ALL positions (reconstruction task)
         if categorical_predictions is not None:
             # Reconstruct ALL categorical values, not just masked ones
-            # Reshape for loss calculation
-            cat_pred_flat = categorical_predictions.permute(0, 1, 3, 2).reshape(
-                -1, self.config.n_tokens
-            )
+            # categorical_predictions shape: [batch, seq_len, n_categorical, n_tokens]
+            # inputs.categorical shape: [batch, n_categorical, seq_len]
+
+            # Reshape predictions: [batch, seq_len, n_categorical, n_tokens] -> [batch, n_categorical, seq_len, n_tokens]
+            cat_pred_reshaped = categorical_predictions.permute(0, 2, 1, 3)
+            # Flatten: [batch * n_categorical * seq_len, n_tokens]
+            cat_pred_flat = cat_pred_reshaped.reshape(-1, self.config.n_tokens)
+
+            # Reshape targets to match: [batch, n_categorical, seq_len] -> [batch * n_categorical * seq_len]
             cat_true_flat = inputs.categorical.reshape(-1).long()
 
-            categorical_loss = self.categorical_loss_fn(
-                cat_pred_flat, cat_true_flat
-            )
+            categorical_loss = self.categorical_loss_fn(cat_pred_flat, cat_true_flat)
             categorical_loss_val = categorical_loss
             losses.append(categorical_loss)
 
@@ -362,7 +318,7 @@ class MaskedTabularPretrainer(L.LightningModule):
             deterministic=True,
         )
 
-        # Initialize loss components 
+        # Initialize loss components
         losses = []
         numeric_loss_val = torch.tensor(0.0, device=self.device)
         categorical_loss_val = torch.tensor(0.0, device=self.device)
@@ -373,25 +329,26 @@ class MaskedTabularPretrainer(L.LightningModule):
             # Reconstruct ALL numeric values, not just masked ones
             # Transpose to match prediction shape [batch, seq_len, n_numeric]
             numeric_transposed = inputs.numeric.permute(0, 2, 1)
-            
-            numeric_loss = self.numeric_loss_fn(
-                numeric_predictions, numeric_transposed
-            )
+
+            numeric_loss = self.numeric_loss_fn(numeric_predictions, numeric_transposed)
             numeric_loss_val = numeric_loss
             losses.append(numeric_loss)
 
         # Calculate categorical loss and accuracy on ALL positions
         if categorical_predictions is not None:
             # Reconstruct ALL categorical values, not just masked ones
-            # Reshape for loss calculation
-            cat_pred_flat = categorical_predictions.permute(0, 1, 3, 2).reshape(
-                -1, self.config.n_tokens
-            )
+            # categorical_predictions shape: [batch, seq_len, n_categorical, n_tokens]
+            # inputs.categorical shape: [batch, n_categorical, seq_len]
+
+            # Reshape predictions: [batch, seq_len, n_categorical, n_tokens] -> [batch, n_categorical, seq_len, n_tokens]
+            cat_pred_reshaped = categorical_predictions.permute(0, 2, 1, 3)
+            # Flatten: [batch * n_categorical * seq_len, n_tokens]
+            cat_pred_flat = cat_pred_reshaped.reshape(-1, self.config.n_tokens)
+
+            # Reshape targets to match: [batch, n_categorical, seq_len] -> [batch * n_categorical * seq_len]
             cat_true_flat = inputs.categorical.reshape(-1).long()
 
-            categorical_loss = self.categorical_loss_fn(
-                cat_pred_flat, cat_true_flat
-            )
+            categorical_loss = self.categorical_loss_fn(cat_pred_flat, cat_true_flat)
             categorical_loss_val = categorical_loss
             losses.append(categorical_loss)
 
