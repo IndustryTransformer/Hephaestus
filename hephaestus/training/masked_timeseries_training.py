@@ -211,13 +211,7 @@ class MaskedTabularPretrainer(L.LightningModule):
             # numeric_pred_clipped = torch.clamp(numeric_predictions, -10.0, 10.0)
             # numeric_true_clipped = torch.clamp(numeric_transposed, -10.0, 10.0)
 
-            numeric_loss = self.numeric_loss_fn(
-                numeric_pred_clipped, numeric_true_clipped
-            )
-
-            # Safeguard: Cap the loss to prevent gradient explosion
-            if numeric_loss > 100.0:
-                numeric_loss = torch.clamp(numeric_loss, max=100.0)
+            numeric_loss = self.numeric_loss_fn(numeric_transposed, inputs.numeric)
 
             numeric_loss_val = numeric_loss
             losses.append(numeric_loss)
@@ -228,12 +222,14 @@ class MaskedTabularPretrainer(L.LightningModule):
             # categorical_predictions shape: [batch, seq_len, n_categorical, n_tokens]
             # inputs.categorical shape: [batch, n_categorical, seq_len]
 
-            # Reshape predictions: [batch, seq_len, n_categorical, n_tokens] -> [batch, n_categorical, seq_len, n_tokens]
+            # Reshape predictions: [batch, seq_len, n_categorical, n_tokens] ->
+            #       [batch, n_categorical, seq_len, n_tokens]
             cat_pred_reshaped = categorical_predictions.permute(0, 2, 1, 3)
             # Flatten: [batch * n_categorical * seq_len, n_tokens]
             cat_pred_flat = cat_pred_reshaped.reshape(-1, self.config.n_tokens)
 
-            # Reshape targets to match: [batch, n_categorical, seq_len] -> [batch * n_categorical * seq_len]
+            # Reshape targets to match: [batch, n_categorical, seq_len] ->
+            #           [batch * n_categorical * seq_len]
             cat_true_flat = inputs.categorical.reshape(-1).long()
 
             categorical_loss = self.categorical_loss_fn(cat_pred_flat, cat_true_flat)
@@ -305,7 +301,7 @@ class MaskedTabularPretrainer(L.LightningModule):
         )
 
         # Apply masking
-        masked_numeric, masked_categorical, numeric_mask, categorical_mask = (
+        masked_numeric, masked_categorical, _numeric_mask, _categorical_mask = (
             self.mask_inputs(inputs.numeric, inputs.categorical)
         )
 
@@ -340,12 +336,14 @@ class MaskedTabularPretrainer(L.LightningModule):
             # categorical_predictions shape: [batch, seq_len, n_categorical, n_tokens]
             # inputs.categorical shape: [batch, n_categorical, seq_len]
 
-            # Reshape predictions: [batch, seq_len, n_categorical, n_tokens] -> [batch, n_categorical, seq_len, n_tokens]
+            # Reshape predictions: [batch, seq_len, n_categorical, n_tokens] ->
+            #        [batch, n_categorical, seq_len, n_tokens]
             cat_pred_reshaped = categorical_predictions.permute(0, 2, 1, 3)
             # Flatten: [batch * n_categorical * seq_len, n_tokens]
             cat_pred_flat = cat_pred_reshaped.reshape(-1, self.config.n_tokens)
 
-            # Reshape targets to match: [batch, n_categorical, seq_len] -> [batch * n_categorical * seq_len]
+            # Reshape targets to match: [batch, n_categorical, seq_len] ->
+            #       [batch * n_categorical * seq_len]
             cat_true_flat = inputs.categorical.reshape(-1).long()
 
             categorical_loss = self.categorical_loss_fn(cat_pred_flat, cat_true_flat)
@@ -358,11 +356,7 @@ class MaskedTabularPretrainer(L.LightningModule):
             )
 
         # Combine losses properly to maintain gradient flow
-        if losses:
-            total_loss = sum(losses)
-        else:
-            # If no losses, create a zero loss
-            total_loss = torch.tensor(0.0, device=self.device)
+        total_loss = sum(losses)
 
         # Log only the primary validation metric (total loss) for simplified monitoring
         self.log(
