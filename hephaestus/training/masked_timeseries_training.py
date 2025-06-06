@@ -79,38 +79,136 @@ class MaskedTabularPretrainer(L.LightningModule):
         # Save hyperparameters
         self.save_hyperparameters(ignore=["config"])
 
-    def mask_inputs(self, numeric, categorical):
-        """Apply masking to inputs."""
-        device = numeric.device if numeric is not None else categorical.device
+    def create_masks(self, inputs, mask_probability=None):
+        """Create proper BERT-style masks for reconstruction"""
+        if inputs is None:
+            return None, None
 
-        # Create masks
-        if numeric is not None:
-            numeric_mask = (
-                torch.rand(numeric.shape, device=device) < self.mask_probability
-            )
-            masked_numeric = numeric.clone()
-            # Use a special mask value that's clearly out of normal data range
-            # Since data is clipped to [-10, 10], use -15 as mask value
-            masked_numeric[numeric_mask] = torch.nan
+        if mask_probability is None:
+            mask_probability = self.mask_probability
+
+        batch_size, n_features, seq_len = inputs.shape
+        device = inputs.device
+
+        # Create random mask (True = masked)
+        mask = (
+            torch.rand(batch_size, n_features, seq_len, device=device)
+            < mask_probability
+        )
+
+        # Don't mask padding positions (assume 0 or NaN are padding)
+        if torch.is_floating_point(inputs):
+            padding_mask = torch.isnan(inputs) | (inputs == 0)
         else:
-            masked_numeric = None
-            numeric_mask = None
+            pad_token_id = self.config.token_dict.get("[PAD]", 0)
+            padding_mask = inputs == pad_token_id
 
-        if categorical is not None:
-            categorical_mask = (
-                torch.rand(categorical.shape, device=device) < self.mask_probability
-            )
-            masked_categorical = categorical.clone()
-            # Get [MASK] token index from token_dict
-            mask_token_idx = self.config.token_dict.get(
-                "[MASK]", 2
-            )  # Default to 2 if not found
-            masked_categorical[categorical_mask] = mask_token_idx
+        mask = mask & ~padding_mask
+
+        return mask
+
+    def bert_style_masking(self, inputs, mask):
+        """BERT-style masking: 80% [MASK], 10% random, 10% unchanged"""
+        if inputs is None or mask is None:
+            return inputs, mask
+
+        masked_inputs = inputs.clone()
+
+        if torch.is_floating_point(inputs):
+            # For numeric data: use NaN as mask token
+            masked_inputs[mask] = torch.nan
         else:
-            masked_categorical = None
-            categorical_mask = None
+            # For categorical data: BERT-style masking
+            device = inputs.device
 
-        return masked_numeric, masked_categorical, numeric_mask, categorical_mask
+            # 80% of masked tokens become [MASK]
+            mask_token_positions = mask & (torch.rand_like(mask.float()) < 0.8)
+
+            # 10% become random tokens
+            random_positions = (
+                mask & ~mask_token_positions & (torch.rand_like(mask.float()) < 0.5)
+            )
+
+            # 10% stay unchanged (but still predicted)
+
+            mask_token_idx = self.config.token_dict.get("[MASK]", 2)
+            masked_inputs[mask_token_positions] = mask_token_idx
+
+            # Random tokens (excluding special tokens)
+            vocab_size = self.config.n_tokens
+            special_tokens = {0, 1, 2}  # [PAD], [UNK], [MASK]
+            valid_tokens = [i for i in range(vocab_size) if i not in special_tokens]
+
+            if valid_tokens:
+                random_tokens = torch.randint(
+                    0,
+                    len(valid_tokens),
+                    random_positions.sum().unsqueeze(0).shape,
+                    device=device,
+                )
+                random_token_ids = torch.tensor(valid_tokens, device=device)[
+                    random_tokens
+                ]
+                masked_inputs[random_positions] = random_token_ids
+
+        return masked_inputs, mask
+
+    def create_attention_mask(self, input_mask, causal=False):
+        """Create attention mask that respects both causal and padding constraints"""
+        if input_mask is None:
+            return None
+
+        batch_size, seq_len = input_mask.shape
+        device = input_mask.device
+
+        # Create causal mask (lower triangular) if needed
+        if causal:
+            causal_mask = torch.triu(
+                torch.ones(seq_len, seq_len, device=device), diagonal=1
+            ).bool()
+            causal_mask = causal_mask.unsqueeze(0).expand(batch_size, -1, -1)
+        else:
+            causal_mask = torch.zeros(
+                batch_size, seq_len, seq_len, dtype=torch.bool, device=device
+            )
+
+        # Combine with padding mask
+        # input_mask: True for valid positions, False for padding
+        # attention expects: False for attend, True for mask
+        padding_mask = ~input_mask.unsqueeze(1) | ~input_mask.unsqueeze(2)
+
+        # Combine masks
+        combined_mask = causal_mask | padding_mask
+
+        return combined_mask
+
+    def calculate_reconstruction_loss(self, predictions, targets, mask):
+        """Calculate loss ONLY on masked positions"""
+        if predictions is None or mask is None:
+            return torch.tensor(0.0, device=self.device, requires_grad=True)
+
+        # Only compute loss where mask is True
+        masked_predictions = predictions[mask]
+        masked_targets = targets[mask]
+
+        if masked_predictions.numel() == 0:
+            return torch.tensor(0.0, device=self.device, requires_grad=True)
+
+        if torch.is_floating_point(targets):
+            # Numeric loss
+            return self.numeric_loss_fn(masked_predictions, masked_targets)
+        else:
+            # Categorical loss
+            return self.categorical_loss_fn(masked_predictions, masked_targets.long())
+
+    def get_mask_probability(self, epoch, total_epochs):
+        """Progressive masking: start low, increase over training"""
+        min_prob = 0.05
+        max_prob = 0.25
+
+        # Linear schedule
+        progress = epoch / max(total_epochs, 1)
+        return min_prob + (max_prob - min_prob) * progress
 
     def forward(
         self,
@@ -171,7 +269,7 @@ class MaskedTabularPretrainer(L.LightningModule):
         return numeric_predictions, categorical_predictions
 
     def training_step(self, batch, batch_idx):
-        """Training step with masked modeling."""
+        """Training step with proper masked modeling."""
         inputs, _ = batch  # Ignore targets for pre-training
         batch_size = (
             inputs.numeric.shape[0]
@@ -179,83 +277,115 @@ class MaskedTabularPretrainer(L.LightningModule):
             else inputs.categorical.shape[0]
         )
 
-        # Apply masking
-        masked_numeric, masked_categorical, _numeric_mask, _categorical_mask = (
-            self.mask_inputs(inputs.numeric, inputs.categorical)
+        # Use progressive masking if enabled
+        current_epoch = self.current_epoch if hasattr(self, "current_epoch") else 0
+        mask_prob = self.get_mask_probability(current_epoch, 50)  # 50 max epochs
+
+        # Create masks for reconstruction task
+        numeric_mask = (
+            self.create_masks(inputs.numeric, mask_prob)
+            if inputs.numeric is not None
+            else None
+        )
+        categorical_mask = (
+            self.create_masks(inputs.categorical, mask_prob)
+            if inputs.categorical is not None
+            else None
         )
 
-        # Forward pass
+        # Apply BERT-style masking
+        masked_numeric, _ = self.bert_style_masking(inputs.numeric, numeric_mask)
+        masked_categorical, _ = self.bert_style_masking(
+            inputs.categorical, categorical_mask
+        )
+
+        # Note: attention masking could be added here if needed in future
+        # Currently TimeSeriesTransformer doesn't use explicit attention masks
+
+        # Forward pass with masked inputs
         numeric_predictions, categorical_predictions = self(
             input_numeric=masked_numeric,
             input_categorical=masked_categorical,
             deterministic=False,
         )
 
-        # Initialize loss components (don't use requires_grad on initial tensor)
+        # Initialize loss components
         losses = []
         numeric_loss_val = torch.tensor(0.0, device=self.device)
         categorical_loss_val = torch.tensor(0.0, device=self.device)
         categorical_accuracy_val = torch.tensor(0.0, device=self.device)
 
-        # Calculate numeric loss on ALL positions (reconstruction task)
-        if numeric_predictions is not None:
-            # Reconstruct ALL numeric values, not just masked ones
+        # Calculate numeric loss ONLY on masked positions
+        if numeric_predictions is not None and numeric_mask is not None:
             # Transpose to match prediction shape [batch, seq_len, n_numeric]
             numeric_transposed = inputs.numeric.permute(0, 2, 1)
 
-            # Debug: Check for NaN values (model should handle NaNs properly via mask tokens)
-            if torch.isnan(numeric_predictions).any():
-                print(
-                    f"NaN in numeric_predictions: {torch.isnan(numeric_predictions).sum()}"
-                )
-            if torch.isnan(numeric_transposed).any():
-                print(f"NaN in numeric inputs: {torch.isnan(numeric_transposed).sum()}")
-            if torch.isinf(numeric_predictions).any():
-                print(
-                    f"Inf in numeric_predictions: {torch.isinf(numeric_predictions).sum()}"
-                )
-            if torch.isinf(numeric_transposed).any():
-                print(f"Inf in numeric inputs: {torch.isinf(numeric_transposed).sum()}")
+            # Transpose mask to match
+            numeric_mask_transposed = numeric_mask.permute(0, 2, 1)
 
-            # Calculate loss directly - model should handle NaNs via mask embeddings
-            numeric_loss = self.numeric_loss_fn(numeric_predictions, numeric_transposed)
+            # Calculate loss only on masked positions
+            numeric_loss = self.calculate_reconstruction_loss(
+                numeric_predictions, numeric_transposed, numeric_mask_transposed
+            )
 
             numeric_loss_val = numeric_loss
-            print(f"Numeric loss: {numeric_loss_val.item()}, batch size: {batch_size}")
             losses.append(numeric_loss)
 
-        # Calculate categorical loss on ALL positions (reconstruction task)
-        if categorical_predictions is not None:
-            # Reconstruct ALL categorical values, not just masked ones
+            # Debug info
+            masked_count = numeric_mask_transposed.sum().item()
+            print(
+                f"Numeric: {masked_count} masked tokens, loss: {numeric_loss_val.item():.4f}"
+            )
+
+        # Calculate categorical loss ONLY on masked positions
+        if categorical_predictions is not None and categorical_mask is not None:
             # categorical_predictions shape: [batch, seq_len, n_categorical, n_tokens]
             # inputs.categorical shape: [batch, n_categorical, seq_len]
+            # categorical_mask shape: [batch, n_categorical, seq_len]
 
             # Reshape predictions: [batch, seq_len, n_categorical, n_tokens] ->
             #       [batch, n_categorical, seq_len, n_tokens]
             cat_pred_reshaped = categorical_predictions.permute(0, 2, 1, 3)
-            # Flatten: [batch * n_categorical * seq_len, n_tokens]
+
+            # Only get predictions for masked positions
+            # Get flattened versions for easier indexing
             cat_pred_flat = cat_pred_reshaped.reshape(-1, self.config.n_tokens)
+            mask_flat = categorical_mask.reshape(-1)
 
-            # Reshape targets to match: [batch, n_categorical, seq_len] ->
-            #           [batch * n_categorical * seq_len]
-            cat_true_flat = inputs.categorical.reshape(-1).long()
+            # Select only masked predictions
+            masked_cat_pred = cat_pred_flat[mask_flat]
 
-            categorical_loss = self.categorical_loss_fn(cat_pred_flat, cat_true_flat)
-            categorical_loss_val = categorical_loss
-            print(
-                f"Categorical loss: {categorical_loss_val.item()}",
-                f"batch size: {batch_size}",
-            )
-            losses.append(categorical_loss)
+            # Get corresponding target tokens
+            masked_cat_targets = inputs.categorical[categorical_mask]
 
-            # Calculate categorical accuracy on ALL positions
-            predicted_tokens = cat_pred_flat.argmax(dim=-1)
-            categorical_accuracy_val = (
-                (predicted_tokens == cat_true_flat).float().mean()
-            )
+            if masked_cat_pred.numel() > 0:
+                # Reshape to [num_masked_tokens, n_tokens] and [num_masked_tokens]
+                masked_cat_pred = masked_cat_pred.view(-1, self.config.n_tokens)
+                masked_cat_targets = masked_cat_targets.view(-1).long()
+
+                categorical_loss = self.categorical_loss_fn(
+                    masked_cat_pred, masked_cat_targets
+                )
+                categorical_loss_val = categorical_loss
+                losses.append(categorical_loss)
+
+                # Calculate accuracy on masked positions only
+                predicted_tokens = masked_cat_pred.argmax(dim=-1)
+                categorical_accuracy_val = (
+                    (predicted_tokens == masked_cat_targets).float().mean()
+                )
+
+                # Debug info
+                masked_count = categorical_mask.sum().item()
+                print(
+                    f"Categorical: {masked_count} masked tokens, loss: {categorical_loss_val.item():.4f}, acc: {categorical_accuracy_val.item():.4f}"
+                )
 
         # Combine losses properly to maintain gradient flow
-        total_loss = sum(losses)
+        if losses:
+            total_loss = sum(losses)
+        else:
+            total_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
 
         # Log only the primary training metric (total loss) for simplified logging
         self.log(
@@ -303,7 +433,7 @@ class MaskedTabularPretrainer(L.LightningModule):
         return total_loss
 
     def validation_step(self, batch, batch_idx):
-        """Validation step with masked modeling."""
+        """Validation step with proper masked modeling."""
         inputs, _ = batch
         batch_size = (
             inputs.numeric.shape[0]
@@ -311,9 +441,26 @@ class MaskedTabularPretrainer(L.LightningModule):
             else inputs.categorical.shape[0]
         )
 
-        # Apply masking
-        masked_numeric, masked_categorical, _numeric_mask, _categorical_mask = (
-            self.mask_inputs(inputs.numeric, inputs.categorical)
+        # Use same masking strategy as training
+        current_epoch = self.current_epoch if hasattr(self, "current_epoch") else 0
+        mask_prob = self.get_mask_probability(current_epoch, 50)  # 50 max epochs
+
+        # Create masks for reconstruction task
+        numeric_mask = (
+            self.create_masks(inputs.numeric, mask_prob)
+            if inputs.numeric is not None
+            else None
+        )
+        categorical_mask = (
+            self.create_masks(inputs.categorical, mask_prob)
+            if inputs.categorical is not None
+            else None
+        )
+
+        # Apply BERT-style masking
+        masked_numeric, _ = self.bert_style_masking(inputs.numeric, numeric_mask)
+        masked_categorical, _ = self.bert_style_masking(
+            inputs.categorical, categorical_mask
         )
 
         # Forward pass
@@ -329,43 +476,59 @@ class MaskedTabularPretrainer(L.LightningModule):
         categorical_loss_val = torch.tensor(0.0, device=self.device)
         categorical_accuracy_val = torch.tensor(0.0, device=self.device)
 
-        # Calculate numeric loss on ALL positions (reconstruction task)
-        if numeric_predictions is not None:
-            # Reconstruct ALL numeric values, not just masked ones
+        # Calculate numeric loss ONLY on masked positions
+        if numeric_predictions is not None and numeric_mask is not None:
             # Transpose to match prediction shape [batch, seq_len, n_numeric]
             numeric_transposed = inputs.numeric.permute(0, 2, 1)
+            numeric_mask_transposed = numeric_mask.permute(0, 2, 1)
 
-            numeric_loss = self.numeric_loss_fn(numeric_predictions, numeric_transposed)
+            # Calculate loss only on masked positions
+            numeric_loss = self.calculate_reconstruction_loss(
+                numeric_predictions, numeric_transposed, numeric_mask_transposed
+            )
+
             numeric_loss_val = numeric_loss
             losses.append(numeric_loss)
 
-        # Calculate categorical loss and accuracy on ALL positions
-        if categorical_predictions is not None:
-            # Reconstruct ALL categorical values, not just masked ones
-            # categorical_predictions shape: [batch, seq_len, n_categorical, n_tokens]
-            # inputs.categorical shape: [batch, n_categorical, seq_len]
-
+        # Calculate categorical loss ONLY on masked positions
+        if categorical_predictions is not None and categorical_mask is not None:
             # Reshape predictions: [batch, seq_len, n_categorical, n_tokens] ->
-            #        [batch, n_categorical, seq_len, n_tokens]
+            #       [batch, n_categorical, seq_len, n_tokens]
             cat_pred_reshaped = categorical_predictions.permute(0, 2, 1, 3)
-            # Flatten: [batch * n_categorical * seq_len, n_tokens]
+
+            # Only get predictions for masked positions
+            # Get flattened versions for easier indexing
             cat_pred_flat = cat_pred_reshaped.reshape(-1, self.config.n_tokens)
+            mask_flat = categorical_mask.reshape(-1)
 
-            # Reshape targets to match: [batch, n_categorical, seq_len] ->
-            #       [batch * n_categorical * seq_len]
-            cat_true_flat = inputs.categorical.reshape(-1).long()
+            # Select only masked predictions
+            masked_cat_pred = cat_pred_flat[mask_flat]
 
-            categorical_loss = self.categorical_loss_fn(cat_pred_flat, cat_true_flat)
-            categorical_loss_val = categorical_loss
-            losses.append(categorical_loss)
+            # Get corresponding target tokens
+            masked_cat_targets = inputs.categorical[categorical_mask]
 
-            # Calculate accuracy on ALL positions
-            categorical_accuracy_val = (
-                (cat_pred_flat.argmax(dim=-1) == cat_true_flat).float().mean()
-            )
+            if masked_cat_pred.numel() > 0:
+                # Reshape to [num_masked_tokens, n_tokens] and [num_masked_tokens]
+                masked_cat_pred = masked_cat_pred.view(-1, self.config.n_tokens)
+                masked_cat_targets = masked_cat_targets.view(-1).long()
+
+                categorical_loss = self.categorical_loss_fn(
+                    masked_cat_pred, masked_cat_targets
+                )
+                categorical_loss_val = categorical_loss
+                losses.append(categorical_loss)
+
+                # Calculate accuracy on masked positions only
+                predicted_tokens = masked_cat_pred.argmax(dim=-1)
+                categorical_accuracy_val = (
+                    (predicted_tokens == masked_cat_targets).float().mean()
+                )
 
         # Combine losses properly to maintain gradient flow
-        total_loss = sum(losses)
+        if losses:
+            total_loss = sum(losses)
+        else:
+            total_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
 
         # Log only the primary validation metric (total loss) for simplified monitoring
         self.log(
