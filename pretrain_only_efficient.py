@@ -158,10 +158,10 @@ print(f"  Std: {np.nanstd(numeric_data):.2f}")
 scaled_data = scaler.fit_transform(numeric_data)
 
 # Clip to reasonable range to prevent extreme values
-scaled_data = np.clip(scaled_data, -10, 10)
+# scaled_data = np.clip(scaled_data, -10, 10)
 
 # Replace NaN with 0 after scaling
-scaled_data = np.nan_to_num(scaled_data, nan=0.0, posinf=10.0, neginf=-10.0)
+# scaled_data = np.nan_to_num(scaled_data, nan=0.0, posinf=10.0, neginf=-10.0)
 
 df[numeric_cols] = scaled_data
 

@@ -190,8 +190,6 @@ class MaskedTabularPretrainer(L.LightningModule):
         numeric_predictions, categorical_predictions = self(
             input_numeric=masked_numeric,
             input_categorical=masked_categorical,
-            targets_numeric=None,
-            targets_categorical=None,
             deterministic=False,
         )
 
@@ -210,8 +208,7 @@ class MaskedTabularPretrainer(L.LightningModule):
             # Clip predictions to prevent extreme values
             # numeric_pred_clipped = torch.clamp(numeric_predictions, -10.0, 10.0)
             # numeric_true_clipped = torch.clamp(numeric_transposed, -10.0, 10.0)
-
-            numeric_loss = self.numeric_loss_fn(numeric_transposed, inputs.numeric)
+            numeric_loss = self.numeric_loss_fn(numeric_predictions, numeric_transposed)
 
             numeric_loss_val = numeric_loss
             losses.append(numeric_loss)
@@ -253,7 +250,7 @@ class MaskedTabularPretrainer(L.LightningModule):
         self.log(
             "train_loss",
             total_loss,
-            on_step=False,
+            on_step=True,
             on_epoch=True,
             prog_bar=True,
             logger=True,
@@ -264,7 +261,7 @@ class MaskedTabularPretrainer(L.LightningModule):
         self.log(
             "train_numeric_loss",
             numeric_loss_val,
-            on_step=False,
+            on_step=True,
             on_epoch=True,
             logger=True,
             batch_size=batch_size,
@@ -273,7 +270,7 @@ class MaskedTabularPretrainer(L.LightningModule):
         self.log(
             "train_categorical_loss",
             categorical_loss_val,
-            on_step=False,
+            on_step=True,
             on_epoch=True,
             logger=True,
             batch_size=batch_size,
@@ -282,7 +279,7 @@ class MaskedTabularPretrainer(L.LightningModule):
         self.log(
             "train_categorical_accuracy",
             categorical_accuracy_val,
-            on_step=False,
+            on_step=True,
             on_epoch=True,
             logger=True,
             batch_size=batch_size,
@@ -309,8 +306,6 @@ class MaskedTabularPretrainer(L.LightningModule):
         numeric_predictions, categorical_predictions = self(
             input_numeric=masked_numeric,
             input_categorical=masked_categorical,
-            targets_numeric=None,
-            targets_categorical=None,
             deterministic=True,
         )
 
