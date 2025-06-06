@@ -91,9 +91,7 @@ class MaskedTabularPretrainer(L.LightningModule):
             masked_numeric = numeric.clone()
             # Use a special mask value that's clearly out of normal data range
             # Since data is clipped to [-10, 10], use -15 as mask value
-            masked_numeric[numeric_mask] = float(
-                "-inf"
-            )  # Use -inf to indicate masked values
+            masked_numeric[numeric_mask] = torch.nan
         else:
             masked_numeric = None
             numeric_mask = None
@@ -205,12 +203,25 @@ class MaskedTabularPretrainer(L.LightningModule):
             # Transpose to match prediction shape [batch, seq_len, n_numeric]
             numeric_transposed = inputs.numeric.permute(0, 2, 1)
 
-            # Clip predictions to prevent extreme values
-            # numeric_pred_clipped = torch.clamp(numeric_predictions, -10.0, 10.0)
-            # numeric_true_clipped = torch.clamp(numeric_transposed, -10.0, 10.0)
+            # Debug: Check for NaN values (model should handle NaNs properly via mask tokens)
+            if torch.isnan(numeric_predictions).any():
+                print(
+                    f"NaN in numeric_predictions: {torch.isnan(numeric_predictions).sum()}"
+                )
+            if torch.isnan(numeric_transposed).any():
+                print(f"NaN in numeric inputs: {torch.isnan(numeric_transposed).sum()}")
+            if torch.isinf(numeric_predictions).any():
+                print(
+                    f"Inf in numeric_predictions: {torch.isinf(numeric_predictions).sum()}"
+                )
+            if torch.isinf(numeric_transposed).any():
+                print(f"Inf in numeric inputs: {torch.isinf(numeric_transposed).sum()}")
+
+            # Calculate loss directly - model should handle NaNs via mask embeddings
             numeric_loss = self.numeric_loss_fn(numeric_predictions, numeric_transposed)
 
             numeric_loss_val = numeric_loss
+            print(f"Numeric loss: {numeric_loss_val.item()}, batch size: {batch_size}")
             losses.append(numeric_loss)
 
         # Calculate categorical loss on ALL positions (reconstruction task)
@@ -231,6 +242,10 @@ class MaskedTabularPretrainer(L.LightningModule):
 
             categorical_loss = self.categorical_loss_fn(cat_pred_flat, cat_true_flat)
             categorical_loss_val = categorical_loss
+            print(
+                f"Categorical loss: {categorical_loss_val.item()}",
+                f"batch size: {batch_size}",
+            )
             losses.append(categorical_loss)
 
             # Calculate categorical accuracy on ALL positions
@@ -240,11 +255,7 @@ class MaskedTabularPretrainer(L.LightningModule):
             )
 
         # Combine losses properly to maintain gradient flow
-        if losses:
-            total_loss = sum(losses)
-        else:
-            # If no losses, create a zero loss that still allows gradients
-            total_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
+        total_loss = sum(losses)
 
         # Log only the primary training metric (total loss) for simplified logging
         self.log(
@@ -285,7 +296,10 @@ class MaskedTabularPretrainer(L.LightningModule):
             batch_size=batch_size,
             reduce_fx="mean",
         )
-
+        if torch.isnan(total_loss):
+            raise ValueError(
+                "Total loss is NaN. Check if inputs or predictions contain NaNs."
+            )
         return total_loss
 
     def validation_step(self, batch, batch_idx):

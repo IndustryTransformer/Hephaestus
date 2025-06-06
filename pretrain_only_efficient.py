@@ -19,7 +19,7 @@ from pytorch_lightning.callbacks import (
     RichProgressBar,
 )
 from pytorch_lightning.loggers import TensorBoardLogger
-from sklearn.preprocessing import RobustScaler
+from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader
 
 import hephaestus as hp
@@ -56,7 +56,7 @@ BATCH_SIZE = 14  # Reduced batch size for longer sequences
 SEQUENCE_LENGTH = 1024  # Much longer context window!
 LEARNING_RATE = 5e-5
 MAX_EPOCHS = 50
-MASK_PROBABILITY = 0.00001
+MASK_PROBABILITY = 0.15
 D_MODEL = 128
 N_HEADS = 8
 GRADIENT_CLIP = 1.0
@@ -135,17 +135,18 @@ numeric_cols = [
 ]
 
 # %%
-# Normalize numeric columns
+# Normalize numeric columns with StandardScaler
 print("=== Data Normalization ===")
 print(f"Numeric columns: {len(numeric_cols)}")
 print(f"NaN values before normalization: {df[numeric_cols].isna().sum().sum():,}")
 
-# Use RobustScaler which is less sensitive to outliers
-scaler = RobustScaler()
-numeric_data = df[numeric_cols].values.astype(np.float32)
+# Replace inf with nan first
+for col in numeric_cols:
+    df[col] = df[col].replace([np.inf, -np.inf], np.nan)
 
-# Replace inf with nan before scaling
-numeric_data[np.isinf(numeric_data)] = np.nan
+# Use StandardScaler
+scaler = StandardScaler()
+numeric_data = df[numeric_cols].values.astype(np.float32)
 
 # Print statistics before scaling
 print("\nBefore scaling:")
@@ -154,18 +155,12 @@ print(f"  Max: {np.nanmax(numeric_data):.2f}")
 print(f"  Mean: {np.nanmean(numeric_data):.2f}")
 print(f"  Std: {np.nanstd(numeric_data):.2f}")
 
-# Fit and transform
+# Fit and transform with StandardScaler
 scaled_data = scaler.fit_transform(numeric_data)
-
-# Clip to reasonable range to prevent extreme values
-# scaled_data = np.clip(scaled_data, -10, 10)
-
-# Replace NaN with 0 after scaling
-# scaled_data = np.nan_to_num(scaled_data, nan=0.0, posinf=10.0, neginf=-10.0)
 
 df[numeric_cols] = scaled_data
 
-print("\nAfter scaling & clipping:")
+print("\nAfter scaling:")
 print(f"  Min: {df[numeric_cols].min().min():.2f}")
 print(f"  Max: {df[numeric_cols].max().max():.2f}")
 print(f"  Mean: {df[numeric_cols].mean().mean():.2f}")
