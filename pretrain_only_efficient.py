@@ -52,20 +52,20 @@ if torch.cuda.is_available():
 
 # %%
 # Configuration for efficient attention
-BATCH_SIZE = 14  # Reduced batch size for longer sequences
-SEQUENCE_LENGTH = 1024  # Much longer context window!
+BATCH_SIZE = 128  # Reduced batch size for longer sequences
+SEQUENCE_LENGTH = 64  # Much longer context window!
 LEARNING_RATE = 5e-5
 MAX_EPOCHS = 50
 MASK_PROBABILITY = 0.15
-D_MODEL = 128
-N_HEADS = 8
+D_MODEL = 64
+N_HEADS = 4
 GRADIENT_CLIP = 1.0
 # Disable gradient accumulation so that step logging aligns with optimizer updates
 ACCUMULATE_GRAD_BATCHES = 1
 
 # Efficient attention configuration
 ATTENTION_TYPE = (
-    "flash"  # Options: "flash", "local", "sparse", "featurewise", "chunked"
+    "featurewise"  # Options: "flash", "local", "sparse", "featurewise", "chunked"
 )
 ATTENTION_KWARGS = {
     # For local attention
