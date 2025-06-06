@@ -739,12 +739,15 @@ class TimeSeriesDecoder(nn.Module):
             # Handle NaNs in input more explicitly
             numeric_inputs = torch.nan_to_num(numeric_inputs, nan=0.0)
 
-        out = self.time_series_transformer(
+        processed_embeddings = self.time_series_transformer(
             numeric_inputs=numeric_inputs,
             categorical_inputs=categorical_inputs,
             deterministic=deterministic,
             causal_mask=causal_mask,
         )
+
+        # Extract the tensor from ProcessedEmbeddings
+        out = processed_embeddings.value_embeddings
 
         # Check for NaNs after transformer
         if torch.isnan(out).any():
