@@ -86,8 +86,8 @@ for col in numeric_cols:
         df = df.drop(columns=[col])
         print(f"Dropped constant column: {col}")
 
-# MAke idx a sequential index of step size SEQUENCE_LENGTH
-df["idx"] = np.arange(0, len(df) * SEQUENCE_LENGTH, SEQUENCE_LENGTH)
+# Create idx to group rows into sequences of SEQUENCE_LENGTH
+df["idx"] = np.arange(len(df)) // SEQUENCE_LENGTH
 # Convert time_step to a datetime object
 # %%
 df.head()
