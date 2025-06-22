@@ -38,7 +38,7 @@ ic.configureOutput(includeContext=True, contextAbsPath=True)
 # pd.options.mode.copy_on_write = True
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-SEQUENCE_LENGTH = 256
+SEQUENCE_LENGTH = 512
 # %%
 print(f"PyTorch version: {torch.__version__}")
 print(f"CUDA available: {torch.cuda.is_available()}")
@@ -65,7 +65,7 @@ else:
 
 # %%
 df = pd.read_parquet("data/combined_3w_real_sample.parquet")
-df = df.head(1_000_000)  # Reduce dataset size for debugging
+df = df.head(10_000_000)  # Reduce dataset size for debugging
 df.drop(
     columns=[
         "original_filename",
@@ -73,6 +73,7 @@ df.drop(
         "system_id",
         "timestamp",
         "instance_id",
+        "class",
         "state",
     ],
     inplace=True,
@@ -131,11 +132,11 @@ test_ds = hp.TimeSeriesDS(test_df, time_series_config)
 len(train_ds), len(test_ds)
 
 # %%
-N_HEADS = 8 * 4
+N_HEADS = 4
 # tabular_decoder = TimeSeriesDecoder(time_series_config, d_model=512, n_heads=N_HEADS)
 tabular_decoder = hp.TabularDecoder(
     time_series_config,
-    d_model=512,
+    d_model=64,
     n_heads=N_HEADS,
     attention_type="flash",  # Use flash attention for efficiency
 )

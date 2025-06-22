@@ -67,16 +67,60 @@ def process_results(arr: torch.Tensor, col_names: list, config):
     Returns:
         pd.DataFrame: DataFrame of processed results.
     """
-    arr = arr.squeeze().cpu().numpy()
-    # arr = arr.squeeze().detach().cpu().numpy()
+    # Convert to numpy first
+    arr = arr.cpu().numpy()
+    
+    # Handle different tensor formats based on expected shapes:
+    # Numeric: (batch_size, n_features, sequence_length)
+    # Categorical: (batch_size, n_features, sequence_length, n_tokens)
+    
+    if len(arr.shape) == 4:
+        # Categorical case: (batch_size, n_features, sequence_length, n_tokens)
+        # Apply argmax to get the predicted class
+        arr = np.argmax(arr, axis=-1)  # Now (batch_size, n_features, sequence_length)
+    
     if len(arr.shape) == 3:
-        # Check if there is a logit array for example if there are 3 dims then the
-        # last dim is the logit array. We need to get the argmax of the last dim
-        # to get the actual values of the array and replace the logit array with the
-        # actual values
-        arr = np.argmax(arr, axis=-1)
-    df = pd.DataFrame(arr.T)
-    df.columns = col_names
+        # Now we have (batch_size, n_features, sequence_length)
+        # Remove batch dimension if batch_size = 1
+        if arr.shape[0] == 1:
+            arr = arr.squeeze(0)  # Now (n_features, sequence_length)
+        else:
+            raise ValueError(
+                f"Batch size > 1 not supported. Array shape: {arr.shape}"
+            )
+    
+    if len(arr.shape) == 2:
+        # We have (n_features, sequence_length) - this is what we want
+        pass
+    elif len(arr.shape) == 1:
+        # Single feature case, reshape to (1, sequence_length)
+        if len(col_names) == 1:
+            arr = arr.reshape(1, -1)
+        else:
+            raise ValueError(
+                f"1D array provided but {len(col_names)} column names given. "
+                f"Array shape: {arr.shape}, Column names: {col_names}"
+            )
+    else:
+        raise ValueError(
+            f"Unexpected array dimensions after processing: {len(arr.shape)}D. "
+            f"Array shape: {arr.shape}"
+        )
+    
+    # Now arr should have shape (n_features, sequence_length)
+    n_features, seq_length = arr.shape
+    
+    if len(col_names) != n_features:
+        raise ValueError(
+            f"Column names length ({len(col_names)}) doesn't match "
+            f"number of features ({n_features}). "
+            f"Array shape: {arr.shape}, Column names: {col_names}"
+        )
+    
+    # Create DataFrame where:
+    # - Rows represent time steps (sequence_length)
+    # - Columns represent features (n_features)
+    df = pd.DataFrame(arr.T, columns=col_names)
     return df
 
 
