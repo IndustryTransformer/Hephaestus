@@ -19,6 +19,7 @@ import torch
 from icecream import ic
 from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
+from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
@@ -64,7 +65,7 @@ else:
 
 # %%
 df = pd.read_parquet("data/combined_3w_real_sample.parquet")
-df = df.head(100_000)  # Reduce dataset size for debugging
+df = df.head(1_000_000)  # Reduce dataset size for debugging
 df.drop(
     columns=[
         "original_filename",
@@ -77,7 +78,7 @@ df.drop(
     inplace=True,
 )
 # Drop all-NaN columns
-df = df.dropna(axis=1, how='all')
+df = df.dropna(axis=1, how="all")
 
 # Drop constant columns (no variance)
 numeric_cols = df.select_dtypes(include=[np.number]).columns
@@ -85,6 +86,12 @@ for col in numeric_cols:
     if df[col].nunique() <= 1:
         df = df.drop(columns=[col])
         print(f"Dropped constant column: {col}")
+
+# Normalize numeric columns using StandardScaler to prevent numerical instability
+numeric_cols = df.select_dtypes(include=[np.number]).columns
+numeric_cols = [col for col in numeric_cols if col != "idx"]  # Don't normalize idx
+scaler = StandardScaler()
+df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
 
 # Create idx to group rows into sequences of SEQUENCE_LENGTH
 df["idx"] = np.arange(len(df)) // SEQUENCE_LENGTH
@@ -136,7 +143,7 @@ tabular_decoder = hp.TabularDecoder(
 # %%
 logger = TensorBoardLogger("runs", name=f"{dt.now()}_attention_3w_real_sample")
 early_stopping = EarlyStopping(monitor="val_loss", patience=3, mode="min")
-trainer = L.Trainer(max_epochs=5, logger=logger, callbacks=[early_stopping])
+trainer = L.Trainer(max_epochs=10, logger=logger, callbacks=[early_stopping])
 train_dl = DataLoader(
     train_ds,
     batch_size=32,
@@ -154,11 +161,3 @@ test_dl = DataLoader(
     persistent_workers=True,
 )
 trainer.fit(tabular_decoder, train_dl, test_dl)
-
-# %%
-df_comp = hp.show_results_df(
-    model=tabular_decoder,
-    time_series_config=time_series_config,
-    dataset=train_ds,
-    idx=0,
-)
