@@ -81,7 +81,7 @@ class TabularRegressor(L.LightningModule):
             0,
             self.model.model_config.n_tokens,
             (batch_size, self.model.model_config.n_cat_cols),  # Please dont cat call
-        ).float()
+        ).long()  # Changed from .float() to .long() to match expected dtype
 
         target = torch.rand(batch_size, 1)
         return {

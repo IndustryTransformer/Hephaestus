@@ -271,6 +271,31 @@ class TabularEncoderRegressor(nn.Module):
         # )
         # self.apply(initialize_parameters)
 
+    @property
+    def cat_mask_token(self):
+        """Expose cat_mask_token from the internal tabular encoder."""
+        return self.tabular_encoder.cat_mask_token
+    
+    @property
+    def device(self):
+        """Get the device of the model."""
+        return next(self.parameters()).device
+    
+    @property
+    def col_tokens(self):
+        """Expose col_tokens from the internal tabular encoder."""
+        return self.tabular_encoder.col_tokens
+    
+    @property
+    def numeric_indices(self):
+        """Expose numeric_indices from the internal tabular encoder."""
+        return self.tabular_encoder.numeric_indices
+    
+    @property
+    def n_cat_cols(self):
+        """Expose n_cat_cols from the internal tabular encoder."""
+        return self.tabular_encoder.n_cat_cols
+
     def forward(self, num_inputs, cat_inputs):
         out = self.tabular_encoder(num_inputs, cat_inputs)
         # out = self.pooling(out)  # Could use max pooling too
@@ -317,6 +342,31 @@ class MaskedTabularEncoder(nn.Module):
         )
 
         # self.apply(initialize_parameters)
+
+    @property
+    def cat_mask_token(self):
+        """Expose cat_mask_token from the internal tabular encoder."""
+        return self.tabular_encoder.cat_mask_token
+    
+    @property
+    def device(self):
+        """Get the device of the model."""
+        return next(self.parameters()).device
+    
+    @property
+    def col_tokens(self):
+        """Expose col_tokens from the internal tabular encoder."""
+        return self.tabular_encoder.col_tokens
+    
+    @property
+    def numeric_indices(self):
+        """Expose numeric_indices from the internal tabular encoder."""
+        return self.tabular_encoder.numeric_indices
+    
+    @property
+    def n_cat_cols(self):
+        """Expose n_cat_cols from the internal tabular encoder."""
+        return self.tabular_encoder.n_cat_cols
 
     def forward(self, num_inputs, cat_inputs):
         out = self.tabular_encoder(num_inputs, cat_inputs)

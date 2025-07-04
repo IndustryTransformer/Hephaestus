@@ -16,11 +16,10 @@ import os
 from datetime import datetime as dt
 from pathlib import Path
 
-# ruff: noqa: E402
-import pandas as pd
 import altair as alt
 
-
+# ruff: noqa: E402
+import pandas as pd
 import pytorch_lightning as L  # noqa: N812
 import torch
 from pytorch_lightning.callbacks import (
@@ -31,7 +30,7 @@ from pytorch_lightning.callbacks import (
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
@@ -69,12 +68,17 @@ for file in csv_files:
 df = pd.concat(df_list, ignore_index=True)
 df.columns = df.columns.str.lower()
 
+# Drop CO column if it exists
+if "co" in df.columns:
+    df = df.drop("co", axis=1)
+
 df = df.rename(columns={"nox": "target"})
 # scale the non-target numerical columns
 scaler = StandardScaler()
 numeric_cols = df.select_dtypes(include=[float, int]).columns
-# numeric_cols = numeric_cols.drop("target")
-df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+# Keep target unscaled for loss function
+numeric_cols_to_scale = numeric_cols.drop("target")
+df[numeric_cols_to_scale] = scaler.fit_transform(df[numeric_cols_to_scale])
 # df["target"] = df["target"] + 100
 df["cat_column"] = "category"  # Dummy category for bugs in data loader
 df.head()
@@ -304,15 +308,17 @@ def train_hephaestus_model(
     y = torch.cat(y, dim=0).squeeze().numpy()
     y_hat = torch.cat(y_hat, dim=0).squeeze().numpy()
 
-    # Calculate metrics
+    # Calculate metrics on unscaled data
     mse = mean_squared_error(y, y_hat)
     rmse = np.sqrt(mse)
+    mae = mean_absolute_error(y, y_hat)
 
     # Return model and metrics
     return {
         "model": regressor,
         "mse": mse,
         "rmse": rmse,
+        "mae": mae,
         "y_true": y,
         "y_pred": y_hat,
         "label_ratio": label_ratio,
@@ -337,7 +343,7 @@ def train_linear_regression(df_train, df_test, label_ratio=1.0):
     X_train_sub_set = train_df_sub_set.drop(columns=["target"])
     y_train_sub_set = train_df_sub_set["target"]
 
-    # Use only numeric columns for sklearn models
+    # Use only numeric columns for sklearn models (no scaling needed)
     X_train_sub_set_skl = X_train_sub_set.select_dtypes(include=[np.number])
     X_test_skl = df_test.drop(columns=["target"]).select_dtypes(include=[np.number])
     y_test = df_test["target"]
@@ -346,16 +352,18 @@ def train_linear_regression(df_train, df_test, label_ratio=1.0):
     linear_model = LinearRegression()
     linear_model.fit(X_train_sub_set_skl, y_train_sub_set)
 
-    # Evaluate
+    # Evaluate on unscaled data
     y_pred = linear_model.predict(X_test_skl)
     mse = mean_squared_error(y_test, y_pred)
     rmse = np.sqrt(mse)
+    mae = mean_absolute_error(y_test, y_pred)
 
     # Return model and metrics
     return {
         "model": linear_model,
         "mse": mse,
         "rmse": rmse,
+        "mae": mae,
         "y_true": y_test,
         "y_pred": y_pred,
         "label_ratio": label_ratio,
@@ -380,7 +388,7 @@ def train_random_forest(df_train, df_test, label_ratio=1.0):
     X_train_sub_set = train_df_sub_set.drop(columns=["target"])
     y_train_sub_set = train_df_sub_set["target"]
 
-    # Use only numeric columns for sklearn models
+    # Use only numeric columns for sklearn models (no scaling needed)
     X_train_sub_set_skl = X_train_sub_set.select_dtypes(include=[np.number])
     X_test_skl = df_test.drop(columns=["target"]).select_dtypes(include=[np.number])
     y_test = df_test["target"]
@@ -389,16 +397,18 @@ def train_random_forest(df_train, df_test, label_ratio=1.0):
     rf_model = RandomForestRegressor(random_state=0)
     rf_model.fit(X_train_sub_set_skl, y_train_sub_set)
 
-    # Evaluate
+    # Evaluate on unscaled data
     y_pred = rf_model.predict(X_test_skl)
     mse = mean_squared_error(y_test, y_pred)
     rmse = np.sqrt(mse)
+    mae = mean_absolute_error(y_test, y_pred)
 
     # Return model and metrics
     return {
         "model": rf_model,
         "mse": mse,
         "rmse": rmse,
+        "mae": mae,
         "y_true": y_test,
         "y_pred": y_pred,
         "label_ratio": label_ratio,
@@ -422,7 +432,7 @@ rf_results = []
 
 # Train and evaluate models on each data fraction
 for fraction in data_fractions:
-    print(f"\nTraining with {fraction*100}% of labeled data:")
+    print(f"\nTraining with {fraction * 100}% of labeled data:")
 
     # Train Hephaestus model
     print("Training Hephaestus model...")
@@ -441,12 +451,16 @@ for fraction in data_fractions:
     rf_result = train_random_forest(df_train, df_test, label_ratio=fraction)
     rf_results.append(rf_result)
 
-    print(f"Results with {fraction*100}% of labeled data:")
-    print(f"  Hephaestus MSE: {hep_result['mse']:.3f}, RMSE: {hep_result['rmse']:.3f}")
+    print(f"Results with {fraction * 100}% of labeled data:")
     print(
-        f"  Linear Regression MSE: {lr_result['mse']:.3f}, RMSE: {lr_result['rmse']:.3f}"
+        f"  Hephaestus MSE: {hep_result['mse']:.3f}, RMSE: {hep_result['rmse']:.3f}, MAE: {hep_result['mae']:.3f}"
     )
-    print(f"  Random Forest MSE: {rf_result['mse']:.3f}, RMSE: {rf_result['rmse']:.3f}")
+    print(
+        f"  Linear Regression MSE: {lr_result['mse']:.3f}, RMSE: {lr_result['rmse']:.3f}, MAE: {lr_result['mae']:.3f}"
+    )
+    print(
+        f"  Random Forest MSE: {rf_result['mse']:.3f}, RMSE: {rf_result['rmse']:.3f}, MAE: {rf_result['mae']:.3f}"
+    )
 
 # %%
 Markdown("""## Visualize the Results
@@ -466,6 +480,7 @@ for result in hephaestus_results:
             "Label Ratio": result["label_ratio"],
             "MSE": result["mse"],
             "RMSE": result["rmse"],
+            "MAE": result["mae"],
         }
     )
 
@@ -477,6 +492,7 @@ for result in lr_results:
             "Label Ratio": result["label_ratio"],
             "MSE": result["mse"],
             "RMSE": result["rmse"],
+            "MAE": result["mae"],
         }
     )
 
@@ -488,6 +504,7 @@ for result in rf_results:
             "Label Ratio": result["label_ratio"],
             "MSE": result["mse"],
             "RMSE": result["rmse"],
+            "MAE": result["mae"],
         }
     )
 
@@ -510,7 +527,7 @@ mse_chart = (
         ),
         y=alt.Y("MSE:Q", title="Mean Squared Error"),
         color=alt.Color("Model:N"),
-        tooltip=["Model", "Label Ratio", "MSE", "RMSE"],
+        tooltip=["Model", "Label Ratio", "MSE", "RMSE", "MAE"],
     )
     .properties(
         title="MSE Comparison Across Models with Different Amounts of Labeled Data",
@@ -560,7 +577,7 @@ bar_chart = base.mark_bar().encode(
     x=alt.X("Model:N", title="Model"),
     y=alt.Y("MSE:Q", title="Mean Squared Error"),
     color=alt.Color("Model:N"),
-    tooltip=["Model", "Label Ratio", "MSE", "RMSE"],
+    tooltip=["Model", "Label Ratio", "MSE", "RMSE", "MAE"],
     opacity=alt.condition(alt.datum.is_best, alt.value(1), alt.value(0.6)),
     strokeWidth=alt.condition(alt.datum.is_best, alt.value(2), alt.value(0)),
     stroke=alt.condition(alt.datum.is_best, alt.value("black"), alt.value(None)),
@@ -657,7 +674,7 @@ mse_chart_10 = (
         color="Model",
     )
     .properties(
-        title=f"MSE Comparison Across Models with only {(ratio_10_percent*100)}% of data labeled"
+        title=f"MSE Comparison Across Models with only {(ratio_10_percent * 100)}% of data labeled"
     )
 )
 

@@ -28,7 +28,7 @@ from pytorch_lightning.callbacks import (
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
@@ -46,7 +46,7 @@ D_MODEL = 128
 N_HEADS = 4
 LR = 0.0001
 BATCH_SIZE = 64  # Smaller batch sizes lead to better predictions because outliers are
-# bettertrained on.
+# better trained on.
 name = "SmallBatch"
 LOGGER_VARIANT_NAME = f"{name}_D{D_MODEL}_H{N_HEADS}_LR{LR}"
 
@@ -66,12 +66,17 @@ for file in csv_files:
 df = pd.concat(df_list, ignore_index=True)
 df.columns = df.columns.str.lower()
 
+# Drop CO column if it exists
+if "co" in df.columns:
+    df = df.drop("co", axis=1)
+
 df = df.rename(columns={"nox": "target"})
 # scale the non-target numerical columns
 scaler = StandardScaler()
 numeric_cols = df.select_dtypes(include=[float, int]).columns
-# numeric_cols = numeric_cols.drop("target")
-df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+# Keep target unscaled for loss function
+numeric_cols_to_scale = numeric_cols.drop("target")
+df[numeric_cols_to_scale] = scaler.fit_transform(df[numeric_cols_to_scale])
 # df["target"] = df["target"] + 100
 df["cat_column"] = "category"
 df.head()
@@ -112,7 +117,7 @@ Using PyTorch Lightning, we will train the model using the training and validati
 """)
 
 logger_time = dt.now().strftime("%Y-%m-%dT%H:%M:%S")
-logger_name = f"{logger_time}_{LOGGER_VARIANT_NAME}"
+logger_name = f"{LOGGER_VARIANT_NAME}"
 print(f"Using logger name: {logger_name}")
 logger = TensorBoardLogger(
     "runs",
@@ -143,7 +148,15 @@ for batch in train_dataloader:
 y = torch.cat(y, dim=0).squeeze().numpy()
 y_hat = torch.cat(y_hat, dim=0).squeeze().numpy()
 print(y.shape, y_hat.shape)
-print(f"Mean Squared Error: {mean_squared_error(y, y_hat)}")
+
+# Calculate metrics on unscaled data
+mse_train = mean_squared_error(y, y_hat)
+rmse_train = np.sqrt(mse_train)
+mae_train = mean_absolute_error(y, y_hat)
+
+print(f"Hephaestus Training MSE: {mse_train:.3f}")
+print(f"Hephaestus Training RMSE: {rmse_train:.3f}")
+print(f"Hephaestus Training MAE: {mae_train:.3f}")
 
 res_df = pd.DataFrame({"Actual": y, "Predicted": y_hat})
 
@@ -220,3 +233,21 @@ plot_prediction_analysis(
 )
 
 # %%
+y_val = []
+y_hat_val = []
+for batch in val_dataloader:
+    y_val.append(batch.target)
+    preds = model.predict_step(batch)
+    y_hat_val.append(preds)
+
+y_val = torch.cat(y_val, dim=0).squeeze().numpy()
+y_hat_val = torch.cat(y_hat_val, dim=0).squeeze().numpy()
+
+# Since target is already unscaled, calculate metrics directly
+mse_val = mean_squared_error(y_val, y_hat_val)
+rmse_val = np.sqrt(mse_val)
+mae_val = mean_absolute_error(y_val, y_hat_val)
+
+print(f"Hephaestus Validation MSE: {mse_val:.3f}")
+print(f"Hephaestus Validation RMSE: {rmse_val:.3f}")
+print(f"Hephaestus Validation MAE: {mae_val:.3f}")

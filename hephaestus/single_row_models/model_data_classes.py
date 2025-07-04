@@ -226,12 +226,23 @@ class TabularDS(Dataset):
         df = getattr(self, df_name)
 
         batch = df.iloc[set_idx, :]
-        # Convert DataFrame to torch.Tensor directly
-        batch = torch.tensor(batch.values, dtype=torch.float32)
+        # Convert DataFrame to torch.Tensor with appropriate dtype
+        if df_name == "df_categorical":
+            # Categorical data should be long integers for CrossEntropyLoss
+            batch = torch.tensor(batch.values, dtype=torch.long)
+        else:
+            # Numeric data should remain as float32
+            batch = torch.tensor(batch.values, dtype=torch.float32)
 
         # Add padding
         # batch_len, n_cols = batch.shape
         batch = batch.squeeze(0)
+        
+        # Ensure categorical data maintains proper dimensions
+        # Even single categorical columns should be 1D tensors, not scalars
+        if df_name == "df_categorical" and batch.dim() == 0:
+            batch = batch.unsqueeze(0)
+        
         # TODO Add padding for columns
         # batch = batch.permute(1, 0)
         return batch
