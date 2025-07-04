@@ -226,12 +226,19 @@ class TabularDS(Dataset):
         df = getattr(self, df_name)
 
         batch = df.iloc[set_idx, :]
-        # Convert DataFrame to torch.Tensor directly
-        batch = torch.tensor(batch.values, dtype=torch.float32)
+        # Convert DataFrame to torch.Tensor with proper data type preservation
+        if df_name == "df_categorical":
+            # Categorical data should be integers for proper indexing
+            batch = torch.tensor(batch.values, dtype=torch.long)
+        else:
+            # Numeric data remains as float32
+            batch = torch.tensor(batch.values, dtype=torch.float32)
 
-        # Add padding
-        # batch_len, n_cols = batch.shape
-        batch = batch.squeeze(0)
+        # Ensure consistent shape handling
+        # The original squeeze(0) can reduce dimensionality too much for single column data
+        # We need to maintain at least 1D for proper tensor operations
+        if batch.dim() > 1:
+            batch = batch.squeeze(0)  # Remove batch dimension for single item access
         # TODO Add padding for columns
         # batch = batch.permute(1, 0)
         return batch

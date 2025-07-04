@@ -13,14 +13,12 @@ model.
 # %%
 import glob
 import os
-from datetime import datetime as dt
 from pathlib import Path
+
+import altair as alt
 
 # ruff: noqa: E402
 import pandas as pd
-import altair as alt
-
-
 import pytorch_lightning as L  # noqa: N812
 import torch
 from pytorch_lightning.callbacks import (
@@ -31,7 +29,7 @@ from pytorch_lightning.callbacks import (
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
@@ -69,14 +67,31 @@ for file in csv_files:
 df = pd.concat(df_list, ignore_index=True)
 df.columns = df.columns.str.lower()
 
+# Remove CO column if it exists
+if "co" in df.columns:
+    df = df.drop(columns=["co"])
+    print("Removed CO column from dataset")
+
 df = df.rename(columns={"nox": "target"})
+# Store original target values for unscaled metrics
+original_target = df["target"].copy()
+
 # scale the non-target numerical columns
 scaler = StandardScaler()
 numeric_cols = df.select_dtypes(include=[float, int]).columns
-# numeric_cols = numeric_cols.drop("target")
-df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
-# df["target"] = df["target"] + 100
+numeric_cols_without_target = numeric_cols.drop("target")
+# Scale features but keep target separate for unscaled metrics
+df[numeric_cols_without_target] = scaler.fit_transform(df[numeric_cols_without_target])
+
+# Scale target separately and store the scaler
+target_scaler = StandardScaler()
+df["target"] = target_scaler.fit_transform(df[["target"]]).flatten()
+
+# Add categorical column AFTER scaling to avoid type issues
 df["cat_column"] = "category"  # Dummy category for bugs in data loader
+# Ensure categorical column is properly typed
+df["cat_column"] = df["cat_column"].astype('category')
+print(f"Data types after processing: {df.dtypes}")
 df.head()
 
 # %%
@@ -92,6 +107,8 @@ model_config_mtm = sr.SingleRowConfig.generate(X_setup)  # Full dataset - target
 model_config_reg = sr.SingleRowConfig.generate(
     df, target="target"
 )  # Full dataset with target
+# print(f"Number of columns in model config: {model_config_mtm.n_columns}")
+# print(f"Number of features after CO removal: {len(X_setup.columns)}")
 df_train, df_test = train_test_split(df, test_size=0.2, random_state=42)
 
 X_train_sub_set = df_train.drop(columns=["target"])
@@ -105,7 +122,7 @@ test_dataset = sr.TabularDS(X_test, model_config_mtm)
 mtm_model = sr.MaskedTabularModeling(
     model_config_mtm, d_model=D_MODEL, n_heads=N_HEADS, lr=LR
 )
-mtm_model.predict_step(train_dataset[0:10].inputs)
+# mtm_model.predict_step(train_dataset[0:10].inputs)  # Skip test prediction before training
 
 # %%
 train_dataloader = torch.utils.data.DataLoader(
@@ -126,7 +143,7 @@ Markdown("""### Model Training
 Using PyTorch Lightning, we will train the model using the training and validation
 """)
 
-retrain_model = False
+retrain_model = True
 pretrained_model_dir = Path("checkpoints/turbine_limited")
 pre_trained_models = list(pretrained_model_dir.glob("*.ckpt"))
 # Check if a model with the exact name exists or if retraining is forced
@@ -139,8 +156,7 @@ else:
 
 
 if run_trainer:
-    logger_time = dt.now().strftime("%Y-%m-%dT%H:%M:%S")
-    logger_name = f"{logger_time}_{LOGGER_VARIANT_NAME}"
+    logger_name = f"{LOGGER_VARIANT_NAME}"
     print(f"Using logger name: {logger_name}")
     logger = TensorBoardLogger(
         "runs",
@@ -211,8 +227,8 @@ regressor = sr.TabularRegressor(
 regressor.model.tabular_encoder = mtm_model.model.tabular_encoder
 
 # %%
-reg_out = regressor.predict_step(train_dataset[0:10])
-print(f"{reg_out=}")
+# reg_out = regressor.predict_step(train_dataset[0:10])  # Skip test prediction before training
+# print(f"{reg_out=}")
 # %%
 Markdown("""## Define Model Training Functions
 
@@ -266,10 +282,7 @@ def train_hephaestus_model(
     regressor.model.tabular_encoder = mtm_model.model.tabular_encoder
 
     # Training configuration
-    logger_time = dt.now().strftime("%Y-%m-%dT%H:%M:%S")
-    logger_name = (
-        f"{logger_time}_Regressor_fine_tune_{LOGGER_VARIANT_NAME}_{label_ratio}"
-    )
+    logger_name = f"Regressor_fine_tune_{LOGGER_VARIANT_NAME}_{label_ratio}"
     print(f"Using logger name: {logger_name}")
     logger = TensorBoardLogger("runs", name=logger_name)
 
@@ -304,17 +317,23 @@ def train_hephaestus_model(
     y = torch.cat(y, dim=0).squeeze().numpy()
     y_hat = torch.cat(y_hat, dim=0).squeeze().numpy()
 
-    # Calculate metrics
-    mse = mean_squared_error(y, y_hat)
+    # Convert scaled predictions back to original scale for metrics
+    y_unscaled = target_scaler.inverse_transform(y.reshape(-1, 1)).flatten()
+    y_hat_unscaled = target_scaler.inverse_transform(y_hat.reshape(-1, 1)).flatten()
+
+    # Calculate metrics on unscaled values
+    mse = mean_squared_error(y_unscaled, y_hat_unscaled)
     rmse = np.sqrt(mse)
+    mae = mean_absolute_error(y_unscaled, y_hat_unscaled)
 
     # Return model and metrics
     return {
         "model": regressor,
         "mse": mse,
         "rmse": rmse,
-        "y_true": y,
-        "y_pred": y_hat,
+        "mae": mae,
+        "y_true": y_unscaled,
+        "y_pred": y_hat_unscaled,
         "label_ratio": label_ratio,
     }
 
@@ -348,16 +367,26 @@ def train_linear_regression(df_train, df_test, label_ratio=1.0):
 
     # Evaluate
     y_pred = linear_model.predict(X_test_skl)
-    mse = mean_squared_error(y_test, y_pred)
+
+    # Convert scaled predictions back to original scale for metrics
+    y_test_unscaled = target_scaler.inverse_transform(
+        y_test.values.reshape(-1, 1)
+    ).flatten()
+    y_pred_unscaled = target_scaler.inverse_transform(y_pred.reshape(-1, 1)).flatten()
+
+    # Calculate metrics on unscaled values
+    mse = mean_squared_error(y_test_unscaled, y_pred_unscaled)
     rmse = np.sqrt(mse)
+    mae = mean_absolute_error(y_test_unscaled, y_pred_unscaled)
 
     # Return model and metrics
     return {
         "model": linear_model,
         "mse": mse,
         "rmse": rmse,
-        "y_true": y_test,
-        "y_pred": y_pred,
+        "mae": mae,
+        "y_true": y_test_unscaled,
+        "y_pred": y_pred_unscaled,
         "label_ratio": label_ratio,
     }
 
@@ -391,16 +420,26 @@ def train_random_forest(df_train, df_test, label_ratio=1.0):
 
     # Evaluate
     y_pred = rf_model.predict(X_test_skl)
-    mse = mean_squared_error(y_test, y_pred)
+
+    # Convert scaled predictions back to original scale for metrics
+    y_test_unscaled = target_scaler.inverse_transform(
+        y_test.values.reshape(-1, 1)
+    ).flatten()
+    y_pred_unscaled = target_scaler.inverse_transform(y_pred.reshape(-1, 1)).flatten()
+
+    # Calculate metrics on unscaled values
+    mse = mean_squared_error(y_test_unscaled, y_pred_unscaled)
     rmse = np.sqrt(mse)
+    mae = mean_absolute_error(y_test_unscaled, y_pred_unscaled)
 
     # Return model and metrics
     return {
         "model": rf_model,
         "mse": mse,
         "rmse": rmse,
-        "y_true": y_test,
-        "y_pred": y_pred,
+        "mae": mae,
+        "y_true": y_test_unscaled,
+        "y_pred": y_pred_unscaled,
         "label_ratio": label_ratio,
     }
 
@@ -422,7 +461,7 @@ rf_results = []
 
 # Train and evaluate models on each data fraction
 for fraction in data_fractions:
-    print(f"\nTraining with {fraction*100}% of labeled data:")
+    print(f"\nTraining with {fraction * 100}% of labeled data:")
 
     # Train Hephaestus model
     print("Training Hephaestus model...")
@@ -441,12 +480,16 @@ for fraction in data_fractions:
     rf_result = train_random_forest(df_train, df_test, label_ratio=fraction)
     rf_results.append(rf_result)
 
-    print(f"Results with {fraction*100}% of labeled data:")
-    print(f"  Hephaestus MSE: {hep_result['mse']:.3f}, RMSE: {hep_result['rmse']:.3f}")
+    print(f"Results with {fraction * 100}% of labeled data:")
     print(
-        f"  Linear Regression MSE: {lr_result['mse']:.3f}, RMSE: {lr_result['rmse']:.3f}"
+        f"  Hephaestus MSE: {hep_result['mse']:.3f}, RMSE: {hep_result['rmse']:.3f}, MAE: {hep_result['mae']:.3f}"
     )
-    print(f"  Random Forest MSE: {rf_result['mse']:.3f}, RMSE: {rf_result['rmse']:.3f}")
+    print(
+        f"  Linear Regression MSE: {lr_result['mse']:.3f}, RMSE: {lr_result['rmse']:.3f}, MAE: {lr_result['mae']:.3f}"
+    )
+    print(
+        f"  Random Forest MSE: {rf_result['mse']:.3f}, RMSE: {rf_result['rmse']:.3f}, MAE: {rf_result['mae']:.3f}"
+    )
 
 # %%
 Markdown("""## Visualize the Results
@@ -466,6 +509,7 @@ for result in hephaestus_results:
             "Label Ratio": result["label_ratio"],
             "MSE": result["mse"],
             "RMSE": result["rmse"],
+            "MAE": result["mae"],
         }
     )
 
@@ -477,6 +521,7 @@ for result in lr_results:
             "Label Ratio": result["label_ratio"],
             "MSE": result["mse"],
             "RMSE": result["rmse"],
+            "MAE": result["mae"],
         }
     )
 
@@ -488,6 +533,7 @@ for result in rf_results:
             "Label Ratio": result["label_ratio"],
             "MSE": result["mse"],
             "RMSE": result["rmse"],
+            "MAE": result["mae"],
         }
     )
 
@@ -510,7 +556,7 @@ mse_chart = (
         ),
         y=alt.Y("MSE:Q", title="Mean Squared Error"),
         color=alt.Color("Model:N"),
-        tooltip=["Model", "Label Ratio", "MSE", "RMSE"],
+        tooltip=["Model", "Label Ratio", "MSE", "RMSE", "MAE"],
     )
     .properties(
         title="MSE Comparison Across Models with Different Amounts of Labeled Data",
@@ -560,7 +606,7 @@ bar_chart = base.mark_bar().encode(
     x=alt.X("Model:N", title="Model"),
     y=alt.Y("MSE:Q", title="Mean Squared Error"),
     color=alt.Color("Model:N"),
-    tooltip=["Model", "Label Ratio", "MSE", "RMSE"],
+    tooltip=["Model", "Label Ratio", "MSE", "RMSE", "MAE"],
     opacity=alt.condition(alt.datum.is_best, alt.value(1), alt.value(0.6)),
     strokeWidth=alt.condition(alt.datum.is_best, alt.value(2), alt.value(0)),
     stroke=alt.condition(alt.datum.is_best, alt.value("black"), alt.value(None)),
@@ -657,7 +703,7 @@ mse_chart_10 = (
         color="Model",
     )
     .properties(
-        title=f"MSE Comparison Across Models with only {(ratio_10_percent*100)}% of data labeled"
+        title=f"MSE Comparison Across Models with only {(ratio_10_percent * 100)}% of data labeled"
     )
 )
 

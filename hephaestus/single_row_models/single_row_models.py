@@ -299,7 +299,7 @@ class MaskedTabularEncoder(nn.Module):
         self.mlm_decoder = nn.Sequential(
             nn.Flatten(start_dim=1),  # n_columns * d_model * 2
             nn.Linear(
-                self.model_config.n_columns * 128,
+                self.model_config.n_columns_no_target * self.d_model,
                 self.model_config.n_cat_cols * self.model_config.n_tokens,
             ),
             # nn.GELU(),
@@ -310,7 +310,7 @@ class MaskedTabularEncoder(nn.Module):
         )
         self.mnm_decoder = nn.Sequential(
             nn.Linear(
-                self.model_config.n_columns * self.d_model, self.d_model * 4
+                self.model_config.n_columns_no_target * self.d_model, self.d_model * 4
             ),  # Try making more complex
             nn.GELU(),
             nn.Linear(self.d_model * 4, self.model_config.n_numeric_cols),

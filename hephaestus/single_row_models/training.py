@@ -239,7 +239,11 @@ def mask_tensor(tensor, model, probability=0.8):
         tensor[bit_mask] = torch.tensor(float("-Inf"))
     else:
         # Get the cat_mask_token and move it to the same device as the tensor
-        mask_token = model.cat_mask_token.to(tensor.device)
+        # For MaskedTabularEncoder, access through tabular_encoder
+        if hasattr(model, 'tabular_encoder'):
+            mask_token = model.tabular_encoder.cat_mask_token.to(tensor.device)
+        else:
+            mask_token = model.cat_mask_token.to(tensor.device)
         tensor[bit_mask] = mask_token
     # Use the tensor's own device instead of model.device
     return tensor
