@@ -29,10 +29,10 @@ from pytorch_lightning.callbacks import (
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
-from xgboost import XGBRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from xgboost import XGBRegressor
 
 import hephaestus.single_row_models as sr
 from hephaestus.single_row_models.plotting_utils import plot_prediction_analysis
@@ -46,8 +46,10 @@ We will use the following parameters for the Hephaestus model:
 
 D_MODEL = 128
 N_HEADS = 4
-LR = 0.0001
-BATCH_SIZE = 64  # Smaller batch sizes lead to better predictions because outliers are
+LR = 0.0001 * 8
+BATCH_SIZE = (
+    64 * 8
+)  # Smaller batch sizes lead to better predictions because outliers are
 # better trained on.
 name = "MTM_Test"
 LOGGER_VARIANT_NAME = f"{name}_D{D_MODEL}_H{N_HEADS}_LR{LR}"
