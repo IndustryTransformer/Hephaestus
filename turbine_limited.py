@@ -29,6 +29,7 @@ from pytorch_lightning.callbacks import (
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
+from xgboost import XGBRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
@@ -90,7 +91,7 @@ df["target"] = target_scaler.fit_transform(df[["target"]]).flatten()
 # Add categorical column AFTER scaling to avoid type issues
 df["cat_column"] = "category"  # Dummy category for bugs in data loader
 # Ensure categorical column is properly typed
-df["cat_column"] = df["cat_column"].astype('category')
+df["cat_column"] = df["cat_column"].astype("category")
 print(f"Data types after processing: {df.dtypes}")
 df.head()
 
@@ -164,7 +165,7 @@ if run_trainer:
     )
     model_summary = ModelSummary(max_depth=3)
     early_stopping = EarlyStopping(
-        monitor="val_loss", patience=15, min_delta=0.001, mode="min"
+        monitor="val_loss", patience=15, min_delta=0.0001, mode="min"
     )
     progress_bar = TQDMProgressBar(leave=False)
     trainer = L.Trainer(
@@ -445,6 +446,59 @@ def train_random_forest(df_train, df_test, label_ratio=1.0):
 
 
 # %%
+def train_xgboost(df_train, df_test, label_ratio=1.0):
+    """
+    Train an XGBoost model on a subset of labeled data.
+
+    Args:
+        df_train: Training dataframe
+        df_test: Test dataframe
+        label_ratio: Percentage of labeled data to use for training
+
+    Returns:
+        Dictionary containing the trained model and performance metrics
+    """
+    # Train on subset of data
+    train_df_sub_set = df_train.sample(frac=label_ratio, random_state=42)
+    X_train_sub_set = train_df_sub_set.drop(columns=["target"])
+    y_train_sub_set = train_df_sub_set["target"]
+
+    # Use only numeric columns for sklearn models
+    X_train_sub_set_skl = X_train_sub_set.select_dtypes(include=[np.number])
+    X_test_skl = df_test.drop(columns=["target"]).select_dtypes(include=[np.number])
+    y_test = df_test["target"]
+
+    # Train the model
+    xgb_model = XGBRegressor(random_state=0, verbosity=0)
+    xgb_model.fit(X_train_sub_set_skl, y_train_sub_set)
+
+    # Evaluate
+    y_pred = xgb_model.predict(X_test_skl)
+
+    # Convert scaled predictions back to original scale for metrics
+    y_test_unscaled = target_scaler.inverse_transform(
+        y_test.values.reshape(-1, 1)
+    ).flatten()
+    y_pred_unscaled = target_scaler.inverse_transform(y_pred.reshape(-1, 1)).flatten()
+
+    # Calculate metrics on unscaled values
+    mse = mean_squared_error(y_test_unscaled, y_pred_unscaled)
+    rmse = np.sqrt(mse)
+    mae = mean_absolute_error(y_test_unscaled, y_pred_unscaled)
+
+    # Return model and metrics
+    return {
+        "model": xgb_model,
+        "mse": mse,
+        "rmse": rmse,
+        "mae": mae,
+        "y_true": y_test_unscaled,
+        "y_pred": y_pred_unscaled,
+        "label_ratio": label_ratio,
+    }
+
+
+# %%
 Markdown("""## Evaluate Models on Different Data Fractions
 
 We'll train and evaluate each model on different fractions of labeled data.
@@ -458,6 +512,7 @@ data_fractions = [0.01, 0.05, 0.1, 0.25, 0.5, 1.0]
 hephaestus_results = []
 lr_results = []
 rf_results = []
+xgb_results = []
 
 # Train and evaluate models on each data fraction
 for fraction in data_fractions:
@@ -480,6 +535,11 @@ for fraction in data_fractions:
     rf_result = train_random_forest(df_train, df_test, label_ratio=fraction)
     rf_results.append(rf_result)
 
+    # Train XGBoost model
+    print("Training XGBoost model...")
+    xgb_result = train_xgboost(df_train, df_test, label_ratio=fraction)
+    xgb_results.append(xgb_result)
+
     print(f"Results with {fraction * 100}% of labeled data:")
     print(
         f"  Hephaestus MSE: {hep_result['mse']:.3f}, RMSE: {hep_result['rmse']:.3f}, MAE: {hep_result['mae']:.3f}"
@@ -489,6 +549,9 @@ for fraction in data_fractions:
     )
     print(
         f"  Random Forest MSE: {rf_result['mse']:.3f}, RMSE: {rf_result['rmse']:.3f}, MAE: {rf_result['mae']:.3f}"
+    )
+    print(
+        f"  XGBoost MSE: {xgb_result['mse']:.3f}, RMSE: {xgb_result['rmse']:.3f}, MAE: {xgb_result['mae']:.3f}"
     )
 
 # %%
@@ -530,6 +593,18 @@ for result in rf_results:
     results_rows.append(
         {
             "Model": "Random Forest",
+            "Label Ratio": result["label_ratio"],
+            "MSE": result["mse"],
+            "RMSE": result["rmse"],
+            "MAE": result["mae"],
+        }
+    )
+
+# Add XGBoost results
+for result in xgb_results:
+    results_rows.append(
+        {
+            "Model": "XGBoost",
             "Label Ratio": result["label_ratio"],
             "MSE": result["mse"],
             "RMSE": result["rmse"],
@@ -641,6 +716,7 @@ hep_result_10 = next(
 )
 lr_result_10 = next(r for r in lr_results if r["label_ratio"] == ratio_10_percent)
 rf_result_10 = next(r for r in rf_results if r["label_ratio"] == ratio_10_percent)
+xgb_result_10 = next(r for r in xgb_results if r["label_ratio"] == ratio_10_percent)
 
 # Create result dataframes
 res_df = pd.DataFrame(
@@ -651,6 +727,9 @@ res_df_lr = pd.DataFrame(
 )
 res_df_rf = pd.DataFrame(
     {"Actual": rf_result_10["y_true"], "Predicted": rf_result_10["y_pred"]}
+)
+res_df_xgb = pd.DataFrame(
+    {"Actual": xgb_result_10["y_true"], "Predicted": xgb_result_10["y_pred"]}
 )
 
 # %% Plot individual model results
@@ -676,6 +755,14 @@ plot_prediction_analysis(
     y_hat_col="Predicted",
     it_color="scikit",
 )
+# %%
+plot_prediction_analysis(
+    df=res_df_xgb,
+    name="XGBoost (10% data)",
+    y_col="Actual",
+    y_hat_col="Predicted",
+    it_color="scikit",
+)
 
 # %%
 # Create a combined bar chart for the 10% case
@@ -684,11 +771,13 @@ mse_data_10 = pd.DataFrame(
         "Model": [
             "Linear Regression",
             "Random Forest",
+            "XGBoost",
             "Hephaestus",
         ],
         "MSE": [
             lr_result_10["mse"],
             rf_result_10["mse"],
+            xgb_result_10["mse"],
             hep_result_10["mse"],
         ],
     }
@@ -713,7 +802,8 @@ mse_chart_10.show()
 # %%
 Markdown("""## Performance Improvement Analysis
 
-Calculate how much better Hephaestus performs compared to traditional models at each data fraction.
+Calculate how much better Hephaestus performs compared to traditional models at each 
+data fraction.
 """)
 
 # Calculate performance improvement percentages
@@ -724,12 +814,14 @@ for fraction in data_fractions:
     hep_result = next(r for r in hephaestus_results if r["label_ratio"] == fraction)
     lr_result = next(r for r in lr_results if r["label_ratio"] == fraction)
     rf_result = next(r for r in rf_results if r["label_ratio"] == fraction)
+    xgb_result = next(r for r in xgb_results if r["label_ratio"] == fraction)
 
     # Calculate best traditional model MSE at this fraction
-    trad_mse = min(lr_result["mse"], rf_result["mse"])
-    best_trad_model = (
-        "Linear Regression" if lr_result["mse"] < rf_result["mse"] else "Random Forest"
-    )
+    trad_mses = [lr_result["mse"], rf_result["mse"], xgb_result["mse"]]
+    trad_models = ["Linear Regression", "Random Forest", "XGBoost"]
+    best_trad_idx = trad_mses.index(min(trad_mses))
+    trad_mse = trad_mses[best_trad_idx]
+    best_trad_model = trad_models[best_trad_idx]
 
     # Calculate improvement percentage
     improvement_pct = ((trad_mse - hep_result["mse"]) / trad_mse) * 100
