@@ -11,7 +11,6 @@ model.
 
 """)
 # %%
-import glob
 import os
 from datetime import datetime as dt
 from pathlib import Path
@@ -29,7 +28,6 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 import hephaestus.single_row_models as sr
@@ -52,28 +50,76 @@ LOGGER_VARIANT_NAME = f"{name}_D{D_MODEL}_H{N_HEADS}_LR{LR}"
 
 
 # Load and preprocess the train_dataset (assuming you have a CSV file)
-csv_files = glob.glob("data/nox/*.csv")
+train_files = ["gt_2011.csv", "gt_2012.csv", "gt_2013.csv"]
+test_files = ["gt_2014.csv", "gt_2015.csv"]
 
-# Read and combine all files
-df_list = []
-for file in csv_files:
-    temp_df = pd.read_csv(file)
-    filename = Path(file).stem  # Get filename without extension
+# Read train files
+train_df_list = []
+for file in train_files:
+    file_path = f"data/nox/{file}"
+    temp_df = pd.read_csv(file_path)
+    filename = Path(file_path).stem  # Get filename without extension
     temp_df["filename"] = filename
-    df_list.append(temp_df)
+    train_df_list.append(temp_df)
 
-# Concatenate all dataframes
-df = pd.concat(df_list, ignore_index=True)
-df.columns = df.columns.str.lower()
+# Read test files
+test_df_list = []
+for file in test_files:
+    file_path = f"data/nox/{file}"
+    temp_df = pd.read_csv(file_path)
+    filename = Path(file_path).stem  # Get filename without extension
+    temp_df["filename"] = filename
+    test_df_list.append(temp_df)
 
-df = df.rename(columns={"nox": "target"})
-# scale the non-target numerical columns
+# Concatenate dataframes
+train_df = pd.concat(train_df_list, ignore_index=True)
+test_df = pd.concat(test_df_list, ignore_index=True)
+
+# Process both dataframes
+for df in [train_df, test_df]:
+    df.columns = df.columns.str.lower()
+    # Drop CO column if it exists
+    if "co" in df.columns:
+        df.drop("co", axis=1, inplace=True)
+    df.rename(columns={"nox": "target"}, inplace=True)
+    df["cat_column"] = "category"
+
+# Store original data before scaling for analysis
+train_df_orig = train_df.copy()
+test_df_orig = test_df.copy()
+
+# Fit scaler on train data and transform both sets
 scaler = StandardScaler()
-numeric_cols = df.select_dtypes(include=[float, int]).columns
-# numeric_cols = numeric_cols.drop("target")
-df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
-# df["target"] = df["target"] + 100
-df["cat_column"] = "category"
+numeric_cols = train_df.select_dtypes(include=[float, int]).columns
+
+# Important: Don't scale the target variable!
+feature_cols = [col for col in numeric_cols if col != "target"]
+print(f"\nScaling features: {feature_cols}")
+
+train_df[feature_cols] = scaler.fit_transform(train_df[feature_cols])
+test_df[feature_cols] = scaler.transform(test_df[feature_cols])
+
+# Check data distributions before combining
+print("\n=== Data Distribution Analysis ===")
+print(f"Train shape: {train_df.shape}, Test shape: {test_df.shape}")
+print(f"\nTrain target stats:\n{train_df['target'].describe()}")
+print(f"\nTest target stats:\n{test_df['target'].describe()}")
+
+# Check for any significant differences in feature distributions
+print("\n=== Feature Distribution Comparison ===")
+for col in numeric_cols:
+    if col != "target":
+        train_mean = train_df[col].mean()
+        test_mean = test_df[col].mean()
+        train_std = train_df[col].std()
+        test_std = test_df[col].std()
+        mean_diff = abs(train_mean - test_mean)
+        print(
+            f"{col}: Train μ={train_mean:.3f}±{train_std:.3f}, Test μ={test_mean:.3f}±{test_std:.3f}, Δμ={mean_diff:.3f}"
+        )
+
+# Combine for single df (for config generation)
+df = pd.concat([train_df, test_df], ignore_index=True)
 df.head()
 
 # %%
@@ -83,7 +129,7 @@ Initialize the model and create dataloaders for training and validation.
 """)
 # %%
 single_row_config = sr.SingleRowConfig.generate(df, "target")
-train_df, test_df = train_test_split(df.copy(), test_size=0.2, random_state=42)
+# Use the pre-split train_df and test_df instead of random split
 
 train_dataset = sr.TabularDS(train_df, single_row_config)
 test_dataset = sr.TabularDS(test_df, single_row_config)
@@ -165,14 +211,11 @@ We will compare the Hephaestus model with the following Scikit Learn models:
 ### Linear Regression
 """)
 # %%
-if "target" in numeric_cols:
-    X = df[numeric_cols.drop("target")]
-else:
-    X = df[numeric_cols]
-y = df["target"]
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
+# Use feature_cols which excludes target
+X_train = train_df[feature_cols]
+X_test = test_df[feature_cols]
+y_train = train_df["target"]
+y_test = test_df["target"]
 linear_model = LinearRegression()
 
 linear_model.fit(X_train, y_train)
