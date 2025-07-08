@@ -342,6 +342,104 @@ def train_hephaestus_model(
 
 
 # %%
+def train_hephaestus_no_pretrain(
+    df_train, df_test, model_config_reg, label_ratio=1.0
+):
+    """
+    Train a Hephaestus model from scratch without pre-trained weights.
+
+    Args:
+        df_train: Training dataframe
+        df_test: Test dataframe
+        model_config_reg: Model configuration for regression
+        label_ratio: Percentage of labeled data to use for training
+
+    Returns:
+        Dictionary containing the trained model and performance metrics
+    """
+    # Train on subset of data
+    train_df_sub_set = df_train.sample(frac=label_ratio, random_state=42)
+
+    # Create datasets and dataloaders
+    regressor_ds_subset = sr.TabularDS(train_df_sub_set, model_config_reg)
+    regressor_ds_val_full = sr.TabularDS(df_test, model_config_reg)
+
+    train_dataloader = torch.utils.data.DataLoader(
+        regressor_ds_subset,
+        batch_size=BATCH_SIZE,
+        shuffle=True,
+        collate_fn=sr.training.tabular_collate_fn,
+    )
+    test_data_loader = torch.utils.data.DataLoader(
+        regressor_ds_val_full,
+        batch_size=BATCH_SIZE,
+        collate_fn=sr.training.tabular_collate_fn,
+    )
+
+    # Initialize regressor WITHOUT pre-trained encoder
+    regressor = sr.TabularRegressor(
+        model_config=model_config_reg, d_model=D_MODEL, n_heads=N_HEADS, lr=LR
+    )
+    # Note: NOT copying pre-trained weights - training from scratch
+
+    # Training configuration
+    logger_name = f"Regressor_no_pretrain_{LOGGER_VARIANT_NAME}_{label_ratio}"
+    print(f"Using logger name: {logger_name}")
+    logger = TensorBoardLogger("runs", name=logger_name)
+
+    model_summary = ModelSummary(max_depth=3)
+    early_stopping = EarlyStopping(
+        monitor="val_loss", patience=15, min_delta=0.001, mode="min"
+    )
+    progress_bar = TQDMProgressBar(leave=False)
+
+    trainer = L.Trainer(
+        max_epochs=200,
+        logger=logger,
+        callbacks=[early_stopping, progress_bar, model_summary],
+        log_every_n_steps=1,
+    )
+
+    # Train the model
+    trainer.fit(
+        regressor,
+        train_dataloaders=train_dataloader,
+        val_dataloaders=test_data_loader,
+    )
+
+    # Evaluate on test set
+    y = []
+    y_hat = []
+    for batch in test_data_loader:
+        y.append(batch.target)
+        preds = regressor.predict_step(batch)
+        y_hat.append(preds)
+
+    y = torch.cat(y, dim=0).squeeze().numpy()
+    y_hat = torch.cat(y_hat, dim=0).squeeze().numpy()
+
+    # Convert scaled predictions back to original scale for metrics
+    y_unscaled = target_scaler.inverse_transform(y.reshape(-1, 1)).flatten()
+    y_hat_unscaled = target_scaler.inverse_transform(y_hat.reshape(-1, 1)).flatten()
+
+    # Calculate metrics on unscaled values
+    mse = mean_squared_error(y_unscaled, y_hat_unscaled)
+    rmse = np.sqrt(mse)
+    mae = mean_absolute_error(y_unscaled, y_hat_unscaled)
+
+    # Return model and metrics
+    return {
+        "model": regressor,
+        "mse": mse,
+        "rmse": rmse,
+        "mae": mae,
+        "y_true": y_unscaled,
+        "y_pred": y_hat_unscaled,
+        "label_ratio": label_ratio,
+    }
+
+
+# %%
 def train_linear_regression(df_train, df_test, label_ratio=1.0):
     """
     Train a Linear Regression model on a subset of labeled data.
@@ -512,6 +610,7 @@ data_fractions = [0.01, 0.05, 0.1, 0.25, 0.5, 1.0]
 
 # Lists to store results
 hephaestus_results = []
+hephaestus_no_pretrain_results = []
 lr_results = []
 rf_results = []
 xgb_results = []
@@ -520,12 +619,19 @@ xgb_results = []
 for fraction in data_fractions:
     print(f"\nTraining with {fraction * 100}% of labeled data:")
 
-    # Train Hephaestus model
-    print("Training Hephaestus model...")
+    # Train Hephaestus model (fine-tuned)
+    print("Training Hephaestus model (fine-tuned)...")
     hep_result = train_hephaestus_model(
         df_train, df_test, model_config_mtm, model_config_reg, label_ratio=fraction
     )
     hephaestus_results.append(hep_result)
+
+    # Train Hephaestus model (no pre-training)
+    print("Training Hephaestus model (no pre-training)...")
+    hep_no_pretrain_result = train_hephaestus_no_pretrain(
+        df_train, df_test, model_config_reg, label_ratio=fraction
+    )
+    hephaestus_no_pretrain_results.append(hep_no_pretrain_result)
 
     # Train Linear Regression model
     print("Training Linear Regression model...")
@@ -544,7 +650,10 @@ for fraction in data_fractions:
 
     print(f"Results with {fraction * 100}% of labeled data:")
     print(
-        f"  Hephaestus MSE: {hep_result['mse']:.3f}, RMSE: {hep_result['rmse']:.3f}, MAE: {hep_result['mae']:.3f}"
+        f"  Hephaestus (fine-tuned) MSE: {hep_result['mse']:.3f}, RMSE: {hep_result['rmse']:.3f}, MAE: {hep_result['mae']:.3f}"
+    )
+    print(
+        f"  Hephaestus (no pre-training) MSE: {hep_no_pretrain_result['mse']:.3f}, RMSE: {hep_no_pretrain_result['rmse']:.3f}, MAE: {hep_no_pretrain_result['mae']:.3f}"
     )
     print(
         f"  Linear Regression MSE: {lr_result['mse']:.3f}, RMSE: {lr_result['rmse']:.3f}, MAE: {lr_result['mae']:.3f}"
@@ -570,7 +679,19 @@ results_rows = []
 for result in hephaestus_results:
     results_rows.append(
         {
-            "Model": "Hephaestus",
+            "Model": "Hephaestus (Fine-tuned)",
+            "Label Ratio": result["label_ratio"],
+            "MSE": result["mse"],
+            "RMSE": result["rmse"],
+            "MAE": result["mae"],
+        }
+    )
+
+# Add Hephaestus no pre-training results
+for result in hephaestus_no_pretrain_results:
+    results_rows.append(
+        {
+            "Model": "Hephaestus (No Pre-training)",
             "Label Ratio": result["label_ratio"],
             "MSE": result["mse"],
             "RMSE": result["rmse"],
@@ -716,6 +837,9 @@ ratio_10_percent = 0.1
 hep_result_10 = next(
     r for r in hephaestus_results if r["label_ratio"] == ratio_10_percent
 )
+hep_no_pretrain_result_10 = next(
+    r for r in hephaestus_no_pretrain_results if r["label_ratio"] == ratio_10_percent
+)
 lr_result_10 = next(r for r in lr_results if r["label_ratio"] == ratio_10_percent)
 rf_result_10 = next(r for r in rf_results if r["label_ratio"] == ratio_10_percent)
 xgb_result_10 = next(r for r in xgb_results if r["label_ratio"] == ratio_10_percent)
@@ -723,6 +847,9 @@ xgb_result_10 = next(r for r in xgb_results if r["label_ratio"] == ratio_10_perc
 # Create result dataframes
 res_df = pd.DataFrame(
     {"Actual": hep_result_10["y_true"], "Predicted": hep_result_10["y_pred"]}
+)
+res_df_no_pretrain = pd.DataFrame(
+    {"Actual": hep_no_pretrain_result_10["y_true"], "Predicted": hep_no_pretrain_result_10["y_pred"]}
 )
 res_df_lr = pd.DataFrame(
     {"Actual": lr_result_10["y_true"], "Predicted": lr_result_10["y_pred"]}
@@ -737,7 +864,14 @@ res_df_xgb = pd.DataFrame(
 # %% Plot individual model results
 plot_prediction_analysis(
     df=res_df,
-    name="Hephaestus (10% data)",
+    name="Hephaestus Fine-tuned (10% data)",
+    y_col="Actual",
+    y_hat_col="Predicted",
+)
+# %%
+plot_prediction_analysis(
+    df=res_df_no_pretrain,
+    name="Hephaestus No Pre-training (10% data)",
     y_col="Actual",
     y_hat_col="Predicted",
 )
@@ -774,13 +908,15 @@ mse_data_10 = pd.DataFrame(
             "Linear Regression",
             "Random Forest",
             "XGBoost",
-            "Hephaestus",
+            "Hephaestus (Fine-tuned)",
+            "Hephaestus (No Pre-training)",
         ],
         "MSE": [
             lr_result_10["mse"],
             rf_result_10["mse"],
             xgb_result_10["mse"],
             hep_result_10["mse"],
+            hep_no_pretrain_result_10["mse"],
         ],
     }
 )
@@ -814,6 +950,7 @@ improvement_rows = []
 for fraction in data_fractions:
     # Get results for this fraction
     hep_result = next(r for r in hephaestus_results if r["label_ratio"] == fraction)
+    hep_no_pretrain_result = next(r for r in hephaestus_no_pretrain_results if r["label_ratio"] == fraction)
     lr_result = next(r for r in lr_results if r["label_ratio"] == fraction)
     rf_result = next(r for r in rf_results if r["label_ratio"] == fraction)
     xgb_result = next(r for r in xgb_results if r["label_ratio"] == fraction)
@@ -825,16 +962,19 @@ for fraction in data_fractions:
     trad_mse = trad_mses[best_trad_idx]
     best_trad_model = trad_models[best_trad_idx]
 
-    # Calculate improvement percentage
-    improvement_pct = ((trad_mse - hep_result["mse"]) / trad_mse) * 100
+    # Calculate improvement percentages for both Hephaestus models
+    improvement_pct_finetuned = ((trad_mse - hep_result["mse"]) / trad_mse) * 100
+    improvement_pct_no_pretrain = ((trad_mse - hep_no_pretrain_result["mse"]) / trad_mse) * 100
 
     improvement_rows.append(
         {
             "Label Ratio": fraction,
-            "Hephaestus MSE": hep_result["mse"],
+            "Hephaestus (Fine-tuned) MSE": hep_result["mse"],
+            "Hephaestus (No Pre-training) MSE": hep_no_pretrain_result["mse"],
             "Best Traditional Model": best_trad_model,
             "Best Traditional MSE": trad_mse,
-            "Improvement (%)": improvement_pct,
+            "Fine-tuned Improvement (%)": improvement_pct_finetuned,
+            "No Pre-training Improvement (%)": improvement_pct_no_pretrain,
         }
     )
 
@@ -842,9 +982,29 @@ improvement_df = pd.DataFrame(improvement_rows)
 print(improvement_df)
 
 # %%
+# Create a long-form dataframe for plotting both improvement lines
+improvement_long = []
+for _, row in improvement_df.iterrows():
+    improvement_long.extend([
+        {
+            "Label Ratio": row["Label Ratio"],
+            "Improvement (%)": row["Fine-tuned Improvement (%)"],
+            "Model Type": "Hephaestus (Fine-tuned)",
+            "Best Traditional Model": row["Best Traditional Model"],
+        },
+        {
+            "Label Ratio": row["Label Ratio"],
+            "Improvement (%)": row["No Pre-training Improvement (%)"],
+            "Model Type": "Hephaestus (No Pre-training)",
+            "Best Traditional Model": row["Best Traditional Model"],
+        }
+    ])
+
+improvement_long_df = pd.DataFrame(improvement_long)
+
 # Plot improvement percentage vs data fraction
 improvement_chart = (
-    alt.Chart(improvement_df)
+    alt.Chart(improvement_long_df)
     .mark_line(point=True)
     .encode(
         x=alt.X(
@@ -853,7 +1013,13 @@ improvement_chart = (
             scale=alt.Scale(type="log"),
         ),
         y=alt.Y("Improvement (%):Q", title="Improvement (%)"),
-        tooltip=["Label Ratio", "Improvement (%)", "Best Traditional Model"],
+        color=alt.Color("Model Type:N"),
+        tooltip=[
+            "Label Ratio", 
+            "Improvement (%)", 
+            "Model Type", 
+            "Best Traditional Model"
+        ],
     )
     .properties(
         title="Hephaestus Performance Improvement over Traditional Models",
