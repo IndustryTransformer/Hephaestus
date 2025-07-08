@@ -46,30 +46,10 @@ class TabularRegressor(L.LightningModule):
         # Main task loss
         main_loss = self.loss_fn(y_hat, y)
         
-        # MoE auxiliary loss
-        auxiliary_loss = self.model.get_moe_auxiliary_loss()
-        
-        # Total loss combines main task and auxiliary losses
-        total_loss = main_loss + auxiliary_loss
-        
         # Log losses
         self.log("train_loss", main_loss)
-        self.log("train_auxiliary_loss", auxiliary_loss)
-        self.log("train_total_loss", total_loss)
         
-        # Log MoE metrics if available
-        moe_metrics = self.model.get_moe_metrics()
-        for layer_name, metrics in moe_metrics.items():
-            for metric_name, metric_value in metrics.items():
-                if isinstance(metric_value, torch.Tensor) and metric_value.numel() == 1:
-                    self.log(f"{layer_name}_{metric_name}", metric_value.item())
-        
-        # Log Neural Feature Engineering metrics if available
-        nfe_metrics = self.model.get_neural_feature_engineering_metrics()
-        if nfe_metrics:
-            self._log_nfe_metrics("train", nfe_metrics)
-        
-        return total_loss
+        return main_loss
 
     def validation_step(self, batch: InputsTarget, batch_idx):
         X = batch.inputs
@@ -79,26 +59,11 @@ class TabularRegressor(L.LightningModule):
         # Main task loss
         main_loss = self.loss_fn(y_hat, y)
         
-        # MoE auxiliary loss
-        auxiliary_loss = self.model.get_moe_auxiliary_loss()
-        
-        # Total loss combines main task and auxiliary losses
-        total_loss = main_loss + auxiliary_loss
-        
         # Log losses
         self.log("val_loss", main_loss)
-        self.log("val_auxiliary_loss", auxiliary_loss)
-        self.log("val_total_loss", total_loss)
         self.log("lr", self.optimizers().param_groups[0]["lr"])
         
-        # Log MoE metrics if available
-        moe_metrics = self.model.get_moe_metrics()
-        for layer_name, metrics in moe_metrics.items():
-            for metric_name, metric_value in metrics.items():
-                if isinstance(metric_value, torch.Tensor) and metric_value.numel() == 1:
-                    self.log(f"val_{layer_name}_{metric_name}", metric_value.item())
-        
-        return total_loss
+        return main_loss
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=1e-5)
@@ -139,38 +104,6 @@ class TabularRegressor(L.LightningModule):
             "inputs": {"numeric": numeric, "categorical": categorical},
             "target": target,
         }
-    
-    def _log_nfe_metrics(self, stage: str, nfe_metrics: dict):
-        """Log Neural Feature Engineering metrics."""
-        try:
-            # Log scalar metrics
-            if "feature_magnitude" in nfe_metrics:
-                self.log(f"{stage}_nfe_feature_magnitude", nfe_metrics["feature_magnitude"])
-            
-            if "total_engineered_features" in nfe_metrics:
-                self.log(f"{stage}_nfe_total_features", nfe_metrics["total_engineered_features"])
-            
-            # Log component metrics
-            if "component_metrics" in nfe_metrics:
-                comp_metrics = nfe_metrics["component_metrics"]
-                
-                # Log feature type weights if available
-                if "feature_type_weights" in nfe_metrics and isinstance(nfe_metrics["feature_type_weights"], torch.Tensor):
-                    weights = nfe_metrics["feature_type_weights"]
-                    for i, weight in enumerate(weights):
-                        self.log(f"{stage}_nfe_type_weight_{i}", weight.item())
-                
-                # Log component-specific metrics
-                for comp_name, comp_data in comp_metrics.items():
-                    if isinstance(comp_data, dict):
-                        for metric_name, metric_value in comp_data.items():
-                            if isinstance(metric_value, torch.Tensor) and metric_value.numel() == 1:
-                                self.log(f"{stage}_nfe_{comp_name}_{metric_name}", metric_value.item())
-                            elif isinstance(metric_value, (int, float)):
-                                self.log(f"{stage}_nfe_{comp_name}_{metric_name}", metric_value)
-        except Exception as e:
-            # Gracefully handle any logging errors
-            pass
 
 
 def tabular_collate_fn(batch):
@@ -284,17 +217,6 @@ class MaskedTabularModeling(L.LightningModule):
         self.log("train_total_loss", total_loss)
         self.log("lr", self.optimizers().param_groups[0]["lr"])
         
-        # Log MoE metrics if available
-        moe_metrics = self.model.get_moe_metrics()
-        for layer_name, metrics in moe_metrics.items():
-            for metric_name, metric_value in metrics.items():
-                if isinstance(metric_value, torch.Tensor) and metric_value.numel() == 1:
-                    self.log(f"{layer_name}_{metric_name}", metric_value.item())
-        
-        # Log Neural Feature Engineering metrics if available
-        nfe_metrics = self.model.get_neural_feature_engineering_metrics()
-        if nfe_metrics:
-            self._log_nfe_metrics("train", nfe_metrics)
         
         return total_loss
 
