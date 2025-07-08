@@ -266,6 +266,10 @@ class TabularEncoder(nn.Module):
             )
             self.use_neural_feature_engineering = True
             self.neural_feature_metrics = {}
+            # Add projection layer for NFE features
+            total_input_features = self.n_numeric_cols + self.n_cat_cols
+            nfe_output_dim = d_model  # NFE outputs d_model sized features
+            self.nfe_projection = nn.Linear(nfe_output_dim, d_model)
         elif model_config.use_moe:
             # Use MoE layers if Neural Feature Engineering is not enabled
             self.moe_layer1 = AdaptiveTabularMoELayer(
@@ -372,18 +376,33 @@ class TabularEncoder(nn.Module):
             # col_embeddings, query_embeddings, query_embeddings
         )
         
+        # Store raw inputs for Neural Feature Engineering
+        raw_numeric = num_inputs if num_inputs.dim() == 2 else num_inputs.unsqueeze(0)
+        raw_categorical = cat_inputs if cat_inputs.dim() == 2 else cat_inputs.unsqueeze(0)
+        
         # Apply Neural Feature Engineering or MoE layers
         if self.use_neural_feature_engineering:
             # Extract raw features for Neural Feature Engineering
-            # Pool features to create a flat representation
-            pooled_features = out1.mean(dim=1)  # [batch_size, d_model]
+            # Flatten to get raw feature representation
+            batch_size, seq_len, d_model = out1.shape
+            
+            # Combine numeric and categorical for feature engineering
+            if raw_categorical.numel() > 0:
+                # Convert categorical to float for processing
+                cat_as_float = raw_categorical.float()
+                combined_features = torch.cat([raw_numeric, cat_as_float], dim=1)
+            else:
+                combined_features = raw_numeric
             
             # Apply Neural Feature Engineering
-            engineered_features, nfe_metrics = self.neural_feature_engineer(pooled_features)
+            engineered_features, nfe_metrics = self.neural_feature_engineer(combined_features)
             
-            # Reshape engineered features back to sequence format
-            batch_size = engineered_features.shape[0]
-            out1 = engineered_features.unsqueeze(1).expand(-1, out1.shape[1], -1)
+            # Project engineered features back to transformer dimension and add to output
+            projected_features = self.nfe_projection(engineered_features)  # [batch_size, d_model]
+            
+            # Add engineered features to the transformer output
+            engineered_out1 = projected_features.unsqueeze(1).expand(-1, seq_len, -1)
+            out1 = out1 + engineered_out1  # Residual connection
             
             # Store metrics
             self.neural_feature_metrics = nfe_metrics
@@ -413,14 +432,19 @@ class TabularEncoder(nn.Module):
         # Apply second Neural Feature Engineering pass or MoE layer
         if self.use_neural_feature_engineering:
             # Apply another round of feature engineering for deeper interactions
-            pooled_features2 = out2.mean(dim=1)  # [batch_size, d_model]
+            # Use the original combined features again for consistency
+            if raw_categorical.numel() > 0:
+                cat_as_float = raw_categorical.float()
+                combined_features2 = torch.cat([raw_numeric, cat_as_float], dim=1)
+            else:
+                combined_features2 = raw_numeric
             
             # Apply Neural Feature Engineering again for deeper feature discovery
-            engineered_features2, nfe_metrics2 = self.neural_feature_engineer(pooled_features2)
+            engineered_features2, nfe_metrics2 = self.neural_feature_engineer(combined_features2)
             
-            # Reshape and combine with residual connection
-            batch_size = engineered_features2.shape[0]
-            engineered_out2 = engineered_features2.unsqueeze(1).expand(-1, out2.shape[1], -1)
+            # Project and add to output
+            projected_features2 = self.nfe_projection(engineered_features2)
+            engineered_out2 = projected_features2.unsqueeze(1).expand(-1, out2.shape[1], -1)
             out2 = out2 + engineered_out2  # Residual connection
             
             # Update metrics
