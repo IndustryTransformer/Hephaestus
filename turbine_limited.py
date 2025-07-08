@@ -51,8 +51,10 @@ BATCH_SIZE = (
     64 * 8
 )  # Smaller batch sizes lead to better predictions because outliers are
 # better trained on.
-name = "MTM_Test"
-LOGGER_VARIANT_NAME = f"{name}_D{D_MODEL}_H{N_HEADS}_LR{LR}"
+NUMERIC_HEAD_TYPE = "simple"  # "complex" or "simple"
+
+name = "TryLinearLayer"
+LOGGER_VARIANT_NAME = f"{name}_T{NUMERIC_HEAD_TYPE}_D{D_MODEL}_H{N_HEADS}_LR{LR}"
 LABEL_RATIO = 1.0
 
 # Load and preprocess the train_dataset (assuming you have a CSV file)
@@ -123,9 +125,15 @@ test_dataset = sr.TabularDS(X_test, model_config_mtm)
 
 
 mtm_model = sr.MaskedTabularModeling(
-    model_config_mtm, d_model=D_MODEL, n_heads=N_HEADS, lr=LR
+    model_config_mtm,
+    d_model=D_MODEL,
+    n_heads=N_HEADS,
+    lr=LR,
+    use_linear_numeric_embedding=True,
+    numeric_embedding_type=NUMERIC_HEAD_TYPE,
 )
-# mtm_model.predict_step(train_dataset[0:10].inputs)  # Skip test prediction before training
+# mtm_model.predict_step(train_dataset[0:10].inputs)  # Skip test prediction before
+# training
 
 # %%
 train_dataloader = torch.utils.data.DataLoader(
@@ -196,14 +204,16 @@ else:  # Find the checkpoint file matching the LOGGER_VARIANT_NAME prefix
     if not found_checkpoints:
         # Handle the case where no matching checkpoint is found
         print(
-            f"📭 No checkpoint found starting with {LOGGER_VARIANT_NAME} in {pretrained_model_dir}. Training model instead."
+            f"📭 No checkpoint found starting with {LOGGER_VARIANT_NAME} in",
+            f"{pretrained_model_dir}. Training model instead.",
         )
         run_trainer = True  # Set to train if checkpoint not found
     elif len(found_checkpoints) > 1:
         # Handle ambiguity if multiple checkpoints match (e.g., load the latest)
         # For now, let's load the first one found as an example
         print(
-            f"‼️ Warning: Found multiple checkpoints for {LOGGER_VARIANT_NAME}. Loading the first one: {found_checkpoints[0]}"
+            f"‼️ Warning: Found multiple checkpoints for {LOGGER_VARIANT_NAME}."
+            f"Loading the first one: {found_checkpoints[0]}"
         )
         checkpoint_path = found_checkpoints[0]
         print(f"Loading checkpoint: {checkpoint_path}")
@@ -225,12 +235,18 @@ else:  # Find the checkpoint file matching the LOGGER_VARIANT_NAME prefix
 
 Markdown("### Init Regressor")
 regressor = sr.TabularRegressor(
-    model_config=model_config_reg, d_model=D_MODEL, n_heads=N_HEADS, lr=LR
+    model_config=model_config_reg,
+    d_model=D_MODEL,
+    n_heads=N_HEADS,
+    lr=LR,
+    use_linear_numeric_embedding=True,
+    numeric_embedding_type=NUMERIC_HEAD_TYPE,
 )
 regressor.model.tabular_encoder = mtm_model.model.tabular_encoder
 
 # %%
-# reg_out = regressor.predict_step(train_dataset[0:10])  # Skip test prediction before training
+# reg_out = regressor.predict_step(train_dataset[0:10])  # Skip test prediction before
+# training
 # print(f"{reg_out=}")
 # %%
 Markdown("""## Define Model Training Functions
@@ -280,7 +296,12 @@ def train_hephaestus_model(
 
     # Initialize regressor with pre-trained encoder
     regressor = sr.TabularRegressor(
-        model_config=model_config_reg, d_model=D_MODEL, n_heads=N_HEADS, lr=LR
+        model_config=model_config_reg,
+        d_model=D_MODEL,
+        n_heads=N_HEADS,
+        lr=LR,
+        use_linear_numeric_embedding=True,
+        numeric_embedding_type=NUMERIC_HEAD_TYPE,
     )
     regressor.model.tabular_encoder = mtm_model.model.tabular_encoder
 
@@ -342,9 +363,7 @@ def train_hephaestus_model(
 
 
 # %%
-def train_hephaestus_no_pretrain(
-    df_train, df_test, model_config_reg, label_ratio=1.0
-):
+def train_hephaestus_no_pretrain(df_train, df_test, model_config_reg, label_ratio=1.0):
     """
     Train a Hephaestus model from scratch without pre-trained weights.
 
@@ -378,7 +397,12 @@ def train_hephaestus_no_pretrain(
 
     # Initialize regressor WITHOUT pre-trained encoder
     regressor = sr.TabularRegressor(
-        model_config=model_config_reg, d_model=D_MODEL, n_heads=N_HEADS, lr=LR
+        model_config=model_config_reg,
+        d_model=D_MODEL,
+        n_heads=N_HEADS,
+        lr=LR,
+        use_linear_numeric_embedding=True,
+        numeric_embedding_type=NUMERIC_HEAD_TYPE,
     )
     # Note: NOT copying pre-trained weights - training from scratch
 
@@ -650,25 +674,32 @@ for fraction in data_fractions:
 
     print(f"Results with {fraction * 100}% of labeled data:")
     print(
-        f"  Hephaestus (fine-tuned) MSE: {hep_result['mse']:.3f}, RMSE: {hep_result['rmse']:.3f}, MAE: {hep_result['mae']:.3f}"
+        f"  Hephaestus (fine-tuned) MSE: {hep_result['mse']:.3f}, "
+        f"RMSE: {hep_result['rmse']:.3f}, MAE: {hep_result['mae']:.3f}"
     )
     print(
-        f"  Hephaestus (no pre-training) MSE: {hep_no_pretrain_result['mse']:.3f}, RMSE: {hep_no_pretrain_result['rmse']:.3f}, MAE: {hep_no_pretrain_result['mae']:.3f}"
+        f"  Hephaestus (no pre-training) MSE: {hep_no_pretrain_result['mse']:.3f}, "
+        f"RMSE: {hep_no_pretrain_result['rmse']:.3f}, "
+        f"MAE: {hep_no_pretrain_result['mae']:.3f}"
     )
     print(
-        f"  Linear Regression MSE: {lr_result['mse']:.3f}, RMSE: {lr_result['rmse']:.3f}, MAE: {lr_result['mae']:.3f}"
+        f"  Linear Regression MSE: {lr_result['mse']:.3f}, "
+        f"RMSE: {lr_result['rmse']:.3f}, MAE: {lr_result['mae']:.3f}"
     )
     print(
-        f"  Random Forest MSE: {rf_result['mse']:.3f}, RMSE: {rf_result['rmse']:.3f}, MAE: {rf_result['mae']:.3f}"
+        f"  Random Forest MSE: {rf_result['mse']:.3f}, "
+        f"RMSE: {rf_result['rmse']:.3f}, MAE: {rf_result['mae']:.3f}"
     )
     print(
-        f"  XGBoost MSE: {xgb_result['mse']:.3f}, RMSE: {xgb_result['rmse']:.3f}, MAE: {xgb_result['mae']:.3f}"
+        f"  XGBoost MSE: {xgb_result['mse']:.3f}, "
+        f"RMSE: {xgb_result['rmse']:.3f}, MAE: {xgb_result['mae']:.3f}"
     )
 
 # %%
 Markdown("""## Visualize the Results
 
-Create dataframes and visualizations to show model performance across different data fractions.
+Create dataframes and visualizations to show model performance across different data
+fractions.
 """)
 
 # %%
@@ -849,7 +880,10 @@ res_df = pd.DataFrame(
     {"Actual": hep_result_10["y_true"], "Predicted": hep_result_10["y_pred"]}
 )
 res_df_no_pretrain = pd.DataFrame(
-    {"Actual": hep_no_pretrain_result_10["y_true"], "Predicted": hep_no_pretrain_result_10["y_pred"]}
+    {
+        "Actual": hep_no_pretrain_result_10["y_true"],
+        "Predicted": hep_no_pretrain_result_10["y_pred"],
+    }
 )
 res_df_lr = pd.DataFrame(
     {"Actual": lr_result_10["y_true"], "Predicted": lr_result_10["y_pred"]}
@@ -930,7 +964,8 @@ mse_chart_10 = (
         color="Model",
     )
     .properties(
-        title=f"MSE Comparison Across Models with only {(ratio_10_percent * 100)}% of data labeled"
+        title=f"MSE Comparison Across Models with only "
+        f"{(ratio_10_percent * 100)}% of data labeled"
     )
 )
 
@@ -950,7 +985,9 @@ improvement_rows = []
 for fraction in data_fractions:
     # Get results for this fraction
     hep_result = next(r for r in hephaestus_results if r["label_ratio"] == fraction)
-    hep_no_pretrain_result = next(r for r in hephaestus_no_pretrain_results if r["label_ratio"] == fraction)
+    hep_no_pretrain_result = next(
+        r for r in hephaestus_no_pretrain_results if r["label_ratio"] == fraction
+    )
     lr_result = next(r for r in lr_results if r["label_ratio"] == fraction)
     rf_result = next(r for r in rf_results if r["label_ratio"] == fraction)
     xgb_result = next(r for r in xgb_results if r["label_ratio"] == fraction)
@@ -964,7 +1001,9 @@ for fraction in data_fractions:
 
     # Calculate improvement percentages for both Hephaestus models
     improvement_pct_finetuned = ((trad_mse - hep_result["mse"]) / trad_mse) * 100
-    improvement_pct_no_pretrain = ((trad_mse - hep_no_pretrain_result["mse"]) / trad_mse) * 100
+    improvement_pct_no_pretrain = (
+        (trad_mse - hep_no_pretrain_result["mse"]) / trad_mse
+    ) * 100
 
     improvement_rows.append(
         {
@@ -985,20 +1024,22 @@ print(improvement_df)
 # Create a long-form dataframe for plotting both improvement lines
 improvement_long = []
 for _, row in improvement_df.iterrows():
-    improvement_long.extend([
-        {
-            "Label Ratio": row["Label Ratio"],
-            "Improvement (%)": row["Fine-tuned Improvement (%)"],
-            "Model Type": "Hephaestus (Fine-tuned)",
-            "Best Traditional Model": row["Best Traditional Model"],
-        },
-        {
-            "Label Ratio": row["Label Ratio"],
-            "Improvement (%)": row["No Pre-training Improvement (%)"],
-            "Model Type": "Hephaestus (No Pre-training)",
-            "Best Traditional Model": row["Best Traditional Model"],
-        }
-    ])
+    improvement_long.extend(
+        [
+            {
+                "Label Ratio": row["Label Ratio"],
+                "Improvement (%)": row["Fine-tuned Improvement (%)"],
+                "Model Type": "Hephaestus (Fine-tuned)",
+                "Best Traditional Model": row["Best Traditional Model"],
+            },
+            {
+                "Label Ratio": row["Label Ratio"],
+                "Improvement (%)": row["No Pre-training Improvement (%)"],
+                "Model Type": "Hephaestus (No Pre-training)",
+                "Best Traditional Model": row["Best Traditional Model"],
+            },
+        ]
+    )
 
 improvement_long_df = pd.DataFrame(improvement_long)
 
@@ -1015,10 +1056,10 @@ improvement_chart = (
         y=alt.Y("Improvement (%):Q", title="Improvement (%)"),
         color=alt.Color("Model Type:N"),
         tooltip=[
-            "Label Ratio", 
-            "Improvement (%)", 
-            "Model Type", 
-            "Best Traditional Model"
+            "Label Ratio",
+            "Improvement (%)",
+            "Model Type",
+            "Best Traditional Model",
         ],
     )
     .properties(

@@ -46,8 +46,8 @@ D_MODEL = 128
 N_HEADS = 4
 LR = 0.0001
 BATCH_SIZE = 64  # Smaller batch sizes lead to better predictions because outliers are
-# bettertrained on.
-name = "SmallBatch"
+# better trained on.
+name = "LinearTestFalse"
 LOGGER_VARIANT_NAME = f"{name}_D{D_MODEL}_H{N_HEADS}_LR{LR}"
 
 
@@ -89,7 +89,15 @@ train_dataset = sr.TabularDS(train_df, single_row_config)
 test_dataset = sr.TabularDS(test_df, single_row_config)
 
 
-model = sr.TabularRegressor(single_row_config, d_model=D_MODEL, n_heads=N_HEADS, lr=LR)
+model = sr.TabularRegressor(
+    single_row_config,
+    d_model=D_MODEL,
+    n_heads=N_HEADS,
+    lr=LR,
+    use_linear_numeric_embedding=True,
+    numeric_embedding_type="complex",
+    # numeric_embedding_type="simple" # 0.09670434892177582
+)
 model.predict_step(train_dataset[0:10])
 
 # %%

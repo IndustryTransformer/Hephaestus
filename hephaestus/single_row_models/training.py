@@ -13,7 +13,7 @@ from hephaestus.utils import NumericCategoricalData
 
 
 class TabularRegressor(L.LightningModule):
-    def __init__(self, model_config, d_model, n_heads, lr=1e-3):
+    def __init__(self, model_config, d_model, n_heads, lr=1e-3, use_linear_numeric_embedding=True, numeric_embedding_type="standard"):
         super().__init__()
         self.save_hyperparameters()
         self.d_model = d_model
@@ -24,6 +24,8 @@ class TabularRegressor(L.LightningModule):
             model_config=model_config,
             d_model=d_model,
             n_heads=n_heads,
+            use_linear_numeric_embedding=use_linear_numeric_embedding,
+            numeric_embedding_type=numeric_embedding_type,
         )
         self.loss_fn = nn.MSELoss()
 
@@ -74,6 +76,11 @@ class TabularRegressor(L.LightningModule):
     def predict_step(self, batch: InputsTarget):
         with torch.no_grad():
             return self.forward(batch)
+
+    def optimizer_step(self, epoch, batch_idx, optimizer, optimizer_closure):
+        # Add gradient clipping for stable training
+        torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
+        optimizer.step(closure=optimizer_closure)
 
     def _create_example_input(self, batch_size: int):
         numeric = torch.rand(batch_size, self.model.model_config.n_numeric_cols)
@@ -138,7 +145,7 @@ def masked_tabular_collate_fn(batch):
 
 
 class MaskedTabularModeling(L.LightningModule):
-    def __init__(self, model_config, d_model, n_heads, lr=1e-3):
+    def __init__(self, model_config, d_model, n_heads, lr=1e-3, use_linear_numeric_embedding=True, numeric_embedding_type="standard"):
         super().__init__()
         self.save_hyperparameters()
         self.d_model = d_model
@@ -149,7 +156,7 @@ class MaskedTabularModeling(L.LightningModule):
         self.categorical_loss_fn = nn.CrossEntropyLoss()
         self.model_config = model_config
 
-        self.model = MaskedTabularEncoder(model_config, d_model, n_heads)
+        self.model = MaskedTabularEncoder(model_config, d_model, n_heads, use_linear_numeric_embedding, numeric_embedding_type)
 
     def forward(self, x: NumericCategoricalData) -> NumericCategoricalData:
         return self.model(x.numeric, x.categorical)
@@ -206,6 +213,11 @@ class MaskedTabularModeling(L.LightningModule):
         self.log("val_loss", loss)
 
         return loss
+
+    def optimizer_step(self, epoch, batch_idx, optimizer, optimizer_closure):
+        # Add gradient clipping for stable training
+        torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
+        optimizer.step(closure=optimizer_closure)
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=1e-5)

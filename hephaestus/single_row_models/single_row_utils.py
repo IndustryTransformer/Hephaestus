@@ -2,6 +2,7 @@ import torch.nn as nn
 import torch.nn.init as init
 import torch
 import copy
+import math
 from datetime import datetime as dt
 
 import pandas as pd
@@ -15,12 +16,14 @@ def initialize_parameters(module):
     if isinstance(module, (nn.Linear, nn.Conv2d)):
         init.xavier_uniform_(module.weight, gain=1)
         if module.bias is not None:
-            init.constant_(module.bias, 0.000)
+            init.constant_(module.bias, 0.0)
     elif isinstance(module, nn.Embedding):
-        init.uniform_(module.weight, 0.0, 0.5)
+        # Improved initialization for embeddings
+        std = 1.0 / math.sqrt(module.embedding_dim)
+        init.normal_(module.weight, mean=0.0, std=std)
     elif isinstance(module, nn.LayerNorm):
-        init.normal_(module.weight, mean=0, std=1)
-        init.constant_(module.bias, 0.01)
+        init.ones_(module.weight)
+        init.zeros_(module.bias)
 
 
 class EarlyStopping:
