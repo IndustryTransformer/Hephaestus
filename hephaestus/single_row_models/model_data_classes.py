@@ -72,10 +72,42 @@ class SingleRowConfig:
     n_numeric_cols: int = None
     n_cat_cols: int = None
     target: str = None
+    
+    # MoE Configuration
+    use_moe: bool = False
+    num_experts: int = 8
+    expert_balance: list = None  # [numeric_ratio, categorical_ratio, interaction_ratio]
+    moe_top_k: int = 2
+    moe_dropout: float = 0.1
+    moe_activation: str = "relu"
+    adaptive_routing: bool = True
+    categorical_aware: bool = True
+    feature_type_weight: float = 1.0
+    load_balance_weight: float = 0.01
+    
+    # Neural Feature Engineering Configuration
+    use_neural_feature_engineering: bool = False
+    nfe_max_interactions: int = 15
+    nfe_max_ratios: int = 10
+    nfe_polynomial_degree: int = 3
+    nfe_fusion_strategy: str = "learned"  # "learned", "attention", "concat"
 
     @classmethod
     def generate(
-        cls, df: pd.DataFrame, target: Optional[str] = None
+        cls, 
+        df: pd.DataFrame, 
+        target: Optional[str] = None,
+        use_moe: bool = False,
+        num_experts: int = 8,
+        expert_balance: Optional[list] = None,
+        moe_top_k: int = 2,
+        adaptive_routing: bool = True,
+        categorical_aware: bool = True,
+        use_neural_feature_engineering: bool = False,
+        nfe_max_interactions: int = 15,
+        nfe_max_ratios: int = 10,
+        nfe_polynomial_degree: int = 3,
+        nfe_fusion_strategy: str = "learned",
     ) -> "SingleRowConfig":
         """
         Generate a TimeSeriesConfig object based on the given DataFrame.
@@ -176,6 +208,21 @@ class SingleRowConfig:
         cls_dict["n_numeric_cols"] = len(numeric_col_tokens)
         cls_dict["n_cat_cols"] = len(categorical_col_tokens)
         df_categorical = convert_object_to_int_tokens(df_categorical, token_dict)
+
+        # Add MoE configuration
+        cls_dict["use_moe"] = use_moe
+        cls_dict["num_experts"] = num_experts
+        cls_dict["expert_balance"] = expert_balance if expert_balance is not None else [0.4, 0.3, 0.3]
+        cls_dict["moe_top_k"] = moe_top_k
+        cls_dict["adaptive_routing"] = adaptive_routing
+        cls_dict["categorical_aware"] = categorical_aware
+        
+        # Add Neural Feature Engineering configuration
+        cls_dict["use_neural_feature_engineering"] = use_neural_feature_engineering
+        cls_dict["nfe_max_interactions"] = nfe_max_interactions
+        cls_dict["nfe_max_ratios"] = nfe_max_ratios
+        cls_dict["nfe_polynomial_degree"] = nfe_polynomial_degree
+        cls_dict["nfe_fusion_strategy"] = nfe_fusion_strategy
 
         return cls(**cls_dict)
 

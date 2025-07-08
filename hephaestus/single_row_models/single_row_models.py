@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Dict
 
 from hephaestus.single_row_models.single_row_utils import (
     initialize_parameters,
@@ -8,6 +9,8 @@ from hephaestus.single_row_models.single_row_utils import (
 from hephaestus.utils import NumericCategoricalData
 
 from .model_data_classes import SingleRowConfig
+from .moe_components import AdaptiveTabularMoELayer
+from .neural_feature_engineering import NeuralFeatureEngineer
 
 
 # %%
@@ -242,6 +245,59 @@ class TabularEncoder(nn.Module):
         self.transformer_encoder2 = TransformerEncoderLayer(d_model, n_heads=n_heads)
         self.transformer_encoder3 = TransformerEncoderLayer(d_model, n_heads=n_heads)
         self.transformer_encoder4 = TransformerEncoderLayer(d_model, n_heads=n_heads)
+        
+        # Add Neural Feature Engineering or MoE layers based on configuration
+        if hasattr(model_config, 'use_neural_feature_engineering') and model_config.use_neural_feature_engineering:
+            # Use Neural Feature Engineering for automatic feature discovery
+            self.neural_feature_engineer = NeuralFeatureEngineer(
+                num_features=self.n_columns,
+                d_model=d_model,
+                max_interactions=min(15, self.n_columns * 2),
+                max_ratios=min(10, self.n_columns),
+                polynomial_degree=3,
+                attention_heads=min(n_heads, 4),
+                dropout=0.1,
+                fusion_strategy="learned",
+                enable_feature_importance=True,
+                enable_interactions=True,
+                enable_polynomials=True,
+                enable_ratios=True,
+                enable_attention=True,
+            )
+            self.use_neural_feature_engineering = True
+            self.neural_feature_metrics = {}
+        elif model_config.use_moe:
+            # Use MoE layers if Neural Feature Engineering is not enabled
+            self.moe_layer1 = AdaptiveTabularMoELayer(
+                input_dim=d_model,
+                hidden_dim=d_model * 2,
+                num_experts=model_config.num_experts,
+                top_k=model_config.moe_top_k,
+                dropout=model_config.moe_dropout,
+                activation=model_config.moe_activation,
+                expert_balance=model_config.expert_balance,
+                adaptive_routing=model_config.adaptive_routing,
+                categorical_aware=model_config.categorical_aware,
+            )
+            self.moe_layer2 = AdaptiveTabularMoELayer(
+                input_dim=d_model,
+                hidden_dim=d_model * 2,
+                num_experts=model_config.num_experts,
+                top_k=model_config.moe_top_k,
+                dropout=model_config.moe_dropout,
+                activation=model_config.moe_activation,
+                expert_balance=model_config.expert_balance,
+                adaptive_routing=model_config.adaptive_routing,
+                categorical_aware=model_config.categorical_aware,
+            )
+            self.use_neural_feature_engineering = False
+        else:
+            self.use_neural_feature_engineering = False
+            
+        # Store configuration
+        self.use_moe = model_config.use_moe
+        self.moe_metrics = {}
+        
         # self.flatten_layer = nn.Linear(len(self.col_tokens), 1)
         self.apply(initialize_parameters)
 
@@ -315,9 +371,83 @@ class TabularEncoder(nn.Module):
             query_embeddings,
             # col_embeddings, query_embeddings, query_embeddings
         )
+        
+        # Apply Neural Feature Engineering or MoE layers
+        if self.use_neural_feature_engineering:
+            # Extract raw features for Neural Feature Engineering
+            # Pool features to create a flat representation
+            pooled_features = out1.mean(dim=1)  # [batch_size, d_model]
+            
+            # Apply Neural Feature Engineering
+            engineered_features, nfe_metrics = self.neural_feature_engineer(pooled_features)
+            
+            # Reshape engineered features back to sequence format
+            batch_size = engineered_features.shape[0]
+            out1 = engineered_features.unsqueeze(1).expand(-1, out1.shape[1], -1)
+            
+            # Store metrics
+            self.neural_feature_metrics = nfe_metrics
+            
+        elif self.use_moe:
+            # Create feature type masks based on column positions
+            batch_size, seq_len, _ = out1.shape
+            feature_types = torch.zeros(batch_size, seq_len, dtype=torch.long, device=out1.device)
+            
+            # Set feature types: 0=numeric, 1=categorical
+            if self.n_cat_cols > 0:
+                feature_types[:, :self.n_cat_cols] = 1  # categorical features
+            if self.n_numeric_cols > 0:
+                feature_types[:, self.n_cat_cols:self.n_cat_cols + self.n_numeric_cols] = 0  # numeric features
+            
+            # Apply first MoE layer
+            moe_out1, moe_metrics1 = self.moe_layer1(out1, feature_types)
+            out1 = out1 + moe_out1  # Residual connection
+            
+            # Store metrics
+            self.moe_metrics['moe_layer1'] = moe_metrics1
+        
         # No skipping connection
         out2 = self.transformer_encoder2(out1, out1, out1)
         out2 = out2 + out1
+        
+        # Apply second Neural Feature Engineering pass or MoE layer
+        if self.use_neural_feature_engineering:
+            # Apply another round of feature engineering for deeper interactions
+            pooled_features2 = out2.mean(dim=1)  # [batch_size, d_model]
+            
+            # Apply Neural Feature Engineering again for deeper feature discovery
+            engineered_features2, nfe_metrics2 = self.neural_feature_engineer(pooled_features2)
+            
+            # Reshape and combine with residual connection
+            batch_size = engineered_features2.shape[0]
+            engineered_out2 = engineered_features2.unsqueeze(1).expand(-1, out2.shape[1], -1)
+            out2 = out2 + engineered_out2  # Residual connection
+            
+            # Update metrics
+            self.neural_feature_metrics.update({f"{k}_layer2": v for k, v in nfe_metrics2.items()})
+            
+        elif self.use_moe:
+            # Apply second MoE layer if enabled
+            batch_size, seq_len, _ = out2.shape
+            feature_types = torch.zeros(batch_size, seq_len, dtype=torch.long, device=out2.device)
+            
+            # Set feature types based on processing stage (more interaction-focused)
+            if self.n_cat_cols > 0:
+                feature_types[:, :self.n_cat_cols] = 1  # categorical features
+            if self.n_numeric_cols > 0:
+                feature_types[:, self.n_cat_cols:self.n_cat_cols + self.n_numeric_cols] = 0  # numeric features
+            
+            # Mark some features as interaction type for more complex processing
+            if seq_len > 2:
+                feature_types[:, -(seq_len//4):] = 2  # interaction features
+            
+            # Apply second MoE layer
+            moe_out2, moe_metrics2 = self.moe_layer2(out2, feature_types)
+            out2 = out2 + moe_out2  # Residual connection
+            
+            # Store metrics
+            self.moe_metrics['moe_layer2'] = moe_metrics2
+        
         out3 = self.transformer_encoder3(out2, out2, out2)
         out3 = out3 + out2
         out4 = self.transformer_encoder4(out3, out3, out3)
@@ -398,6 +528,35 @@ class TabularEncoderRegressor(nn.Module):
         out = self.regressor(out)
         # out = out + skip
         return out
+    
+    def get_moe_metrics(self) -> Dict[str, torch.Tensor]:
+        """Get MoE metrics from the tabular encoder."""
+        if hasattr(self.tabular_encoder, 'moe_metrics'):
+            return self.tabular_encoder.moe_metrics
+        return {}
+    
+    def get_moe_auxiliary_loss(self) -> torch.Tensor:
+        """Get auxiliary loss for MoE training."""
+        auxiliary_loss = 0.0
+        moe_metrics = self.get_moe_metrics()
+        
+        for layer_name, metrics in moe_metrics.items():
+            if 'auxiliary_loss' in metrics and metrics['auxiliary_loss'] is not None:
+                auxiliary_loss += metrics['auxiliary_loss']
+                
+        return auxiliary_loss
+    
+    def get_neural_feature_engineering_metrics(self) -> Dict[str, any]:
+        """Get Neural Feature Engineering metrics from the tabular encoder."""
+        if hasattr(self.tabular_encoder, 'neural_feature_metrics'):
+            return self.tabular_encoder.neural_feature_metrics
+        return {}
+    
+    def get_feature_engineering_summary(self) -> Dict[str, any]:
+        """Get summary of discovered feature interactions and engineering."""
+        if hasattr(self.tabular_encoder, 'neural_feature_engineer'):
+            return self.tabular_encoder.neural_feature_engineer.get_feature_importance_summary()
+        return {}
 
 
 class MaskedTabularEncoder(nn.Module):
@@ -417,30 +576,53 @@ class MaskedTabularEncoder(nn.Module):
         self.tabular_encoder = TabularEncoder(
             model_config, d_model, n_heads, use_linear_numeric_embedding, numeric_embedding_type
         )
-        self.mlm_decoder = nn.Sequential(
-            nn.Flatten(start_dim=1),  # n_columns * d_model * 2
-            nn.Linear(
-                self.model_config.n_columns_no_target * self.d_model,
-                self.model_config.n_cat_cols * self.model_config.n_tokens,
-            ),
-            # nn.GELU(),
-            # nn.Dropout(0.2),
-            # nn.Linear(
-            #     d_model * 4, self.model_config.n_cat_cols * self.model_config.n_tokens
-            # ),
-        )
-        self.mnm_decoder = nn.Sequential(
-            nn.Linear(
-                self.model_config.n_columns_no_target * self.d_model, self.d_model * 4
-            ),  # Try making more complex
-            nn.GELU(),
-            nn.Linear(self.d_model * 4, self.model_config.n_numeric_cols),
-        )
+        # Initialize decoder layers with dynamic sizing
+        self.mlm_decoder = None
+        self.mnm_decoder = None
+        self._decoders_initialized = False
 
         # self.apply(initialize_parameters)
 
+    def _initialize_decoders(self, encoder_output_shape):
+        """Initialize decoder layers based on actual encoder output dimensions."""
+        if self._decoders_initialized:
+            return
+            
+        batch_size, seq_len, feature_dim = encoder_output_shape
+        flattened_dim = seq_len * feature_dim
+        
+        # MLM decoder for categorical prediction
+        self.mlm_decoder = nn.Sequential(
+            nn.Flatten(start_dim=1),
+            nn.Linear(
+                flattened_dim,
+                self.model_config.n_cat_cols * self.model_config.n_tokens,
+            ),
+        )
+        
+        # MNM decoder for numeric prediction
+        self.mnm_decoder = nn.Sequential(
+            nn.Linear(flattened_dim, self.d_model * 4),
+            nn.GELU(),
+            nn.Linear(self.d_model * 4, self.model_config.n_numeric_cols),
+        )
+        
+        # Move to same device as encoder
+        try:
+            device = next(self.tabular_encoder.parameters()).device
+            self.mlm_decoder = self.mlm_decoder.to(device)
+            self.mnm_decoder = self.mnm_decoder.to(device)
+        except StopIteration:
+            # No parameters in encoder, use CPU
+            pass
+            
+        self._decoders_initialized = True
+
     def forward(self, num_inputs, cat_inputs):
         out = self.tabular_encoder(num_inputs, cat_inputs)
+        
+        # Initialize decoders based on actual output shape
+        self._initialize_decoders(out.shape)
 
         # Ensure categorical output is logits
         cat_out = self.mlm_decoder(out)
@@ -453,3 +635,32 @@ class MaskedTabularEncoder(nn.Module):
         numeric_out = out.view(out.size(0), -1)  # Flatten numeric output
         numeric_out = self.mnm_decoder(numeric_out)
         return NumericCategoricalData(numeric=numeric_out, categorical=cat_out)
+    
+    def get_moe_metrics(self) -> Dict[str, torch.Tensor]:
+        """Get MoE metrics from the tabular encoder."""
+        if hasattr(self.tabular_encoder, 'moe_metrics'):
+            return self.tabular_encoder.moe_metrics
+        return {}
+    
+    def get_moe_auxiliary_loss(self) -> torch.Tensor:
+        """Get auxiliary loss for MoE training."""
+        auxiliary_loss = 0.0
+        moe_metrics = self.get_moe_metrics()
+        
+        for layer_name, metrics in moe_metrics.items():
+            if 'auxiliary_loss' in metrics and metrics['auxiliary_loss'] is not None:
+                auxiliary_loss += metrics['auxiliary_loss']
+                
+        return auxiliary_loss
+    
+    def get_neural_feature_engineering_metrics(self) -> Dict[str, any]:
+        """Get Neural Feature Engineering metrics from the tabular encoder."""
+        if hasattr(self.tabular_encoder, 'neural_feature_metrics'):
+            return self.tabular_encoder.neural_feature_metrics
+        return {}
+    
+    def get_feature_engineering_summary(self) -> Dict[str, any]:
+        """Get summary of discovered feature interactions and engineering."""
+        if hasattr(self.tabular_encoder, 'neural_feature_engineer'):
+            return self.tabular_encoder.neural_feature_engineer.get_feature_importance_summary()
+        return {}
