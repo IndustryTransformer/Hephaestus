@@ -51,10 +51,9 @@ BATCH_SIZE = (
     64 * 8
 )  # Smaller batch sizes lead to better predictions because outliers are
 # better trained on.
-NUMERIC_HEAD_TYPE = "simple"  # "complex" or "simple"
 
 name = "TryLinearLayer"
-LOGGER_VARIANT_NAME = f"{name}_T{NUMERIC_HEAD_TYPE}_D{D_MODEL}_H{N_HEADS}_LR{LR}"
+LOGGER_VARIANT_NAME = f"{name}_D{D_MODEL}_H{N_HEADS}_LR{LR}"
 LABEL_RATIO = 1.0
 
 # Load and preprocess the train_dataset (assuming you have a CSV file)
@@ -129,8 +128,6 @@ mtm_model = sr.MaskedTabularModeling(
     d_model=D_MODEL,
     n_heads=N_HEADS,
     lr=LR,
-    use_linear_numeric_embedding=True,
-    numeric_embedding_type=NUMERIC_HEAD_TYPE,
 )
 # mtm_model.predict_step(train_dataset[0:10].inputs)  # Skip test prediction before
 # training
@@ -239,8 +236,6 @@ regressor = sr.TabularRegressor(
     d_model=D_MODEL,
     n_heads=N_HEADS,
     lr=LR,
-    use_linear_numeric_embedding=True,
-    numeric_embedding_type=NUMERIC_HEAD_TYPE,
 )
 regressor.model.tabular_encoder = mtm_model.model.tabular_encoder
 
@@ -300,8 +295,6 @@ def train_hephaestus_model(
         d_model=D_MODEL,
         n_heads=N_HEADS,
         lr=LR,
-        use_linear_numeric_embedding=True,
-        numeric_embedding_type=NUMERIC_HEAD_TYPE,
     )
     regressor.model.tabular_encoder = mtm_model.model.tabular_encoder
 
@@ -401,8 +394,6 @@ def train_hephaestus_no_pretrain(df_train, df_test, model_config_reg, label_rati
         d_model=D_MODEL,
         n_heads=N_HEADS,
         lr=LR,
-        use_linear_numeric_embedding=True,
-        numeric_embedding_type=NUMERIC_HEAD_TYPE,
     )
     # Note: NOT copying pre-trained weights - training from scratch
 

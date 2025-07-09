@@ -94,9 +94,6 @@ model = sr.TabularRegressor(
     d_model=D_MODEL,
     n_heads=N_HEADS,
     lr=LR,
-    use_linear_numeric_embedding=True,
-    numeric_embedding_type="complex",
-    # numeric_embedding_type="simple" # 0.09670434892177582
 )
 model.predict_step(train_dataset[0:10])
 

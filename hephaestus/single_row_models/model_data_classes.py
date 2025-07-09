@@ -179,7 +179,6 @@ class SingleRowConfig:
         cls_dict["n_cat_cols"] = len(categorical_col_tokens)
         df_categorical = convert_object_to_int_tokens(df_categorical, token_dict)
 
-
         return cls(**cls_dict)
 
 

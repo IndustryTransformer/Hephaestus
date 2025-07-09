@@ -12,26 +12,6 @@ from .model_data_classes import SingleRowConfig
 
 
 # %%
-class NumericEmbedding(nn.Module):
-    """Linear embedding for numeric features with normalization."""
-    
-    def __init__(self, d_model, dropout=0.1):
-        super().__init__()
-        self.projection = nn.Linear(1, d_model)
-        self.layer_norm = nn.LayerNorm(d_model)
-        self.dropout = nn.Dropout(dropout)
-        
-    def forward(self, x):
-        """
-        Args:
-            x: [batch_size] numeric values
-        Returns:
-            [batch_size, d_model] embedded features
-        """
-        x = x.unsqueeze(-1)  # [batch_size, 1]
-        embedded = self.projection(x)  # [batch_size, d_model]
-        embedded = self.layer_norm(embedded)
-        return self.dropout(embedded)
 
 
 class SimpleNumericEmbedding(nn.Module):
@@ -52,34 +32,8 @@ class SimpleNumericEmbedding(nn.Module):
         return self.projection(x)  # [batch_size, d_model]
 
 
-class ComplexNumericEmbedding(nn.Module):
-    """More complex numeric embedding with multiple layers and higher capacity."""
-    
-    def __init__(self, d_model, hidden_multiplier=4, dropout=0.1):
-        super().__init__()
-        hidden_dim = d_model * hidden_multiplier
-        
-        self.embedding_net = nn.Sequential(
-            nn.Linear(1, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.GELU(), 
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, d_model),
-        )
-        self.layer_norm = nn.LayerNorm(d_model)
-        
-    def forward(self, x):
-        """
-        Args:
-            x: [batch_size] numeric values
-        Returns:
-            [batch_size, d_model] embedded features
-        """
-        x = x.unsqueeze(-1)  # [batch_size, 1]
-        embedded = self.embedding_net(x)  # [batch_size, d_model]
-        return self.layer_norm(embedded)
+
+
 
 
 class MultiHeadAttention(nn.Module):  # Try to use nn.MultiheadAttention
@@ -181,14 +135,10 @@ class TabularEncoder(nn.Module):
         model_config: SingleRowConfig,
         d_model=64,
         n_heads=4,
-        use_linear_numeric_embedding=True,
-        numeric_embedding_type="original",  # "original", "simple", "standard", "complex"
     ):
         super(TabularEncoder, self).__init__()
         self.d_model = d_model
         self.tokens = model_config.tokens
-        self.use_linear_numeric_embedding = use_linear_numeric_embedding
-        self.numeric_embedding_type = numeric_embedding_type
 
         self.token_dict = model_config.token_dict
         # self.decoder_dict = {v: k for k, v in self.token_dict.items()}
@@ -225,20 +175,10 @@ class TabularEncoder(nn.Module):
             ),
         )
         
-        # Add numeric embeddings for linear embedding approach
-        if self.use_linear_numeric_embedding:
-            if self.numeric_embedding_type == "simple":
-                self.numeric_embeddings = nn.ModuleList([
-                    SimpleNumericEmbedding(d_model) for _ in range(self.n_numeric_cols)
-                ])
-            elif self.numeric_embedding_type == "complex":
-                self.numeric_embeddings = nn.ModuleList([
-                    ComplexNumericEmbedding(d_model) for _ in range(self.n_numeric_cols)
-                ])
-            else:  # "standard" or default
-                self.numeric_embeddings = nn.ModuleList([
-                    NumericEmbedding(d_model) for _ in range(self.n_numeric_cols)
-                ])
+        # Add numeric embeddings - always use simple embedding
+        self.numeric_embeddings = nn.ModuleList([
+            SimpleNumericEmbedding(d_model) for _ in range(self.n_numeric_cols)
+        ])
         self.transformer_encoder1 = TransformerEncoderLayer(d_model, n_heads=n_heads)
         self.transformer_encoder2 = TransformerEncoderLayer(d_model, n_heads=n_heads)
         self.transformer_encoder3 = TransformerEncoderLayer(d_model, n_heads=n_heads)
@@ -268,46 +208,26 @@ class TabularEncoder(nn.Module):
         cat_inputs = cat_inputs.long()  # TODO Fix this in the dataset class
         cat_embeddings = self.embeddings(cat_inputs)
 
-        if self.use_linear_numeric_embedding:
-            # New linear embedding approach
-            numeric_embeddings_list = []
-            for i, embedding_layer in enumerate(self.numeric_embeddings):
-                feature_values = num_inputs[:, i]  # [batch_size]
-                
-                # Handle mask tokens
-                inf_mask = (feature_values == float("-inf"))
-                clean_values = feature_values.clone()
-                clean_values[inf_mask] = 0.0  # Set to 0 for embedding
-                
-                embedded_feature = embedding_layer(clean_values)  # [batch_size, d_model]
-                
-                # Apply mask token for masked positions
-                if inf_mask.any():
-                    mask_embedding = self.embeddings(self.numeric_mask_token)
-                    embedded_feature[inf_mask] = mask_embedding
-                
-                numeric_embeddings_list.append(embedded_feature)
+        # Simple numeric embedding approach
+        numeric_embeddings_list = []
+        for i, embedding_layer in enumerate(self.numeric_embeddings):
+            feature_values = num_inputs[:, i]  # [batch_size]
             
-            base_numeric = torch.stack(numeric_embeddings_list, dim=1)  # [batch_size, n_numeric, d_model]
+            # Handle mask tokens
+            inf_mask = (feature_values == float("-inf"))
+            clean_values = feature_values.clone()
+            clean_values[inf_mask] = 0.0  # Set to 0 for embedding
+            
+            embedded_feature = embedding_layer(clean_values)  # [batch_size, d_model]
+            
+            # Apply mask token for masked positions
+            if inf_mask.any():
+                mask_embedding = self.embeddings(self.numeric_mask_token)
+                embedded_feature[inf_mask] = mask_embedding
+            
+            numeric_embeddings_list.append(embedded_feature)
         
-        else:
-            # Original multiplication approach (for backward compatibility)
-            expanded_num_inputs = num_inputs.unsqueeze(2).repeat(1, 1, self.d_model)
-            with torch.no_grad():
-                repeated_numeric_indices = self.numeric_indices.unsqueeze(0).repeat(
-                    num_inputs.size(0), 1
-                )
-                numeric_col_embeddings = self.embeddings(repeated_numeric_indices)
-
-                inf_mask = (expanded_num_inputs == float("-inf")).all(dim=2)
-
-            base_numeric = torch.zeros_like(expanded_num_inputs)
-
-            num_embeddings = (
-                numeric_col_embeddings[~inf_mask] * expanded_num_inputs[~inf_mask]
-            )
-            base_numeric[~inf_mask] = num_embeddings
-            base_numeric[inf_mask] = self.embeddings(self.numeric_mask_token)
+        base_numeric = torch.stack(numeric_embeddings_list, dim=1)  # [batch_size, n_numeric, d_model]
 
         query_embeddings = torch.cat([cat_embeddings, base_numeric], dim=1)
         out1 = self.transformer_encoder1(
@@ -326,6 +246,7 @@ class TabularEncoder(nn.Module):
         out3 = out3 + out2
         out4 = self.transformer_encoder4(out3, out3, out3)
         out4 = out4 + out3
+        
         return out4
 
 
@@ -363,8 +284,6 @@ class TabularEncoderRegressor(nn.Module):
         model_config: SingleRowConfig,
         d_model=64,
         n_heads=4,
-        use_linear_numeric_embedding=True,
-        numeric_embedding_type="standard",
     ):
         super(TabularEncoderRegressor, self).__init__()
         self.d_model = d_model
@@ -373,7 +292,7 @@ class TabularEncoderRegressor(nn.Module):
         self.Dropout_rate = 0.2
         self.dropout = nn.Dropout(self.Dropout_rate)
         self.tabular_encoder = TabularEncoder(
-            model_config, d_model, n_heads, use_linear_numeric_embedding, numeric_embedding_type
+            model_config, d_model, n_heads
         )
         self.regressor = nn.Sequential(
             nn.Linear(self.d_model, self.d_model * 2),
@@ -411,8 +330,6 @@ class MaskedTabularEncoder(nn.Module):
         model_config: SingleRowConfig,
         d_model=64,
         n_heads=4,
-        use_linear_numeric_embedding=True,
-        numeric_embedding_type="standard",
     ):
         super().__init__()
         self.d_model = d_model
@@ -420,7 +337,7 @@ class MaskedTabularEncoder(nn.Module):
         self.n_tokens = len(self.tokens)
         self.model_config = model_config
         self.tabular_encoder = TabularEncoder(
-            model_config, d_model, n_heads, use_linear_numeric_embedding, numeric_embedding_type
+            model_config, d_model, n_heads
         )
         # Initialize decoder layers with dynamic sizing
         self.mlm_decoder = None

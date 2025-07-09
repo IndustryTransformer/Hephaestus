@@ -13,7 +13,7 @@ from hephaestus.utils import NumericCategoricalData
 
 
 class TabularRegressor(L.LightningModule):
-    def __init__(self, model_config, d_model, n_heads, lr=1e-3, use_linear_numeric_embedding=True, numeric_embedding_type="standard"):
+    def __init__(self, model_config, d_model, n_heads, lr=1e-3):
         super().__init__()
         self.save_hyperparameters()
         self.d_model = d_model
@@ -24,8 +24,6 @@ class TabularRegressor(L.LightningModule):
             model_config=model_config,
             d_model=d_model,
             n_heads=n_heads,
-            use_linear_numeric_embedding=use_linear_numeric_embedding,
-            numeric_embedding_type=numeric_embedding_type,
         )
         self.loss_fn = nn.MSELoss()
 
@@ -154,7 +152,7 @@ def masked_tabular_collate_fn(batch):
 
 
 class MaskedTabularModeling(L.LightningModule):
-    def __init__(self, model_config, d_model, n_heads, lr=1e-3, use_linear_numeric_embedding=True, numeric_embedding_type="standard"):
+    def __init__(self, model_config, d_model, n_heads, lr=1e-3):
         super().__init__()
         self.save_hyperparameters()
         self.d_model = d_model
@@ -165,7 +163,7 @@ class MaskedTabularModeling(L.LightningModule):
         self.categorical_loss_fn = nn.CrossEntropyLoss()
         self.model_config = model_config
 
-        self.model = MaskedTabularEncoder(model_config, d_model, n_heads, use_linear_numeric_embedding, numeric_embedding_type)
+        self.model = MaskedTabularEncoder(model_config, d_model, n_heads)
 
     def forward(self, x: NumericCategoricalData) -> NumericCategoricalData:
         return self.model(x.numeric, x.categorical)
@@ -205,20 +203,11 @@ class MaskedTabularModeling(L.LightningModule):
         # Main task loss
         main_loss = self.aggregate_loss(x, predicted)
         
-        # MoE auxiliary loss
-        auxiliary_loss = self.model.get_moe_auxiliary_loss()
-        
-        # Total loss combines main task and auxiliary losses
-        total_loss = main_loss + auxiliary_loss
-        
         # Log losses
         self.log("train_loss", main_loss)
-        self.log("train_auxiliary_loss", auxiliary_loss)
-        self.log("train_total_loss", total_loss)
         self.log("lr", self.optimizers().param_groups[0]["lr"])
         
-        
-        return total_loss
+        return main_loss
 
     def predict_step(self, batch: InputsTarget):
         with torch.no_grad():
