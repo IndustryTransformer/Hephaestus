@@ -12,7 +12,7 @@ in the context of Mixture of Experts models, including:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 from torch import Tensor
 
 

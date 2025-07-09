@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict
 
 from hephaestus.single_row_models.single_row_utils import (
     initialize_parameters,

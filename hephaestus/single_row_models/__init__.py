@@ -14,3 +14,8 @@ from hephaestus.single_row_models.training import (
     TabularRegressor,
     MaskedTabularModeling,
 )
+from hephaestus.single_row_models.enhanced_models import (
+    EnhancedTabularRegressor,
+    create_enhanced_model,
+    AdaptiveFeatureEngineering,
+)

@@ -282,7 +282,7 @@ def compare_models():
         if hasattr(model.model, 'get_neural_feature_engineering_metrics'):
             nfe_metrics = model.model.get_neural_feature_engineering_metrics()
             if nfe_metrics:
-                print(f"\n🧠 Neural Feature Engineering Insights:")
+                print("\n🧠 Neural Feature Engineering Insights:")
                 if 'total_engineered_features' in nfe_metrics:
                     print(f"  • Total engineered features: {nfe_metrics['total_engineered_features']}")
                 if 'enabled_components' in nfe_metrics:
@@ -298,7 +298,7 @@ def compare_models():
 
 def save_comparison_results(results):
     """Save comparison results using polars."""
-    print(f"\n📁 Saving comparison results...")
+    print("\n📁 Saving comparison results...")
     
     # Create output directory
     output_dir = create_output_directory()
@@ -345,12 +345,12 @@ def save_comparison_results(results):
     summary_df.write_csv(summary_path)
     
     # Print results
-    print(f"\n🎯 FINAL COMPARISON RESULTS")
+    print("\n🎯 FINAL COMPARISON RESULTS")
     print("=" * 80)
     print(summary_df)
     
     if len(standard_metrics) > 0 and len(nfe_metrics) > 0:
-        print(f"\n📊 Performance Summary:")
+        print("\n📊 Performance Summary:")
         print(f"MSE improvement: {mse_improvement:+.2f}%")
         print(f"R² improvement: {r2_improvement:+.4f}")
         
