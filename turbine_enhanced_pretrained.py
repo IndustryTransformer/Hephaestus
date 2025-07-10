@@ -503,9 +503,9 @@ print("=" * 80)
 data_fractions = [1.0]
 
 # Results storage
+interactive_results = []
 enhanced_results = []
-standard_results = []
-basic_results = []
+base_results = []
 lr_results = []
 rf_results = []
 xgb_results = []
@@ -513,9 +513,9 @@ xgb_results = []
 for fraction in data_fractions:
     print(f"\nTraining with {fraction * 100}% of labeled data:")
 
-    # Train Enhanced Hephaestus (with feature interactions)
-    print("Training Enhanced Hephaestus (with feature interactions)...")
-    enhanced_result = train_enhanced_hephaestus_model(
+    # Train Interactive Hephaestus (with feature interactions)
+    print("Training Interactive Hephaestus (with feature interactions)...")
+    interactive_result = train_enhanced_hephaestus_model(
         df_train,
         df_test,
         model_config_reg,
@@ -523,11 +523,11 @@ for fraction in data_fractions:
         label_ratio=fraction,
         use_interactions=True,
     )
-    enhanced_results.append(enhanced_result)
+    interactive_results.append(interactive_result)
 
-    # Train Standard Hephaestus (without feature interactions)
-    print("Training Standard Hephaestus (without feature interactions)...")
-    standard_result = train_enhanced_hephaestus_model(
+    # Train Enhanced Hephaestus (enhanced architecture, no interactions)
+    print("Training Enhanced Hephaestus (enhanced architecture, no interactions)...")
+    enhanced_result = train_enhanced_hephaestus_model(
         df_train,
         df_test,
         model_config_reg,
@@ -535,18 +535,18 @@ for fraction in data_fractions:
         label_ratio=fraction,
         use_interactions=False,
     )
-    standard_results.append(standard_result)
+    enhanced_results.append(enhanced_result)
 
-    # Train Basic Hephaestus (basic pre-train + fine-tune)
-    print("Training Basic Hephaestus (basic pre-train + fine-tune)...")
-    basic_result = train_basic_hephaestus_model(
+    # Train Base Hephaestus (simple pre-train + fine-tune)
+    print("Training Base Hephaestus (simple pre-train + fine-tune)...")
+    base_result = train_basic_hephaestus_model(
         df_train,
         df_test,
         model_config_reg,
         mtm_model,
         label_ratio=fraction,
     )
-    basic_results.append(basic_result)
+    base_results.append(base_result)
 
     # Train baseline models
     print("Training Linear Regression...")
@@ -564,16 +564,16 @@ for fraction in data_fractions:
     # Print results
     print(f"Results with {fraction * 100}% of labeled data:")
     print(
+        f"  Interactive Hephaestus MSE: {interactive_result['mse']:.3f}, "
+        f"RMSE: {interactive_result['rmse']:.3f}, MAE: {interactive_result['mae']:.3f}"
+    )
+    print(
         f"  Enhanced Hephaestus MSE: {enhanced_result['mse']:.3f}, "
         f"RMSE: {enhanced_result['rmse']:.3f}, MAE: {enhanced_result['mae']:.3f}"
     )
     print(
-        f"  Standard Hephaestus MSE: {standard_result['mse']:.3f}, "
-        f"RMSE: {standard_result['rmse']:.3f}, MAE: {standard_result['mae']:.3f}"
-    )
-    print(
-        f"  Basic Hephaestus MSE: {basic_result['mse']:.3f}, "
-        f"RMSE: {basic_result['rmse']:.3f}, MAE: {basic_result['mae']:.3f}"
+        f"  Base Hephaestus MSE: {base_result['mse']:.3f}, "
+        f"RMSE: {base_result['rmse']:.3f}, MAE: {base_result['mae']:.3f}"
     )
     print(
         f"  Linear Regression MSE: {lr_result['mse']:.3f}, "
@@ -592,6 +592,17 @@ for fraction in data_fractions:
 results_rows = []
 
 # Add all results
+for result in interactive_results:
+    results_rows.append(
+        {
+            "Model": "Interactive Hephaestus",
+            "Label Ratio": result["label_ratio"],
+            "MSE": result["mse"],
+            "RMSE": result["rmse"],
+            "MAE": result["mae"],
+        }
+    )
+
 for result in enhanced_results:
     results_rows.append(
         {
@@ -603,21 +614,10 @@ for result in enhanced_results:
         }
     )
 
-for result in standard_results:
+for result in base_results:
     results_rows.append(
         {
-            "Model": "Standard Hephaestus",
-            "Label Ratio": result["label_ratio"],
-            "MSE": result["mse"],
-            "RMSE": result["rmse"],
-            "MAE": result["mae"],
-        }
-    )
-
-for result in basic_results:
-    results_rows.append(
-        {
-            "Model": "Basic Hephaestus",
+            "Model": "Base Hephaestus",
             "Label Ratio": result["label_ratio"],
             "MSE": result["mse"],
             "RMSE": result["rmse"],
@@ -682,7 +682,7 @@ mse_chart = (
         tooltip=["Model", "Label Ratio", "MSE", "RMSE", "MAE"],
     )
     .properties(
-        title="Enhanced vs Standard vs Basic Hephaestus: MSE Comparison with Different Data Fractions",
+        title="Interactive vs Enhanced vs Base Hephaestus: MSE Comparison with Different Data Fractions",
         width=700,
         height=400,
     )
@@ -700,28 +700,28 @@ print("=" * 80)
 
 improvement_rows = []
 for fraction in data_fractions:
+    interactive_result = next(r for r in interactive_results if r["label_ratio"] == fraction)
     enhanced_result = next(r for r in enhanced_results if r["label_ratio"] == fraction)
-    standard_result = next(r for r in standard_results if r["label_ratio"] == fraction)
-    basic_result = next(r for r in basic_results if r["label_ratio"] == fraction)
+    base_result = next(r for r in base_results if r["label_ratio"] == fraction)
 
-    # Calculate improvement of enhanced over standard
-    improvement_pct_vs_standard = (
-        (standard_result["mse"] - enhanced_result["mse"]) / standard_result["mse"]
+    # Calculate improvement of interactive over enhanced
+    improvement_pct_vs_enhanced = (
+        (enhanced_result["mse"] - interactive_result["mse"]) / enhanced_result["mse"]
     ) * 100
 
-    # Calculate improvement of enhanced over basic
-    improvement_pct_vs_basic = (
-        (basic_result["mse"] - enhanced_result["mse"]) / basic_result["mse"]
+    # Calculate improvement of interactive over base
+    improvement_pct_vs_base = (
+        (base_result["mse"] - interactive_result["mse"]) / base_result["mse"]
     ) * 100
 
     improvement_rows.append(
         {
             "Label Ratio": fraction,
+            "Interactive MSE": interactive_result["mse"],
             "Enhanced MSE": enhanced_result["mse"],
-            "Standard MSE": standard_result["mse"],
-            "Basic MSE": basic_result["mse"],
-            "Improvement vs Standard (%)": improvement_pct_vs_standard,
-            "Improvement vs Basic (%)": improvement_pct_vs_basic,
+            "Base MSE": base_result["mse"],
+            "Improvement vs Enhanced (%)": improvement_pct_vs_enhanced,
+            "Improvement vs Base (%)": improvement_pct_vs_base,
         }
     )
 
