@@ -148,7 +148,7 @@ class AdaptiveFeatureEngineering:
     
     def __init__(self, model_config: SingleRowConfig):
         self.model_config = model_config
-        self.feature_filter = FeatureImportanceFilter()
+        self.feature_filter = FeatureImportanceFilter(method='rf_importance')
         self.important_pairs = []
         
     def analyze_features(self, train_df, target_col: str, top_pairs: int = 20):

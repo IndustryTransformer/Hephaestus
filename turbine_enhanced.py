@@ -102,7 +102,7 @@ enhanced_model = sr.create_enhanced_model(
     d_model=D_MODEL,
     n_heads=N_HEADS,
     lr=LR,
-    aggressive_interactions=True,  # Use more aggressive interaction settings
+    aggressive_interactions=False,  # Use conservative interactions
 )
 
 print(
@@ -150,25 +150,30 @@ trainer.fit(
 # %% Evaluate enhanced model
 print("Evaluating enhanced model...")
 
-# Get predictions on training data
+# Use trainer.predict() for proper inference
+enhanced_model.eval()
+train_predictions = trainer.predict(enhanced_model, train_dataloader)
+val_predictions = trainer.predict(enhanced_model, val_dataloader)
+
+# Extract predictions and targets
 y_train = []
 y_hat_train = []
+for batch_pred in train_predictions:
+    y_hat_train.append(batch_pred)
+
+y_test = []
+y_hat_test = []
+for batch_pred in val_predictions:
+    y_hat_test.append(batch_pred)
+
+# Get actual targets
 for batch in train_dataloader:
     y_train.append(batch.target)
-    preds = enhanced_model.predict_step(batch)
-    y_hat_train.append(preds)
+for batch in val_dataloader:
+    y_test.append(batch.target)
 
 y_train = torch.cat(y_train, dim=0).squeeze().numpy()
 y_hat_train = torch.cat(y_hat_train, dim=0).squeeze().numpy()
-
-# Get predictions on test data
-y_test = []
-y_hat_test = []
-for batch in val_dataloader:
-    y_test.append(batch.target)
-    preds = enhanced_model.predict_step(batch)
-    y_hat_test.append(preds)
-
 y_test = torch.cat(y_test, dim=0).squeeze().numpy()
 y_hat_test = torch.cat(y_hat_test, dim=0).squeeze().numpy()
 
@@ -217,12 +222,18 @@ baseline_trainer.fit(
 )
 
 # Evaluate baseline model
+baseline_model.eval()
+baseline_predictions = baseline_trainer.predict(baseline_model, val_dataloader)
+
+# Extract predictions and targets
 y_baseline = []
 y_hat_baseline = []
+for batch_pred in baseline_predictions:
+    y_hat_baseline.append(batch_pred)
+
+# Get actual targets
 for batch in val_dataloader:
     y_baseline.append(batch.target)
-    preds = baseline_model.predict_step(batch)
-    y_hat_baseline.append(preds)
 
 y_baseline = torch.cat(y_baseline, dim=0).squeeze().numpy()
 y_hat_baseline = torch.cat(y_hat_baseline, dim=0).squeeze().numpy()
@@ -290,11 +301,13 @@ baseline_mse_unscaled = mean_squared_error(
 )
 baseline_rmse_unscaled = np.sqrt(baseline_mse_unscaled)
 
-# For scikit-learn models (already on original scale)
-mse_linear_unscaled = mse_linear
-rmse_linear_unscaled = rmse_linear
-mse_rf_unscaled = mse_rf
-rmse_rf_unscaled = rmse_rf
+# For scikit-learn models (need to unscale predictions since they work on scaled data)
+y_pred_lr_unscaled = target_scaler.inverse_transform(y_pred_lr.reshape(-1, 1)).flatten()
+y_pred_rf_unscaled = target_scaler.inverse_transform(y_pred_rf.reshape(-1, 1)).flatten()
+mse_linear_unscaled = mean_squared_error(original_test_targets, y_pred_lr_unscaled)
+rmse_linear_unscaled = np.sqrt(mse_linear_unscaled)
+mse_rf_unscaled = mean_squared_error(original_test_targets, y_pred_rf_unscaled)
+rmse_rf_unscaled = np.sqrt(mse_rf_unscaled)
 
 # %% Print comparison results
 print("\n" + "=" * 70)
